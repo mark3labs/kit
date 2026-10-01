@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/models"
@@ -54,6 +55,7 @@ type resolvedConfig struct {
 	imageMaxEdge    int
 	imageMaxBytes   int
 	imageNoResize   bool
+	codeMode        core.CodeModeConfig
 
 	hasCustomSystemPrompt bool
 	systemPromptSource    string
@@ -398,6 +400,13 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 	}
 	rc.toolList = handleCoreToolList(toolList, opts.DisableCoreTools || v.GetBool("no-core-tools"))
 
+	codeModeEnabled, codeModeCfg, err := resolveCodeMode(opts, v)
+	if err != nil {
+		return err
+	}
+	rc.codeMode = codeModeCfg
+	rc.toolList = withCodeModeTool(rc.toolList, codeModeEnabled)
+
 	rc.maxSteps = v.GetInt("max-steps")
 	rc.streaming = v.GetBool("stream")
 	// Each of the two timeouts has a shell-named form and the bash-named
@@ -477,6 +486,8 @@ func withSkillTool(extraTools []Tool, loadedSkills []*Skill, liveKit func() *Kit
 // doesn't need to re-read the store, and pulls CLI-specific fields when
 // available.
 func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, mcpConfig *config.Config, extraTools []Tool, hooks hookSet) kitsetup.AgentSetupOptions {
+	// The code mode settings go first so explicit CoreToolOptions win.
+	coreToolOpts := append([]ToolOption{core.WithCodeMode(rc.codeMode)}, opts.CoreToolOptions...)
 	setupOpts := kitsetup.AgentSetupOptions{
 		MCPConfig:               mcpConfig,
 		Quiet:                   opts.Quiet,
@@ -491,7 +502,7 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		ImageNoResize:           rc.imageNoResize,
 		Shell:                   rc.shell,
 		WorkDir:                 opts.WorkDir,
-		CoreToolOptions:         opts.CoreToolOptions,
+		CoreToolOptions:         coreToolOpts,
 		ToolWrapper:             hookToolWrapper(hooks.beforeToolCall, hooks.afterToolResult),
 		ProviderConfig:          rc.providerConfig,
 		Debug:                   rc.debug,

@@ -26,6 +26,7 @@ Always talk in ASD-STE100 Simplified Technical English
 - **TUI** (`internal/ui/`): Bubble Tea v2 parent-child model (`AppModel` → `InputComponent`, `StreamComponent`, etc.)
 - **Decoupling pattern**: `cmd/root.go` has converter functions (e.g. `widgetProviderForUI()`) that bridge `internal/extensions/` types to `internal/ui/` types — the UI never imports extensions directly
 - **Public SDK** (`pkg/kit/`): The public-facing Go SDK for embedding Kit as a library. See rules below.
+- **Code mode** (`internal/codemode/` engine, `internal/core/codemode.go` tool): opt-in `codemode` core tool runs model-written JavaScript in goja. It implements `core.ToolSetObserver`: `Agent.composeModelTools()` hands it the full wrapped tool set each step (so nested calls pass through extension/SDK hooks) and drops tools whose exposure hides them from the model. Never use Yaegi for model-written code (see gotchas below).
 
 ## Public SDK (`pkg/kit/`) Rules
 

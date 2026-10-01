@@ -91,6 +91,7 @@ func formatToolParams(toolArgs string, maxWidth int) string {
 		"content": true,
 		"edits":   true,
 		"todos":   true,
+		"code":    true, // code mode script, rendered in the body
 	}
 	var remaining []string
 	for key, val := range params {

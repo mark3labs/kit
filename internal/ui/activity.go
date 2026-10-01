@@ -71,6 +71,8 @@ func activityVerb(toolName, toolArgs string) string {
 		verb, target = "Delegating", shortenTarget(oneLine(argString(args, "task")))
 	case "todo":
 		return "Updating todos"
+	case "codemode":
+		return "Running script"
 	default:
 		// Unknown tool: title-case the name and attach the first string
 		// argument if one is available, so third-party tools still read as

@@ -84,7 +84,8 @@ var WithBashMaxTimeout = core.WithShellMaxTimeout
 // processes a list of tool names, if disableCoreTools is true, return an
 // empty list. Otherwise if coreTools is not empty, it will return a list of
 // all valid names ie those found in ListAllCoreToolNames(),
-// otherwise, it will return all of ListAllCoreToolNames().
+// otherwise, it will return DefaultCoreToolNames() (every core tool except
+// opt-in tools such as code mode).
 func handleCoreToolList(coreTools []string, disableCoreTools bool) []string {
 	var result []string
 	if disableCoreTools {
@@ -95,19 +96,19 @@ func handleCoreToolList(coreTools []string, disableCoreTools bool) []string {
 	// that every path into this function accepts both names.
 	coreTools = normalizeCoreToolNames(coreTools)
 	allTools := ListAllCoreToolNames()
-	if len(coreTools) > 0 {
-		for _, tool := range allTools {
-			for _, t := range coreTools {
-				if t == tool {
-					result = append(result, t)
-					continue
-				}
+	if len(coreTools) == 0 {
+		// Nothing named: every core tool except the opt-in ones.
+		return core.DefaultCoreToolNames()
+	}
+	for _, tool := range allTools {
+		for _, t := range coreTools {
+			if t == tool {
+				result = append(result, t)
+				continue
 			}
 		}
-		return result
-	} else {
-		return allTools
 	}
+	return result
 }
 
 // --- Custom tool creation ---
@@ -472,6 +473,10 @@ func NewLsTool(opts ...ToolOption) Tool { return core.NewLsTool(opts...) }
 // --- Tool bundles ---
 func ListAllCoreToolNames() []string { return core.ListAllCoreToolNames() }
 
+// DefaultCoreToolNames returns the core tools enabled when none are named:
+// every core tool except opt-in tools such as code mode.
+func DefaultCoreToolNames() []string { return core.DefaultCoreToolNames() }
+
 // AllTools returns all available core tools.
 func AllTools(opts ...ToolOption) []Tool { return core.AllTools(opts...) }
 
@@ -522,7 +527,9 @@ func FilterCoreToolNames(includeTools, excludeTools []string) ([]string, error) 
 					continue
 				}
 			}
-			for _, t := range allCoreTools {
+			// Excluding tools starts from the default set, so it never
+			// turns on an opt-in tool such as code mode.
+			for _, t := range core.DefaultCoreToolNames() {
 				if !slices.Contains(excludeTools, t) {
 					coreToolList = append(coreToolList, t)
 				}

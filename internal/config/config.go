@@ -320,6 +320,10 @@ type Config struct {
 	// ship bash.
 	Shell []string `json:"shell,omitempty" yaml:"shell,omitempty"`
 
+	// CodeMode configures the code mode tool, which runs model-written
+	// JavaScript that calls the other tools. Off unless Enabled is true.
+	CodeMode *CodeModeConfig `json:"codemode,omitempty" yaml:"codemode,omitempty"`
+
 	// Image budget for the read tool. ImageMaxEdge caps the width and height
 	// in pixels (built-in default 1568). ImageMaxBytes caps the encoded
 	// payload in bytes (built-in default 3500000). An image above either
@@ -565,6 +569,22 @@ mcpServers:
                                            # include-/exclude-core-tools are mutually exclusive
                                            # no-core-tools has precedence
 
+# Code mode: one "codemode" tool that runs a JavaScript program which calls
+# the other tools, so intermediate results do not fill the context
+# codemode:
+#   enabled: false                         # or --codemode, or include "codemode" in include-core-tools
+#   timeout: 30                            # seconds per script
+#   max-tool-calls: 50                     # tool calls per script
+#   max-output-bytes: 100000               # result size the model receives (rest goes to a temp file)
+#   max-concurrency: 8                     # parallel tool calls per script
+#   memory-limit-mb: 256                   # approximate heap growth limit; -1 disables
+#   catalog-budget: 12000                  # bytes of tool list in the tool description
+#   mcp-exposure: direct                   # default for MCP tools: direct | codemode | deferred | model-only
+#   exposure:                              # per-tool glob rules (most specific wins)
+#     "github__*": codemode                # scripts only; full signature in the catalog
+#     "linear__*": deferred                # scripts only; found with searchTools()
+#     subagent: model-only                 # model only; scripts cannot call it
+
 # Shell tool
 # shell: "bash"                            # shell the shell tool runs commands through
                                            # plus its own leading arguments: "busybox ash"
@@ -678,4 +698,18 @@ func GetConfigPath() string {
 	configPathMu.RLock()
 	defer configPathMu.RUnlock()
 	return configPath
+}
+
+// CodeModeConfig is the "codemode" configuration section. Zero values use
+// the built-in defaults.
+type CodeModeConfig struct {
+	Enabled        bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Timeout        int               `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds
+	MaxToolCalls   int               `json:"max-tool-calls,omitempty" yaml:"max-tool-calls,omitempty"`
+	MaxOutputBytes int               `json:"max-output-bytes,omitempty" yaml:"max-output-bytes,omitempty"`
+	MaxConcurrency int               `json:"max-concurrency,omitempty" yaml:"max-concurrency,omitempty"`
+	MemoryLimitMB  int               `json:"memory-limit-mb,omitempty" yaml:"memory-limit-mb,omitempty"`
+	CatalogBudget  int               `json:"catalog-budget,omitempty" yaml:"catalog-budget,omitempty"`
+	MCPExposure    string            `json:"mcp-exposure,omitempty" yaml:"mcp-exposure,omitempty"`
+	Exposure       map[string]string `json:"exposure,omitempty" yaml:"exposure,omitempty"`
 }
