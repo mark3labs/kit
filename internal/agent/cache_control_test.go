@@ -35,7 +35,7 @@ func conversation(withSystem bool, n int) []fantasy.Message {
 	if withSystem {
 		msgs = append(msgs, fantasy.NewSystemMessage("system"))
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i%2 == 0 {
 			msgs = append(msgs, fantasy.NewUserMessage("user"))
 			continue
