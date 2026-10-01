@@ -21,6 +21,7 @@ This is the documentation for **Kit**. It is a static documentation site with fu
 
 ### Pages
 
+- **[Code Mode](https://go-kit.dev/advanced/code-mode)** — Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.
 - **[JSON Output](https://go-kit.dev/advanced/json-output)** — Machine-readable JSON output for scripting and automation.
 - **[Remote Sessions](https://go-kit.dev/advanced/remote-sessions)** — Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.
 - **[Subagents](https://go-kit.dev/advanced/subagents)** — Multi-agent orchestration with Kit subagents.

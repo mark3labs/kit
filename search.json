@@ -2,9 +2,28 @@
   "version": 1,
   "generator": "tome",
   "site": "Kit",
-  "totalPages": 23,
+  "totalPages": 24,
   "searchEndpoint": "/pagefind/pagefind.js",
   "pages": [
+    {
+      "id": "advanced/code-mode",
+      "url": "https://go-kit.dev/advanced/code-mode",
+      "title": "Code Mode",
+      "description": "Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.",
+      "headings": [
+        "Enable it",
+        "What a script looks like",
+        "Rules for scripts",
+        "Helpers",
+        "Hooks and extensions see every call",
+        "Exposure: hide tools from the model",
+        "Limits",
+        "In the TUI",
+        "SDK"
+      ],
+      "tags": [],
+      "wordCount": 1031
+    },
     {
       "id": "advanced/json-output",
       "url": "https://go-kit.dev/advanced/json-output",
@@ -135,7 +154,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1424
+      "wordCount": 1445
     },
     {
       "id": "configuration",

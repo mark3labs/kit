@@ -89,6 +89,7 @@ self-defeating.
 | `--no-core-tools` | — | `false` | Disable all built-in core tools |
 | `--include-core-tools` | — | — | Comma-separated list of core tools to include (mutually exclusive with `--exclude-core-tools`) |
 | `--exclude-core-tools` | — | — | Comma-separated list of core tools to exclude (mutually exclusive with `--include-core-tools`) |
+| `--codemode` | — | `false` | Enable [code mode](/advanced/code-mode): the model can run JavaScript that calls the other tools |
 | `--mcp` | — | — | Add an MCP server for this run (repeatable). `name=command args...` starts a local stdio server; `name=https://... [-H "Key: Value"]` connects to a remote server |
 
 ### One-off MCP servers
