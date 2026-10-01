@@ -49,6 +49,9 @@ type ToolConfig struct {
 	// CommandRunner runs the shell tool's commands. Nil runs them as local
 	// child processes. See WithCommandRunner.
 	CommandRunner CommandRunner
+	// CodeMode configures the code mode tool. Nil uses the defaults. Only
+	// the code mode tool consumes this.
+	CodeMode *CodeModeConfig
 }
 
 // WithImageLimits bounds the images the read tool attaches to a message. A
@@ -178,12 +181,39 @@ var coreTools = map[string]initTool{
 	"find":        NewFindTool,
 	"ls":          NewLsTool,
 	"subagent":    NewSubagentTool,
+
+	CodeModeToolName: NewCodeModeTool,
+}
+
+// optInCoreTools are core tools that are valid names but are not part of
+// the default "all core tools" set. A user enables them by name.
+var optInCoreTools = map[string]bool{
+	CodeModeToolName: true,
 }
 
 // ListAllCoreToolNames always returns the full list of available core
-// tools. It can be used to validate a user provided tool list.
+// tools, including opt-in tools. It can be used to validate a user provided
+// tool list.
 func ListAllCoreToolNames() []string {
-	return slices.Collect(maps.Keys(coreTools))
+	return slices.Sorted(maps.Keys(coreTools))
+}
+
+// DefaultCoreToolNames returns the core tools enabled when the user names
+// none: every core tool except the opt-in ones (code mode).
+func DefaultCoreToolNames() []string {
+	var out []string
+	for _, n := range ListAllCoreToolNames() {
+		if !optInCoreTools[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// IsOptInCoreTool reports whether name is a core tool that is off unless
+// named explicitly.
+func IsOptInCoreTool(name string) bool {
+	return optInCoreTools[NormalizeCoreToolName(name)]
 }
 
 // CodingTools returns the default set of core tools for a coding agent:

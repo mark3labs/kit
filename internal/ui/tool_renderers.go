@@ -13,6 +13,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/indaco/herald"
 
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -203,6 +204,10 @@ func renderToolBodyLimited(toolName, toolArgs, toolResult string, width int, lim
 		}
 	case toolName == "subagent":
 		if body := renderSubagentBody(toolResult, width, lim.agent); body != "" {
+			return body
+		}
+	case toolName == core.CodeModeToolName:
+		if body := renderCodeModeBody(toolArgs, toolResult, width, lim); body != "" {
 			return body
 		}
 	}
@@ -924,6 +929,69 @@ func renderWriteBlock(content, fileName string, width, maxLines int) string {
 	result = append(result, toolIndent()+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footerContent))
 
 	return strings.Join(result, "\n")
+}
+
+// ---------------------------------------------------------------------------
+// Code mode tool — script source plus result
+// ---------------------------------------------------------------------------
+
+// renderCodeModeBody renders the script with line numbers and JavaScript
+// highlighting, then the result text in the shared output panel. The script
+// is capped at the code line limit, the result at the shell output limit.
+func renderCodeModeBody(toolArgs, toolResult string, width int, lim toolLineLimits) string {
+	var args struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(args.Code) == "" {
+		return ""
+	}
+	// Skip leading blank lines but keep the line numbers true to the
+	// submitted code, because error messages refer to them.
+	lines := strings.Split(strings.TrimRight(args.Code, "\n \t"), "\n")
+	first := 0
+	for first < len(lines) && strings.TrimSpace(lines[first]) == "" {
+		first++
+	}
+	lines = lines[first:]
+	total := first + len(lines)
+	hidden := 0
+	if len(lines) > lim.code {
+		hidden = len(lines) - lim.code
+		lines = lines[:lim.code]
+	}
+	highlighted := strings.Split(syntaxHighlight(strings.Join(lines, "\n"), "script.js"), "\n")
+
+	theme := GetTheme()
+	numDigits := max(len(fmt.Sprintf("%d", total)), 2)
+	gutterWidth := numDigits + 2
+	codeWidth := max(width-gutterWidth-style.ContentOffset, style.MinContentWidth)
+	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
+	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+
+	var out []string
+	for i, line := range lines {
+		part := line
+		if i < len(highlighted) {
+			part = highlighted[i]
+		}
+		gutter := gutterStyle.Width(gutterWidth).Render(fmt.Sprintf("%*d", numDigits, first+i+1))
+		body := codeStyle.Width(codeWidth).Render(truncateLine(part, codeWidth-1))
+		out = append(out, toolIndent()+lipgloss.JoinHorizontal(lipgloss.Top, gutter, body))
+	}
+	if hidden > 0 {
+		gutter := gutterStyle.Width(gutterWidth).Render("")
+		note := codeStyle.Width(codeWidth).Foreground(theme.Muted).Italic(true).
+			Render(fmt.Sprintf("...(%d more lines, %d total)", hidden, total))
+		out = append(out, toolIndent()+lipgloss.JoinHorizontal(lipgloss.Top, gutter, note))
+	}
+
+	if strings.TrimSpace(toolResult) != "" {
+		out = append(out, "", renderBashBody("", toolResult, width, lim.bash))
+	}
+	return strings.Join(out, "\n")
 }
 
 // ---------------------------------------------------------------------------

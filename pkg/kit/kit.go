@@ -1375,6 +1375,13 @@ type Options struct {
 	// value, then the built-in default (resize).
 	ImageNoResize bool
 
+	// CodeMode configures code mode: one tool that runs a JavaScript
+	// program which calls the other tools and returns a small result. Code
+	// mode is off unless CodeMode.Enabled is set, the "codemode.enabled"
+	// config value is true, or CoreToolList names "codemode". Zero fields
+	// fall back to the "codemode" config section.
+	CodeMode *CodeModeOptions
+
 	// BashTimeout is the name ShellTimeout had before the tool's shell became
 	// configurable.
 	//
@@ -2291,7 +2298,9 @@ func (m *Kit) subagentDefaultTools() []Tool {
 	if len(m.customTools) > 0 {
 		tools := make([]Tool, 0, len(m.customTools))
 		for _, t := range m.customTools {
-			if t.Info().Name != "subagent" {
+			// A subagent never gets the parent's code mode tool: that
+			// instance tracks the parent's tool set.
+			if name := t.Info().Name; name != "subagent" && name != CodeModeToolName {
 				tools = append(tools, t)
 			}
 		}

@@ -2,6 +2,7 @@ package kit
 
 import (
 	"sync"
+	"time"
 
 	"github.com/mark3labs/kit/internal/extensions"
 )
@@ -310,6 +311,32 @@ type ToolResultEvent struct {
 type ToolResultMetadata struct {
 	FileDiffs         []FileDiffInfo `json:"file_diffs,omitempty"`          // Present for edit/write tools
 	SubagentSessionID string         `json:"subagent_session_id,omitempty"` // Present for subagent tool
+	CodeMode          *CodeModeRun   `json:"codemode,omitempty"`            // Present for the code mode tool
+}
+
+// CodeModeRun describes one code mode script run.
+type CodeModeRun struct {
+	OK bool `json:"ok"`
+	// ErrorKind classifies a failed run, e.g. "ToolFailure",
+	// "TimeoutExceeded", "ParseError". Empty on success.
+	ErrorKind string        `json:"error_kind,omitempty"`
+	WallTime  time.Duration `json:"wall_time_ns"`
+	// Calls lists the nested tool calls the script made, in start order.
+	Calls []CodeModeCall `json:"calls,omitempty"`
+	// FullOutputPath names the temporary file that holds the full output
+	// when the result the model received was truncated.
+	FullOutputPath string `json:"full_output_path,omitempty"`
+}
+
+// CodeModeCall describes one tool call made by a code mode script.
+type CodeModeCall struct {
+	ID       string        `json:"id"`
+	Name     string        `json:"name"` // Full tool name, e.g. "github__list_issues"
+	Path     string        `json:"path"` // Script path, e.g. "github.list_issues"
+	Args     string        `json:"args,omitempty"`
+	Status   string        `json:"status"` // "ok", "error" or "cancelled"
+	Duration time.Duration `json:"duration_ns"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // FileDiffInfo describes a file modification from an edit or write tool.

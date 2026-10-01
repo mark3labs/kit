@@ -70,6 +70,7 @@ var (
 	// Extensions control
 	noExtensionsFlag     bool
 	noCoreToolsFlag      bool
+	codeModeFlag         bool
 	includeCoreToolsFlag []string
 	excludeCoreToolsFlag []string
 	extensionPaths       []string
@@ -255,7 +256,7 @@ var globalBoolFlags = []string{
 	"bare", "debug", "quiet", "json", "no-exit", "no-session",
 	"continue", "resume", "auto-compact", "compact", "stream",
 	"no-extensions", "no-prompt-templates", "no-skills", "no-agents",
-	"no-core-tools", "tls-skip-verify", "pick-dir", "version",
+	"no-core-tools", "codemode", "tls-skip-verify", "pick-dir", "version",
 	"daemon-session", "no-daemon",
 	"c", "r", // -c (continue), -r (resume)
 }
@@ -409,6 +410,8 @@ func init() {
 		StringSliceVar(&includeCoreToolsFlag, "include-core-tools", nil, "comma-separated list of core tools to include")
 	rootCmd.PersistentFlags().
 		StringSliceVar(&excludeCoreToolsFlag, "exclude-core-tools", nil, "comma-separated list of core tools to exclude")
+	rootCmd.PersistentFlags().
+		BoolVar(&codeModeFlag, "codemode", false, "enable code mode: the model can run JavaScript that calls the other tools")
 	// The shell tool runs one command string through this shell. The value is
 	// the shell plus its own leading arguments. Empty leaves the built-in
 	// default, which is bash.
@@ -494,6 +497,7 @@ func init() {
 	_ = viper.BindPFlag("no-core-tools", rootCmd.PersistentFlags().Lookup("no-core-tools"))
 	_ = viper.BindPFlag("include-core-tools", rootCmd.PersistentFlags().Lookup("include-core-tools"))
 	_ = viper.BindPFlag("exclude-core-tools", rootCmd.PersistentFlags().Lookup("exclude-core-tools"))
+	_ = viper.BindPFlag("codemode.enabled", rootCmd.PersistentFlags().Lookup("codemode"))
 	_ = viper.BindPFlag("shell", rootCmd.PersistentFlags().Lookup("shell"))
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))

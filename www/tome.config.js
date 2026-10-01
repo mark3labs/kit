@@ -50,6 +50,7 @@ export default {
       pages: [
           "advanced/remote-sessions",
           "advanced/subagents",
+          "advanced/code-mode",
           "advanced/json-output",
           "advanced/testing",
         ],

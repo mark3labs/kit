@@ -1,0 +1,185 @@
+---
+title: Code Mode
+description: Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.
+---
+
+# Code Mode
+
+In code mode the model gets one more tool, `codemode`. Its input is a
+JavaScript program. The program calls Kit's other tools, combines and filters
+their results, and returns a small answer. **Only the program's output goes
+back to the model** — the results of the tool calls inside the program do not.
+
+Use it to:
+
+- chain dependent calls without a round trip to the model for each one,
+- run independent calls in parallel,
+- loop over many items (files, issues, records),
+- read large outputs and keep only the facts you need.
+
+Code mode is off by default.
+
+## Enable it
+
+```bash
+kit --codemode
+```
+
+Or in `.kit.yml`:
+
+```yaml
+codemode:
+  enabled: true
+```
+
+Naming it in `include-core-tools` also enables it. `--codemode` works together
+with `--no-core-tools`: the model then reaches MCP tools only through scripts.
+
+## What a script looks like
+
+```js
+const files = (await tools.ls({})).split("\n").filter(f => f.endsWith(".go"))
+const contents = await Promise.all(files.map(f => tools.read({ path: f })))
+return files.map((file, i) => ({ file, todo: (contents[i].match(/TODO: (.*)/) || [])[1] }))
+```
+
+The model receives:
+
+```
+Script completed in 1ms.
+Tool calls: 7 — ls ×1, read ×6
+
+Output:
+[ { "file": "f1.go", "todo": "item 1" }, ... ]
+```
+
+### Rules for scripts
+
+- The code runs inside an `async` function. Use `await`, and use `return` to
+  send the result. Strings go back as-is; other values go back as JSON.
+- Built-in tools are `tools.<name>(args)`. MCP tools are grouped by server:
+  the tool `github__list_issues` is `tools.github.list_issues(args)`.
+- Each call takes one object argument and resolves to the tool's text output.
+  Use `JSON.parse` when a tool returns JSON.
+- A failed call throws an `Error` whose `name` is `"ToolError"`, with the
+  properties `tool` and `output`. Catch it with `try`/`catch`, or use
+  `Promise.allSettled`.
+- The sandbox has no filesystem, network, process, timer or module access.
+  The only way out is through tools.
+
+### Helpers
+
+| Helper | Purpose |
+|--------|---------|
+| `text(value)` | Add to the output |
+| `console.log/info/warn/error(...)` | Add log lines (shown to the model and streamed to the TUI) |
+| `call(name, args)` | Call a tool by its full name, e.g. `call("github__list_issues", {...})` |
+| `searchTools(query, {limit, namespace})` | Find tools by keyword |
+| `describeTool(name)` | Show a tool's full signature and input schema |
+| `ALL_TOOLS` | Every tool a script can call |
+| `store(key, value)` / `load(key)` | Keep JSON values across scripts for the life of the Kit instance. `store(key, undefined)` deletes |
+| `sleep(ms)` | Wait |
+
+## Hooks and extensions see every call
+
+Calls made inside a script go through the same tool wrappers as direct calls.
+Extension `OnToolCall` / `OnToolResult` handlers and SDK
+`OnBeforeToolCall` / `OnAfterToolResult` hooks fire for each one, so a hook
+that blocks a tool blocks it inside scripts too. The `codemode` tool itself
+cannot be called from a script.
+
+## Exposure: hide tools from the model
+
+By default the model still sees every tool directly, and scripts can call
+them too. Large MCP servers can cost thousands of tokens of tool schemas on
+every request. Exposure rules move tools out of the model's tool list and into
+the code mode catalog:
+
+| Exposure | Model sees it as a tool | Scripts can call it | Listed in the code mode catalog |
+|----------|:-:|:-:|:-:|
+| `direct` (default) | yes | yes | short form |
+| `codemode` | no | yes | full signature |
+| `deferred` | no | yes | no — found with `searchTools()` |
+| `model-only` | yes | no | no |
+
+```yaml
+codemode:
+  enabled: true
+  mcp-exposure: codemode       # default for every MCP tool
+  exposure:                    # glob rules; the most specific pattern wins
+    "github__*": codemode
+    "github__create_issue": direct
+    "linear__*": deferred
+    subagent: model-only
+```
+
+Exact names win over globs, and longer patterns win over shorter ones.
+Matching ignores case.
+
+The catalog in the tool description is limited by `catalog-budget`. Namespaces
+share the budget round-robin, so one big server cannot crowd out the others.
+Tools left out are still callable; the description tells the model to use
+`searchTools()`.
+
+## Limits
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `timeout` | `30` | Seconds per script |
+| `max-tool-calls` | `50` | Tool calls per script |
+| `max-concurrency` | `8` | Parallel tool calls per script |
+| `max-output-bytes` | `100000` | Result size the model receives. The full output goes to a temporary file, and the result gives its path |
+| `memory-limit-mb` | `256` | Approximate heap growth limit; `-1` disables it |
+| `catalog-budget` | `12000` | Bytes of tool list in the tool description |
+
+A script that passes a limit stops with a typed error the model can act on:
+`TimeoutExceeded`, `ToolCallLimitExceeded`, `MemoryLimitExceeded`. Other
+kinds are `ParseError`, `UnknownTool` (with suggestions), `InvalidToolInput`
+(a required argument is missing), `ToolFailure`, `ExecutionFailure`,
+`UnsettledPromise` and `Cancelled`. Errors carry the line and column in the
+submitted code.
+
+Pressing <kbd>Esc</kbd> stops a running script at once and cancels its tool
+calls in flight.
+
+::: info
+The JavaScript engine has no per-script heap limit. The memory limit is a
+watchdog on process heap growth while the script runs. It stops runaway
+scripts; it is not a precise byte budget.
+:::
+
+## In the TUI
+
+While a script runs, the transcript streams its call log:
+
+```
+· Running script
+   ▸ ls
+   ✓ ls (45µs)
+   ▸ read {"path":"f1.go"}
+   ✓ read (210µs)
+```
+
+When it finishes, the block shows the script with line numbers and syntax
+highlighting, followed by the result.
+
+## SDK
+
+```go
+host, err := kit.New(ctx, &kit.Options{
+    CodeMode: &kit.CodeModeOptions{
+        Enabled:     true,
+        MCPExposure: kit.CodeModeExposureScriptOnly,
+        Exposure:    map[string]string{"subagent": kit.CodeModeExposureModelOnly},
+        Timeout:     time.Minute,
+    },
+})
+```
+
+Zero fields fall back to the `codemode` config section. To use code mode with
+a custom tool set, add `kit.NewCodeModeTool(opts)` to `Options.Tools` or
+`Options.ExtraTools`; Kit gives it the live tool set.
+
+Each code mode `ToolResultEvent` carries `Metadata.CodeMode`, with the nested
+calls (name, arguments, status, duration, error), the wall time, the error
+kind, and the path of the full output file when the result was truncated.

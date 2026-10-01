@@ -531,6 +531,13 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		mcpTaskConfig:       agentConfig.MCPTaskConfig,
 	}
 
+	// A tool set observer (code mode) needs the composed tool set, which
+	// only exists once the Agent does, and may hide tools from the model.
+	// Rebuild so the first request already reflects both.
+	if len(a.toolSetObservers()) > 0 {
+		a.rebuildFantasyAgent()
+	}
+
 	// Start MCP tool loading in the background if servers are configured.
 	// The mcpReady channel is closed when loading completes (success or failure).
 	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
@@ -615,7 +622,7 @@ func (a *Agent) ensureMCPTools() {
 // tool set (core + MCP + extension tools). Used after MCP tools arrive
 // asynchronously and by SetModel.
 func (a *Agent) rebuildFantasyAgent() {
-	allTools := a.composeAllTools()
+	allTools := a.composeModelTools()
 
 	providerResult := &models.ProviderResult{
 		Model:               a.model,
@@ -661,6 +668,53 @@ func (a *Agent) composeAllTools() []fantasy.AgentTool {
 	// this guard the LLM request carries duplicate tool names and providers
 	// like Anthropic reject the turn ("every tool name must be unique").
 	return dedupeToolsByName(allTools)
+}
+
+// toolSetObservers returns the raw (unwrapped) core and extra tools that
+// want the live tool set — today only the code mode tool.
+func (a *Agent) toolSetObservers() []core.ToolSetObserver {
+	a.toolsMu.RLock()
+	defer a.toolsMu.RUnlock()
+	var out []core.ToolSetObserver
+	for _, list := range [][]fantasy.AgentTool{a.coreTools, a.extraTools} {
+		for _, t := range list {
+			if o, ok := t.(core.ToolSetObserver); ok {
+				out = append(out, o)
+			}
+		}
+	}
+	return out
+}
+
+// composeModelTools returns the tools sent to the model. It hands the full
+// composed tool set to every ToolSetObserver (so the code mode tool can
+// call any tool, through the same wrappers the agent loop uses) and then
+// drops the tools an observer hides from the model. Without observers it
+// equals composeAllTools.
+func (a *Agent) composeModelTools() []fantasy.AgentTool {
+	all := a.composeAllTools()
+	observers := a.toolSetObservers()
+	if len(observers) == 0 {
+		return all
+	}
+	for _, o := range observers {
+		o.ObserveToolSet(all)
+	}
+	visible := make([]fantasy.AgentTool, 0, len(all))
+	for _, t := range all {
+		name := t.Info().Name
+		show := true
+		for _, o := range observers {
+			if !o.ModelVisible(name) {
+				show = false
+				break
+			}
+		}
+		if show {
+			visible = append(visible, t)
+		}
+	}
+	return visible
 }
 
 // dedupeToolsByName returns tools with duplicate names removed, preserving the
@@ -1136,10 +1190,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			Model:    opts.Model,
 			Messages: withSteerInjections(opts.Messages, injectedSteer),
 			// Re-read the live tool set so mid-turn tool changes are
-			// honored. composeAllTools matches the composition baked
+			// honored. composeModelTools matches the composition baked
 			// into the fantasy agent, so in the steady state this is
 			// identical to the snapshot fantasy would have used.
-			Tools: a.composeAllTools(),
+			Tools: a.composeModelTools(),
 		}
 
 		// Phase 1: Drain steering channel (if present).

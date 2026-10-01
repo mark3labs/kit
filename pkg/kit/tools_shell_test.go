@@ -103,8 +103,13 @@ func TestFilterCoreToolNames_AcceptsTheEarlierName(t *testing.T) {
 	if slices.Contains(got, "shell") {
 		t.Errorf("exclude [bash] still contains the shell tool: %#v", got)
 	}
-	if len(got) != len(ListAllCoreToolNames())-1 {
-		t.Errorf("exclude [bash] produced %d tools, want %d", len(got), len(ListAllCoreToolNames())-1)
+	// Exclusion starts from the default set, so opt-in tools (code mode)
+	// stay off.
+	if len(got) != len(DefaultCoreToolNames())-1 {
+		t.Errorf("exclude [bash] produced %d tools, want %d", len(got), len(DefaultCoreToolNames())-1)
+	}
+	if slices.Contains(got, CodeModeToolName) {
+		t.Errorf("exclude [bash] turned on code mode: %#v", got)
 	}
 }
 

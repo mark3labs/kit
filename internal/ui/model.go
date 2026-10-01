@@ -2746,6 +2746,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamingBashCommand = args.Command
 			}
 		}
+		// Code mode streams its nested call log through the same item;
+		// give it a header so the log is not anonymous.
+		if msg.ToolName == core.CodeModeToolName {
+			m.streamingBashCommand = "Running script"
+		}
 
 	case app.ToolExecutionEvent:
 		// Pass to stream component for execution spinner display.
