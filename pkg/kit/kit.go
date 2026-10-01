@@ -952,13 +952,20 @@ func (m *Kit) composeSystemPrompt(basePrompt string) string {
 }
 
 // environmentSection renders the trailing system-prompt block describing the
-// runtime environment: the current time and working directory, plus a notice
+// runtime environment: the current date and working directory, plus a notice
 // when bare mode suppressed project context. Both Kit.New and
 // composeSystemPrompt use it so the two paths cannot drift.
+//
+// The time of day is deliberately omitted. This block is part of the system
+// prompt, which forms the cached prefix of every Anthropic request. A
+// per-second value would invalidate that cache whenever the prompt is
+// recomposed, so only the date is included. The date is stable for the life of
+// a session (the prompt is composed at construction and on skill/context-file
+// changes, not per turn).
 func environmentSection(cwd string, bare bool) string {
 	s := fmt.Sprintf(
-		"Current date and time: %s\nCurrent working directory: %s",
-		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+		"Current date: %s\nCurrent working directory: %s",
+		time.Now().Format("Monday, January 2, 2006"), cwd,
 	)
 	// The working directory is still reported in bare mode because the file
 	// tools resolve relative paths against it. The notice stops the model

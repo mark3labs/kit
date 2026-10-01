@@ -352,6 +352,12 @@ type Agent struct {
 	skipMaxOutputTokens bool
 	modelConfig         *models.ProviderConfig
 
+	// anthropicCaching is true when the active provider uses Anthropic-style
+	// message-level cache_control (ProviderResult.MessageCacheControl). It is
+	// combined with the caching opt-outs by messageCachingEnabled before any
+	// cache block is added. See cache_control.go.
+	anthropicCaching bool
+
 	// providerErr is non-nil when the agent was created without a working
 	// provider (AllowMissingCredentials) and holds the creation error. It is
 	// cleared by a successful SetModel.
@@ -495,6 +501,13 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		allTools = agentConfig.ToolWrapper(allTools)
 	}
 
+	// Add a cache breakpoint on the last tool definition for Anthropic models.
+	// composeAllTools does the same for runtime rebuilds; this covers the
+	// initial build, which runs before the Agent exists.
+	if providerResult.MessageCacheControl && !cachingDisabled(agentConfig.ModelConfig) {
+		allTools = applyCacheControlToTools(allTools)
+	}
+
 	// Build agent options
 	agentOpts := buildAgentOptions(agentConfig, providerResult, allTools)
 
@@ -525,6 +538,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		providerOptions:     providerResult.ProviderOptions,
 		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
 		modelConfig:         agentConfig.ModelConfig,
+		anthropicCaching:    providerResult.MessageCacheControl,
 		providerErr:         providerErr,
 		authHandler:         agentConfig.AuthHandler,
 		tokenStoreFactory:   agentConfig.TokenStoreFactory,
@@ -667,7 +681,14 @@ func (a *Agent) composeAllTools() []fantasy.AgentTool {
 	// MCPConfig, causing the child to re-load the same MCP servers. Without
 	// this guard the LLM request carries duplicate tool names and providers
 	// like Anthropic reject the turn ("every tool name must be unique").
-	return dedupeToolsByName(allTools)
+	tools := dedupeToolsByName(allTools)
+
+	// Add a cache breakpoint on the last tool definition for Anthropic models.
+	// It is reserved from the message-level four-block budget.
+	if a.messageCachingEnabled() {
+		tools = applyCacheControlToTools(tools)
+	}
+	return tools
 }
 
 // toolSetObservers returns the raw (unwrapped) core and extra tools that
@@ -824,9 +845,13 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 		}
 	}
 
-	// Apply message-level cache control for Anthropic models.
-	// This avoids type conflicts with provider-level options.
-	history = applyCacheControlToMessages(history)
+	// Apply message-level cache control for Anthropic models. The tool list
+	// already carries a breakpoint (see composeAllTools), so reserve it from
+	// the four-block budget. This avoids type conflicts with provider-level
+	// options.
+	if a.messageCachingEnabled() {
+		history = applyCacheControlToMessages(history, toolCacheBlocks)
+	}
 
 	// Use the streaming path when streaming is enabled OR when any
 	// streaming-only callbacks are provided. The agent only exposes tool/step
@@ -1262,8 +1287,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 		}
 
-		// Apply message-level cache control for Anthropic models.
-		result.Messages = applyCacheControlToMessages(result.Messages)
+		// Apply message-level cache control for Anthropic models. The tool
+		// list already carries a breakpoint, so reserve it from the budget.
+		if a.messageCachingEnabled() {
+			result.Messages = applyCacheControlToMessages(result.Messages, toolCacheBlocks)
+		}
 
 		return stepCtx, result, nil
 	}
@@ -1305,7 +1333,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		replay = append(replay, completedStepMessages...)
 		streamCall.Prompt = ""
 		streamCall.Files = nil
-		streamCall.Messages = applyCacheControlToMessages(replay)
+		if a.messageCachingEnabled() {
+			streamCall.Messages = applyCacheControlToMessages(replay, toolCacheBlocks)
+		} else {
+			streamCall.Messages = replay
+		}
 		result, err = a.fantasyAgent.Stream(ctx, streamCall)
 	}
 
@@ -1793,6 +1825,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.providerCloser = providerResult.Closer
 	a.providerOptions = providerResult.ProviderOptions
 	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
+	a.anthropicCaching = providerResult.MessageCacheControl
 	a.modelConfig = config
 	a.providerErr = nil
 	if a.currentModel != nil {
