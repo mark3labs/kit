@@ -18,14 +18,18 @@ type cacheTestTool struct {
 	opts fantasy.ProviderOptions
 }
 
+// Info returns the tool metadata.
 func (t *cacheTestTool) Info() fantasy.ToolInfo { return fantasy.ToolInfo{Name: t.name} }
 
+// Run returns an empty response; the tool is never executed in these tests.
 func (t *cacheTestTool) Run(context.Context, fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	return fantasy.ToolResponse{}, nil
 }
 
+// ProviderOptions returns the tool's own provider options.
 func (t *cacheTestTool) ProviderOptions() fantasy.ProviderOptions { return t.opts }
 
+// SetProviderOptions records provider options on the tool.
 func (t *cacheTestTool) SetProviderOptions(opts fantasy.ProviderOptions) { t.opts = opts }
 
 // conversation builds a message list of the given size with a system message
@@ -48,6 +52,7 @@ func conversation(withSystem bool, n int) []fantasy.Message {
 	return msgs
 }
 
+// countCacheBlocks returns the number of messages that carry an Anthropic cache block.
 func countCacheBlocks(msgs []fantasy.Message) int {
 	n := 0
 	for _, m := range msgs {
@@ -58,6 +63,7 @@ func countCacheBlocks(msgs []fantasy.Message) int {
 	return n
 }
 
+// TestApplyCacheControlToMessages_ReservesToolBlock checks that the tool block is reserved from the budget.
 func TestApplyCacheControlToMessages_ReservesToolBlock(t *testing.T) {
 	// 1 tool block + 1 system block + 2 message blocks == Anthropic's limit.
 	msgs := conversation(true, 5)
@@ -80,6 +86,7 @@ func TestApplyCacheControlToMessages_ReservesToolBlock(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToMessages_NoToolReservationUsesFullBudget checks that all four blocks go to messages when no tool block is reserved.
 func TestApplyCacheControlToMessages_NoToolReservationUsesFullBudget(t *testing.T) {
 	msgs := conversation(true, 5)
 	out := applyCacheControlToMessages(msgs, 0)
@@ -90,6 +97,7 @@ func TestApplyCacheControlToMessages_NoToolReservationUsesFullBudget(t *testing.
 	}
 }
 
+// TestApplyCacheControlToMessages_NoSystemMessage checks that the tail gets every remaining block without a system message.
 func TestApplyCacheControlToMessages_NoSystemMessage(t *testing.T) {
 	msgs := conversation(false, 5)
 	out := applyCacheControlToMessages(msgs, toolCacheBlocks)
@@ -103,6 +111,7 @@ func TestApplyCacheControlToMessages_NoSystemMessage(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToMessages_CountsExistingBlocks checks that pre-existing blocks are counted against the budget.
 func TestApplyCacheControlToMessages_CountsExistingBlocks(t *testing.T) {
 	msgs := conversation(true, 5)
 	// One message already carries a cache block.
@@ -116,6 +125,7 @@ func TestApplyCacheControlToMessages_CountsExistingBlocks(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToMessages_StopsAtBudget checks that no block is added once the budget is exhausted.
 func TestApplyCacheControlToMessages_StopsAtBudget(t *testing.T) {
 	msgs := conversation(true, 5)
 	// Three existing blocks plus the reserved tool block exhaust the budget.
@@ -133,6 +143,7 @@ func TestApplyCacheControlToMessages_StopsAtBudget(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToMessages_DoesNotMutateInput checks that the input slice is left unchanged.
 func TestApplyCacheControlToMessages_DoesNotMutateInput(t *testing.T) {
 	msgs := conversation(true, 3)
 	before := countCacheBlocks(msgs)
@@ -144,12 +155,14 @@ func TestApplyCacheControlToMessages_DoesNotMutateInput(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToMessages_Empty checks the empty-input fast path.
 func TestApplyCacheControlToMessages_Empty(t *testing.T) {
 	if out := applyCacheControlToMessages(nil, toolCacheBlocks); out != nil {
 		t.Fatalf("expected nil for empty input, got %v", out)
 	}
 }
 
+// TestHasCacheControl_IgnoresUnrelatedAnthropicOptions checks that only cache options count.
 func TestHasCacheControl_IgnoresUnrelatedAnthropicOptions(t *testing.T) {
 	msg := fantasy.Message{
 		Role:            fantasy.MessageRoleAssistant,
@@ -165,6 +178,7 @@ func TestHasCacheControl_IgnoresUnrelatedAnthropicOptions(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToTools_WrapsLastTool checks the wrapper keeps inner options and does not mutate the tool.
 func TestApplyCacheControlToTools_WrapsLastTool(t *testing.T) {
 	first := &cacheTestTool{name: "first"}
 	inner := &cacheTestTool{name: "last"}
@@ -190,12 +204,14 @@ func TestApplyCacheControlToTools_WrapsLastTool(t *testing.T) {
 	}
 }
 
+// TestApplyCacheControlToTools_Empty checks the empty-tool fast path.
 func TestApplyCacheControlToTools_Empty(t *testing.T) {
 	if out := applyCacheControlToTools(nil); out != nil {
 		t.Fatalf("expected nil for empty input, got %v", out)
 	}
 }
 
+// TestCachingDisabled checks the global and per-config opt-outs.
 func TestCachingDisabled(t *testing.T) {
 	if cachingDisabled(nil) {
 		t.Error("caching must be enabled by default")
@@ -210,6 +226,7 @@ func TestCachingDisabled(t *testing.T) {
 	}
 }
 
+// TestMessageCachingEnabled checks the provider capability and opt-out gating.
 func TestMessageCachingEnabled(t *testing.T) {
 	t.Setenv("KIT_DISABLE_CACHE", "")
 

@@ -1214,6 +1214,9 @@ func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fan
 	return anthropic.NewProviderOptions(opts)
 }
 
+// createAnthropicProvider creates the native Anthropic provider, resolving
+// credentials from the config, stored OAuth/API-key credentials, or the
+// environment.
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	clearConflictingAnthropicSamplingParams(config)
 
@@ -1258,6 +1261,8 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true}, nil
 }
 
+// createVertexAnthropicProvider creates an Anthropic provider that routes
+// through Google Vertex AI, using the project and region from the environment.
 func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	clearConflictingAnthropicSamplingParams(config)
 
