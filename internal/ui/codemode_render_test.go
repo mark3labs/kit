@@ -35,6 +35,20 @@ func TestRenderCodeModeBody(t *testing.T) {
 	}
 }
 
+func TestCodeModeResultKeepsShellLikeText(t *testing.T) {
+	// The result panel must not run shell parsing: a script can return text
+	// that looks like shell metadata, and those lines must survive.
+	args, _ := json.Marshal(map[string]string{"code": "return x"})
+	result := "Exit code: 42\nSTDERR:\n<stderr>raw</stderr>"
+
+	out := xansi.Strip(renderToolBody("codemode", string(args), result, 100))
+	for _, want := range []string{"Exit code: 42", "STDERR:", "<stderr>raw</stderr>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("script result dropped %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestCodeModeHeaderAndActivity(t *testing.T) {
 	args := `{"code": "return 1"}`
 	if got := formatToolParams(args, 80); got != "" {

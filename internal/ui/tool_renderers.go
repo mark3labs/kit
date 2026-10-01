@@ -936,8 +936,11 @@ func renderWriteBlock(content, fileName string, width, maxLines int) string {
 // ---------------------------------------------------------------------------
 
 // renderCodeModeBody renders the script with line numbers and JavaScript
-// highlighting, then the result text in the shared output panel. The script
+// highlighting, then the result text in a plain output panel. The script
 // is capped at the code line limit, the result at the shell output limit.
+// The result uses a plain panel, not the shell renderer: a script may return
+// text such as "Exit code: 42" or a "STDERR:" line, and the shell renderer
+// would strip those lines as shell metadata.
 func renderCodeModeBody(toolArgs, toolResult string, width int, lim toolLineLimits) string {
 	var args struct {
 		Code string `json:"code"`
@@ -989,7 +992,9 @@ func renderCodeModeBody(toolArgs, toolResult string, width int, lim toolLineLimi
 	}
 
 	if strings.TrimSpace(toolResult) != "" {
-		out = append(out, "", renderBashBody("", toolResult, width, lim.bash))
+		out = append(out, "", renderPlainListBody(toolResult, width, lim.bash, func(_, hidden int) string {
+			return fmt.Sprintf("%d more lines", hidden)
+		}))
 	}
 	return strings.Join(out, "\n")
 }

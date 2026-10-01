@@ -139,8 +139,10 @@ kinds are `ParseError`, `UnknownTool` (with suggestions), `InvalidToolInput`
 `UnsettledPromise` and `Cancelled`. Errors carry the line and column in the
 submitted code.
 
-Pressing <kbd>Esc</kbd> stops a running script at once and cancels its tool
-calls in flight.
+Press <kbd>Esc</kbd> twice within two seconds to stop a running script. The
+first press arms cancellation; the second cancels the step and its tool calls
+in flight. Whether a call stops immediately also depends on the tool honoring
+its context.
 
 ::: info
 The JavaScript engine has no per-script heap limit. The memory limit is a

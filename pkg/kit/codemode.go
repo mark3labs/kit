@@ -156,7 +156,9 @@ func withCodeModeTool(toolList []string, enabled bool) []string {
 	if !enabled || slices.Contains(toolList, CodeModeToolName) {
 		return toolList
 	}
-	return append(toolList, CodeModeToolName)
+	// slices.Clip drops any spare capacity, so the append cannot write into
+	// a caller's backing array (for example Options.CoreToolList).
+	return append(slices.Clip(toolList), CodeModeToolName)
 }
 
 // NewCodeModeTool creates the code mode tool. Add it to Options.Tools or
