@@ -132,7 +132,11 @@ func TestCodeModeToolTruncatesToFile(t *testing.T) {
 	if path == "" {
 		t.Fatal("no full output path")
 	}
-	defer os.Remove(path)
+	t.Cleanup(func() {
+		if err := os.Remove(path); err != nil {
+			t.Errorf("remove %s: %v", path, err)
+		}
+	})
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

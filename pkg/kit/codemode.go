@@ -2,6 +2,7 @@ package kit
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -105,12 +106,8 @@ func resolveCodeMode(opts *Options, v *viper.Viper) (bool, core.CodeModeConfig, 
 		}
 		if len(c.Exposure) > 0 {
 			merged := make(map[string]string, len(o.Exposure)+len(c.Exposure))
-			for k, val := range o.Exposure {
-				merged[k] = val
-			}
-			for k, val := range c.Exposure {
-				merged[k] = val
-			}
+			maps.Copy(merged, o.Exposure)
+			maps.Copy(merged, c.Exposure)
 			o.Exposure = merged
 		}
 	}
