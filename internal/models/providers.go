@@ -240,6 +240,11 @@ type ProviderResult struct {
 	// SkipMaxOutputTokens indicates that this provider doesn't support the
 	// max_output_tokens parameter (e.g., OpenAI Codex OAuth API).
 	SkipMaxOutputTokens bool
+	// MessageCacheControl reports that the provider uses Anthropic-style
+	// message-level prompt caching (cache_control blocks). Kit adds tool and
+	// message breakpoints when this is true and caching is not disabled by
+	// KIT_DISABLE_CACHE or ProviderConfig.DisableCaching.
+	MessageCacheControl bool
 }
 
 // ParseModelString parses a model string in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5").
@@ -707,7 +712,7 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	return &ProviderResult{Model: model, MessageCacheControl: true}, nil
 }
 
 // createAutoRoutedOpenAIProvider creates an openai provider for
@@ -1250,7 +1255,7 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	// Build provider options for extended thinking (reasoning budget).
 	providerOpts := buildAnthropicProviderOptions(config, modelName)
 
-	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true}, nil
 }
 
 func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -1289,7 +1294,7 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 		return nil, wrapProviderErr("Vertex Anthropic", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	return &ProviderResult{Model: model, MessageCacheControl: true}, nil
 }
 
 func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
