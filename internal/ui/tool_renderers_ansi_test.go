@@ -24,11 +24,23 @@ import (
 func pinColourCapabilities(t *testing.T) {
 	t.Helper()
 
-	// The theme has to be re-resolved: the live one was built against the old
-	// background, and SetTerminalCapabilities only rebuilds a derived theme.
-	original := style.GetTheme()
+	// Both halves of the capability are snapshotted, because both are global and
+	// SetTerminalCapabilities has no inverse. Restoring only the theme would
+	// leave truecolor in force for every later test in this package, and a test
+	// that reaches style.NormalizeOutput would then skip the downsampling its
+	// own profile calls for.
+	originalTheme := style.GetTheme()
+	originalDark := style.IsDarkBackground()
+	originalProfile := style.ColorProfile()
+
 	style.SetTerminalCapabilities(true, colorprofile.TrueColor)
-	t.Cleanup(func() { style.SetTheme(original) })
+	t.Cleanup(func() {
+		// Capabilities first: SetTerminalCapabilities drops a derived theme so it
+		// can be rebuilt against the restored background, and SetTheme then puts
+		// the saved theme back.
+		style.SetTerminalCapabilities(originalDark, originalProfile)
+		style.SetTheme(originalTheme)
+	})
 }
 
 // A real command in a real repository. This is the case the colour work exists
@@ -188,5 +200,51 @@ func TestStreamingBashOutputColouredRowKeepsProgramColour(t *testing.T) {
 	// the right of the row loses the panel background.
 	if idx := strings.Index(row, "tail"); idx >= 0 && !strings.Contains(row[idx:], "\x1b[48;") {
 		t.Errorf("the fill was not re-armed after the program's reset: %q", row)
+	}
+}
+
+// pinColourCapabilities changes package-global state, so it has to put both
+// halves back. Without the profile restored, truecolor leaks into every later
+// test in this package and any of them that reaches style.NormalizeOutput
+// silently skips the downsampling its own profile calls for.
+func TestPinColourCapabilitiesRestoresGlobals(t *testing.T) {
+	// Start from a profile the helper does not set, so a leak is visible.
+	style.SetTerminalCapabilities(true, colorprofile.ANSI256)
+
+	// A sub-test is the unit of scoping for t.Cleanup, so the helper's cleanup
+	// has run by the time the assertions below execute.
+	t.Run("pinned", func(t *testing.T) {
+		pinColourCapabilities(t)
+		if style.ColorProfile() != colorprofile.TrueColor {
+			t.Fatalf("the helper did not pin the profile: %v", style.ColorProfile())
+		}
+		if !style.IsDarkBackground() {
+			t.Fatal("the helper did not pin the background")
+		}
+	})
+
+	if got := style.ColorProfile(); got != colorprofile.ANSI256 {
+		t.Errorf("the profile leaked: got %v, want ANSI256", got)
+	}
+	if !style.IsDarkBackground() {
+		t.Error("the background flag leaked")
+	}
+}
+
+// ColorProfile is the read side of SetTerminalCapabilities. It has to exist for
+// a caller that overrides the capabilities to be able to put them back.
+func TestColorProfileFollowsSetTerminalCapabilities(t *testing.T) {
+	originalDark, originalProfile := style.IsDarkBackground(), style.ColorProfile()
+	t.Cleanup(func() {
+		style.SetTerminalCapabilities(originalDark, originalProfile)
+		style.SetTheme(style.GetTheme())
+	})
+
+	style.SetTerminalCapabilities(false, colorprofile.ANSI)
+	if got := style.ColorProfile(); got != colorprofile.ANSI {
+		t.Errorf("ColorProfile = %v, want ANSI", got)
+	}
+	if style.IsDarkBackground() {
+		t.Error("IsDarkBackground did not follow the setter")
 	}
 }

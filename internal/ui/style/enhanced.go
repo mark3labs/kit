@@ -419,6 +419,16 @@ func IsDarkBackground() bool {
 	return isDarkBackground()
 }
 
+// ColorProfile returns the active terminal's colour depth.
+//
+// It is the read side of SetTerminalCapabilities. A caller that overrides the
+// capabilities has to be able to read back what it replaced, because the setter
+// has no inverse: without this there is no way to put the previous profile back
+// once it has been changed.
+func ColorProfile() colorprofile.Profile {
+	return terminalColorProfile()
+}
+
 // CreateBadge generates a styled badge or label with inverted colors (text on
 // colored background) for highlighting important tags, statuses, or categories.
 func CreateBadge(text string, c color.Color) string {

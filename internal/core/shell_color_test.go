@@ -48,6 +48,33 @@ func TestShellToolColourReachesStreamButNotModel(t *testing.T) {
 // actually sees.
 const probeColorEnv = `printf 'C=[%s] F=[%s] CF=[%s]\n' "$COLORTERM" "$FORCE_COLOR" "$CLICOLOR_FORCE"`
 
+// clearColorEnv empties the three variables that drive colour, so a test starts
+// from a known baseline.
+//
+// A user who runs Kit from a terminal that sets COLORTERM hands that value to
+// every child through the inherited environment, and shellEnv passes the
+// environment through on purpose. So "the variable is set" cannot distinguish
+// "Kit forced it" from "the user's shell already had it"; only the change from
+// a known-empty baseline can.
+func clearColorEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("COLORTERM", "")
+	t.Setenv("FORCE_COLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "")
+}
+
+// wantsColor reports whether the probe output shows all three variables filled
+// in, and names the ones that are not.
+func wantsColor(output string) (bool, []string) {
+	var missing []string
+	for _, name := range []string{"C", "F", "CF"} {
+		if strings.Contains(output, name+"=[]") {
+			missing = append(missing, name)
+		}
+	}
+	return len(missing) == 0, missing
+}
+
 // The shell tool must not force colour. These variables are not scoped to the
 // child: they tell every process in the tree that a terminal is attached, so
 // forcing them for a model-issued command writes escape bytes into files and
@@ -56,16 +83,15 @@ const probeColorEnv = `printf 'C=[%s] F=[%s] CF=[%s]\n' "$COLORTERM" "$FORCE_COL
 // and an intermediate pipe are not.
 func TestShellToolDoesNotForceColour(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	clearColorEnv(t)
 
 	resp, err := executeShell(context.Background(),
 		shellCall(probeColorEnv, 0), "", nil, defaultShellTimeout, maxShellTimeout)
 	if err != nil {
 		t.Fatalf("executeShell: %v", err)
 	}
-	for _, name := range []string{"C", "F", "CF"} {
-		if !strings.Contains(resp.Content, name+"=[]") {
-			t.Errorf("the shell tool forced %s: %q", name, resp.Content)
-		}
+	if forced, missing := wantsColor(resp.Content); forced {
+		t.Errorf("the shell tool forced colour: %v not set: %q", missing, resp.Content)
 	}
 }
 
@@ -74,6 +100,7 @@ func TestShellToolDoesNotForceColour(t *testing.T) {
 // leave escape sequences in a file the model reads back later.
 func TestShellToolRedirectReceivesPlainBytes(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	clearColorEnv(t)
 
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.txt")
@@ -111,15 +138,14 @@ fi
 // The bang path is the one that wants colour: a person is reading the output.
 func TestBangCommandForcesColour(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	clearColorEnv(t)
 
 	res, err := RunShellCommand(context.Background(), ShellRunOptions{Command: probeColorEnv})
 	if err != nil {
 		t.Fatalf("RunShellCommand: %v", err)
 	}
-	for _, name := range []string{"C", "F", "CF"} {
-		if strings.Contains(res.Output, name+"=[]") {
-			t.Errorf("the bang path did not force %s: %q", name, res.Output)
-		}
+	if forced, missing := wantsColor(res.Output); !forced {
+		t.Errorf("the bang path did not force %v: %q", missing, res.Output)
 	}
 }
 
@@ -128,14 +154,34 @@ func TestBangCommandForcesColour(t *testing.T) {
 // sees either way, so this pins down the environment and nothing else.
 func TestBangCommandRespectsNoColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
+	clearColorEnv(t)
 
 	res, err := RunShellCommand(context.Background(), ShellRunOptions{Command: probeColorEnv})
 	if err != nil {
 		t.Fatalf("RunShellCommand: %v", err)
 	}
-	for _, name := range []string{"C", "F", "CF"} {
-		if !strings.Contains(res.Output, name+"=[]") {
-			t.Errorf("%s was forced despite NO_COLOR: %q", name, res.Output)
+	if forced, missing := wantsColor(res.Output); forced {
+		t.Errorf("%v was forced despite NO_COLOR: %q", missing, res.Output)
+	}
+}
+
+// A user's own colour variables pass through untouched. Kit declines to force
+// colour on the tool path but must not strip what the user set either, or a
+// deliberate COLORTERM would silently stop working.
+func TestShellToolPassesThroughUserColorEnv(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("FORCE_COLOR", "3")
+	t.Setenv("CLICOLOR_FORCE", "2")
+
+	resp, err := executeShell(context.Background(),
+		shellCall(probeColorEnv, 0), "", nil, defaultShellTimeout, maxShellTimeout)
+	if err != nil {
+		t.Fatalf("executeShell: %v", err)
+	}
+	for _, want := range []string{"C=[truecolor]", "F=[3]", "CF=[2]"} {
+		if !strings.Contains(resp.Content, want) {
+			t.Errorf("the user's value did not survive: want %q in %q", want, resp.Content)
 		}
 	}
 }
