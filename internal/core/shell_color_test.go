@@ -64,6 +64,10 @@ func clearColorEnv(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "")
 }
 
+// probeColorFields is how many fields probeColorEnv prints: one per colour
+// variable.
+const probeColorFields = 3
+
 // colorProbe reports which of the three colour variables a child saw set.
 type colorProbe struct {
 	set   []string
@@ -97,21 +101,24 @@ func probeColor(output string) colorProbe {
 // wantsColor reports whether all three variables were set, and names the ones
 // that were not.
 //
-// It has to be all-or-nothing in both directions. A weaker "at least one was
-// set" check would pass a command that forced only COLORTERM, and a weaker
-// "at least one was empty" check would pass one that forced only FORCE_COLOR —
-// and a single forced variable is enough to make git or ripgrep emit colour
-// into a file or a pipe.
+// It has to be all-or-nothing in both directions, and it has to require all
+// three fields to be present at all. A weaker "at least one was set" check
+// would pass a command that forced only COLORTERM, and a weaker "at least one was
+// empty" check would pass one that forced only FORCE_COLOR — and a single
+// forced variable is enough to make git or ripgrep emit colour into a file or a
+// pipe. Requiring all three also stops an empty or truncated response from
+// passing vacuously: with no fields at all both lists are empty, and checking
+// only one of them cannot tell that from the expected state.
 func wantsColor(output string) (bool, []string) {
 	p := probeColor(output)
-	return len(p.unset) == 0, p.unset
+	return len(p.set) == probeColorFields && len(p.unset) == 0, p.unset
 }
 
 // wantsNoColor reports whether every variable was left alone, and names the ones
-// that were not.
+// that were not. It requires all three fields for the same reason.
 func wantsNoColor(output string) (bool, []string) {
 	p := probeColor(output)
-	return len(p.set) == 0, p.set
+	return len(p.unset) == probeColorFields && len(p.set) == 0, p.set
 }
 
 func TestProbeColorParsesFieldsWholesale(t *testing.T) {
@@ -158,6 +165,27 @@ func TestProbeColorParsesFieldsWholesale(t *testing.T) {
 				t.Errorf("unset = %v, want %v", got.unset, tt.wantUnset)
 			}
 		})
+	}
+}
+
+// An empty or truncated response must fail both helpers. Otherwise a shell
+// that printed nothing would satisfy "the tool did not force colour" without a
+// single field having been inspected.
+func TestColorAssertionsRejectIncompleteOutput(t *testing.T) {
+	incomplete := []string{
+		"",
+		"\n",
+		"C=[truecolor]\n",
+		"C=[] F=[]\n",
+		"C=[truecolor] F=[1] CF=[]\n", // still a valid report
+	}
+	for _, out := range incomplete {
+		if ok, _ := wantsColor(out); ok {
+			t.Errorf("wantsColor accepted %q as fully coloured", out)
+		}
+		if ok, _ := wantsNoColor(out); ok {
+			t.Errorf("wantsNoColor accepted %q as fully plain", out)
+		}
 	}
 }
 
