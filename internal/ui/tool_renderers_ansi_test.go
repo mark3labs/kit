@@ -6,15 +6,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
+// pinColourCapabilities makes the terminal report truecolor and a dark
+// background for the duration of the test, and restores the theme afterwards.
+//
+// A test that asserts on colour codes cannot depend on the environment it runs
+// in. style.NormalizeOutput downsamples to the reported profile, so on a machine
+// with no terminal — a CI runner — it removes every colour code it is handed,
+// and a row that was supposed to keep the program's colours arrives plain. The
+// test then takes the plain branch and fails for a reason that has nothing to
+// do with the code under test.
+func pinColourCapabilities(t *testing.T) {
+	t.Helper()
+
+	// The theme has to be re-resolved: the live one was built against the old
+	// background, and SetTerminalCapabilities only rebuilds a derived theme.
+	original := style.GetTheme()
+	style.SetTerminalCapabilities(true, colorprofile.TrueColor)
+	t.Cleanup(func() { style.SetTheme(original) })
+}
+
 // A real command in a real repository. This is the case the colour work exists
 // for: git colours its output whenever it believes a terminal is attached, and
 // that output is what the user wants to read.
 func TestRenderBashBodyKeepsGitColour(t *testing.T) {
+	pinColourCapabilities(t)
+
 	result := "\x1b[32m+ added line\x1b[0m\n\x1b[31m- removed line\x1b[0m\n"
 
 	out := renderBashBody("", result, 80, 10)
@@ -34,6 +56,8 @@ func TestRenderBashBodyKeepsGitColour(t *testing.T) {
 // A program may end a line with a reset. The panel fill has to come back after
 // it, or the right-hand end of the row loses its background.
 func TestRenderBashBodyReArmsPanelFill(t *testing.T) {
+	pinColourCapabilities(t)
+
 	out := renderBashBody("", "\x1b[32mgreen\x1b[0m tail\n", 80, 10)
 
 	row := ""
@@ -113,6 +137,8 @@ func rowContaining(out, needle string) string {
 // shell started forcing colour: the codes are what separate "this row is
 // uncoloured" from "this row is whatever the terminal defaults to".
 func TestStreamingBashOutputPlainRowUsesThemeColour(t *testing.T) {
+	pinColourCapabilities(t)
+
 	item := NewStreamingBashOutputItem("id", "echo hi")
 	item.AppendStdout("plain text")
 	item.MarkComplete()
@@ -127,6 +153,8 @@ func TestStreamingBashOutputPlainRowUsesThemeColour(t *testing.T) {
 }
 
 func TestStreamingBashOutputStderrRowUsesErrorColour(t *testing.T) {
+	pinColourCapabilities(t)
+
 	item := NewStreamingBashOutputItem("id", "boom")
 	item.AppendStderr("it went wrong")
 	item.MarkComplete()
@@ -143,6 +171,8 @@ func TestStreamingBashOutputStderrRowUsesErrorColour(t *testing.T) {
 // A row the program coloured must not be given a foreground here, or a reset
 // inside it clears this one and the rest of the row loses its colour.
 func TestStreamingBashOutputColouredRowKeepsProgramColour(t *testing.T) {
+	pinColourCapabilities(t)
+
 	item := NewStreamingBashOutputItem("id", "colour")
 	item.AppendStdout("\x1b[32mgreen\x1b[0m tail")
 	item.MarkComplete()
