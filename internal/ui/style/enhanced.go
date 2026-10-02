@@ -196,6 +196,52 @@ func SetTheme(theme Theme) {
 	invalidateThemeCaches()
 }
 
+// StylingState is a snapshot of everything SetTheme and SetTerminalCapabilities
+// change: the theme, whether it was chosen or derived, and the terminal
+// capabilities it was resolved against.
+//
+// It exists because those setters have no inverse. SetTheme marks the theme
+// explicit, so a caller that only meant to borrow a palette cannot put the
+// derived behaviour back — and a derived theme keeps following the terminal's
+// background, while an explicit one does not. SetTerminalCapabilities likewise
+// overwrites the profile with nothing to restore it from. Restoring through
+// SetTheme alone therefore leaves the package in a state no setter could
+// produce.
+type StylingState struct {
+	theme     Theme
+	explicit  bool
+	dark      bool
+	profile   colorprofile.Profile
+	themeName string
+}
+
+// CaptureStylingState returns the current styling state, for handing back to
+// [StylingState.Restore] once it has been overridden.
+func CaptureStylingState() StylingState {
+	return StylingState{
+		theme:     GetTheme(),
+		explicit:  themeExplicitlySet,
+		dark:      isDarkBackground(),
+		profile:   terminalColorProfile(),
+		themeName: activeThemeName,
+	}
+}
+
+// Restore puts the captured state back, including the derived-versus-explicit
+// distinction that SetTheme cannot undo on its own.
+func (s StylingState) Restore() {
+	currentTheme = &s.theme
+	themeExplicitlySet = s.explicit
+	activeThemeName = s.themeName
+	SetTerminalCapabilities(s.dark, s.profile)
+	// SetTerminalCapabilities drops a derived theme so it can be rebuilt against
+	// the restored background, which would discard the captured palette, so put
+	// it back afterwards and stamp it as the active theme.
+	currentTheme = &s.theme
+	themeGeneration++
+	invalidateThemeCaches()
+}
+
 // activeThemeName records the name last passed to ApplyTheme. It is reported
 // by CurrentThemeName so callers outside this package — the extension API's
 // ctx.GetTheme, for instance — can name the active theme without keeping
@@ -417,6 +463,16 @@ func DefaultTheme() Theme {
 // SetTerminalCapabilities.
 func IsDarkBackground() bool {
 	return isDarkBackground()
+}
+
+// ColorProfile returns the active terminal's colour depth.
+//
+// It is the read side of SetTerminalCapabilities. A caller that overrides the
+// capabilities has to be able to read back what it replaced, because the setter
+// has no inverse: without this there is no way to put the previous profile back
+// once it has been changed.
+func ColorProfile() colorprofile.Profile {
+	return terminalColorProfile()
 }
 
 // CreateBadge generates a styled badge or label with inverted colors (text on

@@ -434,6 +434,48 @@ func (m *AppModel) jumpToRole(role string, step int) {
 	}
 }
 
+// selectedShellRun returns the selected scrollback item when it is a bang-mode
+// shell block, and nil otherwise.
+func (m *AppModel) selectedShellRun() *ShellRunItem {
+	if m.scrollList == nil {
+		return nil
+	}
+	item, _ := m.scrollList.ItemAt(m.scrollList.SelectedIndex()).(*ShellRunItem)
+	return item
+}
+
+// toggleShellRunExpansion expands or collapses a shell block in place and
+// refreshes what the transcript has cached for it.
+//
+// The viewport is kept on the selected block rather than sent to the bottom of
+// the transcript. The selection can be any item, so expanding an older block
+// and jumping to the newest message would move the block the user is reading
+// out of sight — and in navigation mode nothing else would bring it back.
+func (m *AppModel) toggleShellRunExpansion(item *ShellRunItem) {
+	expanded := item.ToggleExpanded()
+	m.refreshContent()
+	m.scrollList.InvalidateItemHeight(item.ID())
+	if !expanded {
+		// Collapsing shrinks the item, and the line cap changes what every item
+		// below it measures, so the whole list needs re-measuring before the
+		// viewport can decide where anything is.
+		m.scrollList.InvalidateHeights()
+	}
+	m.scrollList.EnsureVisible(m.scrollList.SelectedIndex())
+}
+
+// scrollSelectedShellRun moves a shell block's visible column window. A block
+// that cannot move reports it, so the key falls through to whatever else is
+// bound to it.
+func (m *AppModel) scrollSelectedShellRun(direction int) {
+	item := m.selectedShellRun()
+	if item == nil || !item.ScrollHorizontalBy(direction) {
+		return
+	}
+	m.refreshContent()
+	m.followShellRun(item.ID())
+}
+
 // copySelectedMessage puts the selected message's source text on the clipboard.
 //
 // The source is copied rather than the rendering: the latter carries the escape

@@ -77,4 +77,27 @@ type ShellCommandResultMsg struct {
 	Err error
 	// ExcludeFromContext mirrors the flag from ShellCommandMsg.
 	ExcludeFromContext bool
+	// ItemID names the scrollback block this result belongs to, so the parent
+	// updates the block it already created rather than appending a second one.
+	ItemID string
+	// TimedOut reports that the command hit its timeout. Output collected
+	// before the kill is still present.
+	TimedOut bool
+}
+
+// ShellStreamChunkMsg carries one piece of a running shell command's output.
+//
+// The parent model appends it to the pending block and re-arms the reader that
+// produced it, which is what makes the block fill in as the command runs rather
+// than appearing all at once when it exits.
+type ShellStreamChunkMsg struct {
+	// ItemID names the scrollback block the chunk belongs to.
+	ItemID string
+	// Chunk is the raw bytes, exactly as the command wrote them. They may
+	// contain escape sequences, and may split one across two chunks; the block
+	// repairs both when it renders.
+	Chunk string
+	// Ch is the channel the reader drains. Update re-arms the reader with it,
+	// and the runner closes it to end the stream.
+	Ch chan string
 }

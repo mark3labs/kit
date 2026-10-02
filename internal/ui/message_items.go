@@ -2,10 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/render"
@@ -500,6 +502,13 @@ func (m *StreamingBashOutputItem) Role() string {
 	return "bash"
 }
 
+// Render draws the live output panel.
+//
+// The lines are the shell tool's own stdout and stderr, already normalized by
+// the time they get here: each one may carry colour sequences from the program.
+// The panel is styled one line at a time for the same reason the finished tool
+// body is — an embedded reset would otherwise clear the fill for the rest of the
+// block.
 func (m *StreamingBashOutputItem) Render(width int) string {
 	// A theme change invalidates the cache: it holds baked-in color codes
 	// from the theme it was produced under.
@@ -530,28 +539,46 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 	// lipgloss renders nothing at all.
 	lineWidth := max(style.BodyWidth(width)-1, style.MinContentWidth)
 
+	// The fill is set on every row. The foreground is set only on rows the
+	// program left plain: a line that carries its own colour codes must not be
+	// given a foreground here, or a reset inside it would clear this one and the
+	// rest of the row would lose its colour.
+	//
+	// The fill itself is re-armed after the content rather than left to
+	// lipgloss's Width, because a program is free to end a line with a reset
+	// that would otherwise leave the trailing padding unstyled.
+	panel := lipgloss.NewStyle().Background(theme.CodeBg)
+	fill := lipgloss.NewStyle().Background(theme.CodeBg)
+
+	render := func(lines []string, plainFg color.Color) {
+		plain := lipgloss.NewStyle().Foreground(plainFg).Background(theme.CodeBg).PaddingLeft(1)
+		for _, line := range lines {
+			// Truncate before styling: cutting a string that already holds
+			// escape sequences cuts the sequences with it.
+			line = xansi.Truncate(line, lineWidth-1, "…")
+
+			st := plain
+			if strings.ContainsRune(line, 0x1b) {
+				// The program colours this row itself.
+				st = panel.PaddingLeft(1)
+			}
+
+			body := st.Render(line)
+			if gap := lineWidth - xansi.StringWidth(body); gap > 0 {
+				body += fill.Render(strings.Repeat(" ", gap))
+			}
+			parts = append(parts, lineIndent+body)
+		}
+	}
+
 	// Stdout lines
 	if len(m.stdoutLines) > 0 {
-		outputStyle := lipgloss.NewStyle().
-			Foreground(theme.Text).
-			Background(theme.CodeBg).
-			PaddingLeft(1).
-			Width(lineWidth)
-		for _, line := range m.stdoutLines {
-			parts = append(parts, lineIndent+outputStyle.Render(line))
-		}
+		render(m.stdoutLines, theme.Text)
 	}
 
 	// Stderr lines
 	if len(m.stderrLines) > 0 {
-		stderrStyle := lipgloss.NewStyle().
-			Foreground(theme.Error).
-			Background(theme.CodeBg).
-			PaddingLeft(1).
-			Width(lineWidth)
-		for _, line := range m.stderrLines {
-			parts = append(parts, lineIndent+stderrStyle.Render(line))
-		}
+		render(m.stderrLines, theme.Error)
 	}
 
 	result := strings.Join(parts, "\n")
@@ -571,7 +598,21 @@ func (m *StreamingBashOutputItem) Height() int {
 }
 
 // AppendStdout adds a stdout line to the output.
+//
+// The line is normalized on arrival: the shell tool now forces colour, and a
+// live block that renders raw escape sequences flickers between the states
+// those sequences describe. It is cheaper here than at render time too, because
+// the block re-renders on every frame while each line is normalized once.
 func (m *StreamingBashOutputItem) AppendStdout(line string) {
+	m.appendStdout(style.NormalizeOutput(line))
+}
+
+// AppendStderr adds a stderr line to the output.
+func (m *StreamingBashOutputItem) AppendStderr(line string) {
+	m.appendStderr(style.NormalizeOutput(line))
+}
+
+func (m *StreamingBashOutputItem) appendStdout(line string) {
 	m.stdoutLines = append(m.stdoutLines, line)
 	// Cap lines
 	if len(m.stdoutLines) > m.maxLines {
@@ -580,8 +621,7 @@ func (m *StreamingBashOutputItem) AppendStdout(line string) {
 	m.cachedWidth = 0 // Invalidate cache
 }
 
-// AppendStderr adds a stderr line to the output.
-func (m *StreamingBashOutputItem) AppendStderr(line string) {
+func (m *StreamingBashOutputItem) appendStderr(line string) {
 	m.stderrLines = append(m.stderrLines, line)
 	// Cap lines
 	if len(m.stderrLines) > m.maxLines {
