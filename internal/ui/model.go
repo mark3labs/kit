@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -2229,7 +2228,27 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.copySelectedMessage())
 				return m, tea.Batch(cmds...)
 			case "enter":
+				// A shell block expands in place rather than opening the
+				// inspector: the whole point is to read the output where the
+				// conversation is, with the rest of the turn still in view.
+				// Every other item opens the inspector, which is what the frame
+				// hint advertises.
+				if item := m.selectedShellRun(); item != nil && !item.Spinning() {
+					m.toggleShellRunExpansion(item)
+					return m, tea.Batch(cmds...)
+				}
 				m.inspectSelectedMessage()
+				return m, tea.Batch(cmds...)
+			case "o", "space":
+				if item := m.selectedShellRun(); item != nil {
+					m.toggleShellRunExpansion(item)
+					return m, tea.Batch(cmds...)
+				}
+			case "H", "shift+left":
+				m.scrollSelectedShellRun(-1)
+				return m, tea.Batch(cmds...)
+			case "L", "shift+right":
+				m.scrollSelectedShellRun(1)
 				return m, tea.Batch(cmds...)
 			case "esc", "q":
 				m.exitMessageNav()
@@ -2654,6 +2673,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Execute the shell command asynchronously so the TUI stays responsive.
 		cmds = append(cmds, m.executeShellCommand(msg))
+
+	case uicore.ShellStreamChunkMsg:
+		cmds = append(cmds, m.handleShellCommandChunk(msg))
 
 	case uicore.ShellCommandResultMsg:
 		// Stop spinner now that the command has finished.
@@ -5038,10 +5060,15 @@ func (m *AppModel) printHelpMessage() {
 	help += "**Shell Commands:**\n" +
 		"- `!command`: Run shell command, output included in LLM context\n" +
 		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
+		"Output appears as the command runs, with the program's own colours. While it\n" +
+		"is running the block follows the newest line; when it ends, read from the top.\n" +
+		"Select the block with `Ctrl+X m`, then `Enter` to expand it, `H`/`L` to scroll\n" +
+		"wide lines sideways, and `y` to copy it.\n\n" +
 		"**Keys:**\n" +
 		"- `Ctrl+C`: Clear input and arm quit (press again to exit)\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
 		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
+		"- `Ctrl+X m`: Move — browse and inspect scrollback messages\n" +
 		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
 		"- `Ctrl+V`: Paste image from clipboard\n" +
 		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
@@ -7118,206 +7145,216 @@ func (m *AppModel) resolveOverlay(resp app.OverlayResponse) {
 // shellCommandTimeout is the maximum duration for a user shell command.
 const shellCommandTimeout = 120 * time.Second
 
-// executeShellCommand runs a shell command asynchronously and returns the
-// result as a ShellCommandResultMsg. This is launched from Update() as a
-// tea.Cmd so the TUI stays responsive during execution.
+// shellStreamBuffer is how many chunks may be waiting for the UI.
+//
+// It is a buffer and not a queue on purpose. A producer that waits for a slow
+// consumer stalls the command it is streaming, and a command that stalls mid-way
+// looks like a hang. Dropping a chunk costs the user one frame of output;
+// blocking costs them the command. The full text is collected by the runner
+// regardless, so the finished block is complete either way.
+const shellStreamBuffer = 256
+
+// executeShellCommand appends a pending block to the transcript and returns the
+// commands that run the command and stream its output back.
+//
+// It is launched from Update as a tea.Cmd so the TUI stays responsive.
 func (m *AppModel) executeShellCommand(msg uicore.ShellCommandMsg) tea.Cmd {
 	command := msg.Command
 	excludeFromContext := msg.ExcludeFromContext
 	cwd := m.cwd
 	shell := m.shell
 
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), shellCommandTimeout)
-		defer cancel()
+	// The block goes into the transcript immediately, before the command starts,
+	// so the user sees what they asked for and not an empty gap while the
+	// first bytes are still on their way.
+	itemID := generateMessageID()
+	item := NewShellRunItem(itemID, command, excludeFromContext)
+	m.messages = append(m.messages, item)
+	m.refreshContent()
+	if m.scrollList != nil {
+		m.scrollList.InvalidateItemHeight(itemID)
+	}
 
-		// The same construction the shell tool uses, so ! and !! run through
-		// the configured shell rather than through a hardcoded bash.
-		cmdArgs, shellPath, err := core.ShellCommandArgs(shell, command)
-		if err != nil {
+	streamCh := make(chan string, shellStreamBuffer)
+	onChunk := func(chunk string, _ bool) {
+		select {
+		case streamCh <- chunk:
+		default:
+			// The UI is behind. Drop this chunk; the next frame catches up.
+		}
+	}
+
+	cmds := make([]tea.Cmd, 0, 2)
+
+	// The reader pumps the channel into messages, one chunk per message, and
+	// Update re-arms it each time. It is the only way to get bytes from a
+	// running goroutine into Update without calling prog.Send from inside
+	// Update itself, which deadlocks Bubble Tea's event loop.
+	cmds = append(cmds, shellStreamReaderCmd(itemID, streamCh))
+
+	cmds = append(cmds, func() tea.Msg {
+		result, err := core.RunShellCommand(context.Background(), core.ShellRunOptions{
+			Command: command,
+			Shell:   shell,
+			WorkDir: cwd,
+			Timeout: shellCommandTimeout,
+			OnChunk: onChunk,
+		})
+
+		// Closing ends the reader pump. It happens before the result is
+		// returned so the final chunks are already in flight when Update sees
+		// the result, and the block is filled in before it is settled.
+		close(streamCh)
+
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return uicore.ShellCommandResultMsg{
 				Command:            command,
-				Output:             fmt.Sprintf("invalid shell configuration: %v", err),
+				Output:             fmt.Sprintf("error: %v", err),
 				ExitCode:           -1,
 				Err:                err,
 				ExcludeFromContext: excludeFromContext,
+				ItemID:             itemID,
 			}
 		}
-		cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
-		if cwd != "" {
-			cmd.Dir = cwd
-		}
-
-		// Point SHELL at the configured shell so child processes (e.g. tmux)
-		// use it rather than the user's login shell (which may be nushell,
-		// fish, etc.). A launcher vector leaves SHELL inherited.
-		if shellPath != "" {
-			cmd.Env = append(os.Environ(), "SHELL="+shellPath)
-		}
-
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		err = cmd.Run()
-
-		exitCode := 0
-		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				exitCode = exitErr.ExitCode()
-				// Non-zero exit is reported via exitCode, not as an error.
-				err = nil
-			} else if ctx.Err() == context.DeadlineExceeded {
-				return uicore.ShellCommandResultMsg{
-					Command:            command,
-					Output:             fmt.Sprintf("command timed out after %v", shellCommandTimeout),
-					ExitCode:           -1,
-					Err:                fmt.Errorf("command timed out after %v", shellCommandTimeout),
-					ExcludeFromContext: excludeFromContext,
-				}
-			}
-		}
-
-		// Combine stdout + stderr.
-		var combined strings.Builder
-		if stdout.Len() > 0 {
-			combined.WriteString(stdout.String())
-		}
-		if stderr.Len() > 0 {
-			if combined.Len() > 0 {
-				combined.WriteString("\n")
-			}
-			combined.WriteString(stderr.String())
-		}
-
 		return uicore.ShellCommandResultMsg{
 			Command:            command,
-			Output:             combined.String(),
-			ExitCode:           exitCode,
-			Err:                err,
+			Output:             result.Output,
+			ExitCode:           result.ExitCode,
 			ExcludeFromContext: excludeFromContext,
+			ItemID:             itemID,
+			TimedOut:           result.TimedOut,
 		}
-	}
-}
-
-// renderShellBlock frames shell command output in a content block. The border
-// is tinted to say whether the output was fed back into the conversation:
-// accent for included, muted for excluded.
-func (m *AppModel) renderShellBlock(content string, excludedFromContext bool) string {
-	theme := style.GetTheme()
-	borderClr := theme.Accent
-	if excludedFromContext {
-		borderClr = theme.Muted
-	}
-	return renderContentBlock(
-		content,
-		m.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(borderClr),
-		WithMarginBottom(1),
-	)
-}
-
-// handleShellCommandResult processes the result of a shell command execution.
-// It prints the output to the ScrollList and optionally injects it into the
-// conversation context (for ! commands) so the LLM can see it.
-func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) tea.Cmd {
-	// Build the display header.
-	var header string
-	if msg.ExcludeFromContext {
-		header = fmt.Sprintf("$ %s  (excluded from context)", msg.Command)
-	} else {
-		header = fmt.Sprintf("$ %s", msg.Command)
-	}
-
-	// Build the output content.
-	var content strings.Builder
-	content.WriteString(header)
-
-	// Display-level truncation: show first maxShellDisplayLines lines with a
-	// "...(N more lines)" hint, matching the tool result renderer behavior.
-	const maxShellDisplayLines = 20
-
-	displayOutput := msg.Output
-	var displayHiddenCount int
-	if displayOutput != "" {
-		lines := strings.Split(displayOutput, "\n")
-		// Cap individual line length to prevent long lines from wrapping
-		// into excessive visual rows.
-		maxLineChars := max(m.width*3, 200)
-		for i, line := range lines {
-			if len(line) > maxLineChars {
-				lines[i] = line[:maxLineChars] + "…"
-			}
-		}
-		if len(lines) > maxShellDisplayLines {
-			displayHiddenCount = len(lines) - maxShellDisplayLines
-			displayOutput = strings.Join(lines[:maxShellDisplayLines], "\n")
-		} else {
-			displayOutput = strings.Join(lines, "\n")
-		}
-	}
-
-	if msg.Err != nil {
-		fmt.Fprintf(&content, "\n\nError: %v", msg.Err)
-	} else if displayOutput != "" {
-		content.WriteString("\n\n")
-		content.WriteString(displayOutput)
-		if displayHiddenCount > 0 {
-			fmt.Fprintf(&content, "\n\n...(%d more lines)", displayHiddenCount)
-		}
-	} else {
-		content.WriteString("\n\n(no output)")
-	}
-
-	if msg.ExitCode != 0 {
-		fmt.Fprintf(&content, "\n\nExit code: %d", msg.ExitCode)
-	}
-
-	// Add shell command output to ScrollList. The rendered form is capped at
-	// maxShellDisplayLines, so the full output is kept alongside it as the
-	// item's raw content for the message inspector.
-	var raw strings.Builder
-	raw.WriteString(header)
-	if msg.Err != nil {
-		fmt.Fprintf(&raw, "\n\nError: %v", msg.Err)
-	}
-	if msg.Output != "" {
-		raw.WriteString("\n\n")
-		raw.WriteString(msg.Output)
-	} else if msg.Err == nil {
-		raw.WriteString("\n\n(no output)")
-	}
-	if msg.ExitCode != 0 {
-		fmt.Fprintf(&raw, "\n\nExit code: %d", msg.ExitCode)
-	}
-
-	display, excluded := content.String(), msg.ExcludeFromContext
-	msg2 := NewThemedMessageItem(generateMessageID(), "shell", raw.String(), func() string {
-		return m.renderShellBlock(display, excluded)
 	})
-	m.messages = append(m.messages, msg2)
+
+	return tea.Batch(cmds...)
+}
+
+// shellStreamReaderCmd returns a command that waits for one chunk on ch and
+// hands it to Update as a ShellStreamChunkMsg.
+//
+// Update re-arms the same command with the channel it gets back, so the pump
+// runs one chunk at a time and stops when the runner closes the channel.
+func shellStreamReaderCmd(itemID string, ch chan string) tea.Cmd {
+	return func() tea.Msg {
+		chunk, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return uicore.ShellStreamChunkMsg{ItemID: itemID, Chunk: chunk, Ch: ch}
+	}
+}
+
+// handleShellCommandChunk appends streamed output to the pending block and
+// re-arms the reader that feeds it.
+//
+// The chunk is raw. It is not normalized here: a chunk can end in the middle of
+// an escape sequence, and normalizing a partial chunk would drop the sequence
+// half of it forever. The block holds the raw bytes and normalizes the whole
+// buffer on each render, which repairs the split.
+func (m *AppModel) handleShellCommandChunk(msg uicore.ShellStreamChunkMsg) tea.Cmd {
+	item := m.shellRunItem(msg.ItemID)
+	if item != nil {
+		item.AppendOutput(msg.Chunk)
+		m.followShellRun(item.ID())
+	}
+
+	if msg.Ch == nil {
+		return nil
+	}
+	return shellStreamReaderCmd(msg.ItemID, msg.Ch)
+}
+
+// handleShellCommandResult settles the block for a command that has finished
+// and, for a `!` command, injects its output into the conversation so the model
+// can refer to it on the next turn.
+func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) tea.Cmd {
+	item := m.shellRunItem(msg.ItemID)
+	if item == nil {
+		// No pending block to settle. The only way here is a result with no ID,
+		// which no caller sends; append a finished block rather than dropping
+		// the output, because losing a command's result is worse than an extra
+		// block in the transcript.
+		item = NewShellRunItem(generateMessageID(), msg.Command, msg.ExcludeFromContext)
+		m.messages = append(m.messages, item)
+	}
+
+	switch {
+	case msg.Err != nil && !msg.TimedOut:
+		item.MarkFailed(fmt.Sprintf("error: %v", msg.Err))
+	case msg.TimedOut:
+		item.MarkTimedOut(msg.Output)
+	default:
+		item.MarkComplete(msg.Output, msg.ExitCode)
+	}
+
 	m.refreshContent()
+	m.followShellRun(item.ID())
 
 	// For ! (included in context): inject the command output into the
-	// conversation as a user message so the LLM can reference it on the
-	// next turn. This does NOT trigger an LLM response — it only adds
-	// to the conversation history.
+	// conversation as a user message so the LLM can reference it on the next
+	// turn. This does NOT trigger an LLM response — it only adds to the
+	// conversation history.
 	if !msg.ExcludeFromContext && m.appCtrl != nil {
-		// Truncate context output with the same limits as display.
-		contextOutput := msg.Output
-		if contextOutput != "" {
-			tr := core.TruncateTail(contextOutput, core.DefaultMaxLines, core.DefaultMaxBytes)
-			contextOutput = tr.Content
-		} else {
-			contextOutput = "(no output)"
-		}
-		contextMsg := fmt.Sprintf("<shell_command>\n<command>%s</command>\n<output>\n%s</output>\n<exit_code>%d</exit_code>\n</shell_command>",
-			msg.Command, contextOutput, msg.ExitCode)
-		m.appCtrl.AddContextMessage(contextMsg)
+		m.appCtrl.AddContextMessage(shellContextMessage(msg))
+	}
+	return nil
+}
+
+// shellContextMessage builds the conversation entry for a `!` command.
+//
+// The output is stripped of escape sequences first. The model reads text, and
+// a stream of colour codes is noise it can only misread — and it costs context
+// for every byte. Truncation keeps the tail, which is where the conclusion of
+// a command is.
+func shellContextMessage(msg uicore.ShellCommandResultMsg) string {
+	output := style.StripForContext(msg.Output)
+	if output == "" {
+		output = "(no output)"
+	} else {
+		output = core.TruncateTail(output, core.DefaultMaxLines, core.DefaultMaxBytes).Content
 	}
 
+	status := fmt.Sprintf("<exit_code>%d</exit_code>", msg.ExitCode)
+	if msg.TimedOut {
+		status = "<timed_out>true</timed_out>"
+	}
+	return fmt.Sprintf("<shell_command>\n<command>%s</command>\n<output>\n%s</output>\n%s\n</shell_command>",
+		msg.Command, output, status)
+}
+
+// shellRunItem finds the block for a shell run, or nil.
+func (m *AppModel) shellRunItem(id string) *ShellRunItem {
+	if id == "" {
+		return nil
+	}
+	for _, msg := range m.messages {
+		if item, ok := msg.(*ShellRunItem); ok && item.ID() == id {
+			return item
+		}
+	}
 	return nil
+}
+
+// followShellRun drops the cached height of a shell block and keeps the
+// viewport pinned to the bottom, unless the user has taken the scroll position
+// or is mid-selection.
+//
+// Both exceptions matter. Scrolling during a stream is how a user reads
+// something above it, and yanking the viewport back fights them. Holding the
+// mouse button while the list moves is the copy-selection drift the streaming
+// path in appendStreamingChunk already guards against.
+func (m *AppModel) followShellRun(id string) {
+	if m.scrollList == nil {
+		return
+	}
+	m.scrollList.InvalidateItemHeight(id)
+	if m.scrollList.IsMouseDown() {
+		return
+	}
+	if m.scrollList.autoScroll || m.scrollList.AtBottom() {
+		m.scrollList.autoScroll = true
+		m.scrollList.GotoBottom()
+	}
 }
 
 // computeGfxPlacement returns the escape sequence that redraws every

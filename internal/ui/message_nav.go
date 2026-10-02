@@ -434,6 +434,44 @@ func (m *AppModel) jumpToRole(role string, step int) {
 	}
 }
 
+// selectedShellRun returns the selected scrollback item when it is a bang-mode
+// shell block, and nil otherwise.
+func (m *AppModel) selectedShellRun() *ShellRunItem {
+	if m.scrollList == nil {
+		return nil
+	}
+	item, _ := m.scrollList.ItemAt(m.scrollList.SelectedIndex()).(*ShellRunItem)
+	return item
+}
+
+// toggleShellRunExpansion expands or collapses a shell block in place and
+// refreshes what the transcript has cached for it.
+func (m *AppModel) toggleShellRunExpansion(item *ShellRunItem) {
+	expanded := item.ToggleExpanded()
+	m.refreshContent()
+	m.followShellRun(item.ID())
+
+	// Expanding grows the item upwards as well as downwards, so the viewport has
+	// to be re-measured before it can decide where the bottom is.
+	if expanded {
+		m.scrollList.GotoBottom()
+		return
+	}
+	m.scrollList.InvalidateHeights()
+}
+
+// scrollSelectedShellRun moves a shell block's visible column window. A block
+// that cannot move reports it, so the key falls through to whatever else is
+// bound to it.
+func (m *AppModel) scrollSelectedShellRun(direction int) {
+	item := m.selectedShellRun()
+	if item == nil || !item.ScrollHorizontalBy(direction) {
+		return
+	}
+	m.refreshContent()
+	m.followShellRun(item.ID())
+}
+
 // copySelectedMessage puts the selected message's source text on the clipboard.
 //
 // The source is copied rather than the rendering: the latter carries the escape

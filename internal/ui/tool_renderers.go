@@ -116,6 +116,10 @@ type toolPanel struct {
 
 	text lipgloss.Style
 	err  lipgloss.Style
+	// fill paints the trailing padding. It is separate from text and err
+	// because the colour must be re-armed after the content rather than
+	// inherited from it; see line.
+	fill lipgloss.Style
 }
 
 // newToolPanel builds a panel sized for a tool body rendered at the given
@@ -127,9 +131,10 @@ func newToolPanel(bodyWidth int) toolPanel {
 	return toolPanel{
 		width:     width,
 		textWidth: max(width-panelPadding, 1),
-		text:      lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(panelPadding).Width(width),
+		text:      lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(panelPadding),
 		err: lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).
-			PaddingLeft(panelPadding).Width(width),
+			PaddingLeft(panelPadding),
+		fill: lipgloss.NewStyle().Background(theme.CodeBg),
 	}
 }
 
@@ -139,18 +144,32 @@ func newToolPanel(bodyWidth int) toolPanel {
 //
 // Truncation happens before styling because cutting a string that already
 // holds ANSI escapes truncates the escapes with it.
+//
+// The trailing padding is drawn after the content rather than by lipgloss's
+// Width. Command output carries its own escape sequences and may end a line
+// with `\x1b[0m`, which clears the background; padding drawn under that reset
+// would leave a hole in the panel. Re-arming the fill first keeps the surface
+// continuous.
 func (p toolPanel) line(s string, isErr bool) string {
 	s = truncateLine(s, p.textWidth)
 	if isErr {
-		return p.err.Render(s)
+		return p.finish(p.err.Render(s))
 	}
-	return p.text.Render(s)
+	return p.finish(p.text.Render(s))
+}
+
+// finish pads a rendered row out to the panel width.
+func (p toolPanel) finish(rendered string) string {
+	if gap := p.width - xansi.StringWidth(rendered); gap > 0 {
+		return rendered + p.fill.Render(strings.Repeat(" ", gap))
+	}
+	return rendered
 }
 
 // blank renders an empty panel row, used to separate sections without
 // breaking the background fill.
 func (p toolPanel) blank() string {
-	return p.text.Render("")
+	return p.finish(p.text.Render(""))
 }
 
 // captionTypography returns a herald instance that places a muted caption
@@ -1021,6 +1040,13 @@ func renderBashBody(toolArgs, toolResult string, width, maxLines int) string {
 	if strings.Contains(result, "<stdout>") || strings.Contains(result, "<stderr>") {
 		result = parseBashOutput(result, theme)
 	}
+
+	// Command output carries its own colour, now that the shell tool forces it,
+	// and it may also carry cursor control from progress bars. Cursor control is
+	// removed and the base colours are remapped onto the theme, so the panel
+	// shows the program's colours rather than the terminal's defaults, which on
+	// this background are often unreadable.
+	result = style.NormalizeOutput(result)
 
 	// Truncate to maxLines for display
 	lines := strings.Split(result, "\n")

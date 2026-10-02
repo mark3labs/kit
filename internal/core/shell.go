@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ToolOutputCallback is the signature for streaming tool output.
@@ -151,17 +152,77 @@ func (r shellResolution) commandArgs(command string) []string {
 	return append(args, command)
 }
 
-// ShellCommandArgs returns the process argument vector that runs one command
-// string through the configured shell, and the SHELL value to advertise to
-// child processes, empty when SHELL should stay inherited. It is the same
-// construction the shell tool uses, exported so that the TUI's ! and !!
-// commands execute through the same shell.
-func ShellCommandArgs(shell []string, command string) (args []string, shellPath string, err error) {
-	r, err := resolveShell(shell)
-	if err != nil {
-		return nil, "", err
+// colorForcingEnv is the environment every shell command runs under.
+//
+// The child has no terminal: its stdout is a pipe Kit reads. Programs decide to
+// emit colour from the terminal they are attached to, so piped output arrives
+// plain and all colour is lost. These three variables are the de-facto way to
+// ask for colour anyway, and between them they cover git, cargo, npm, eza, bat,
+// ripgrep, ls and most of the rest. No pseudo-terminal is allocated, which keeps
+// the code free of platform-specific PTY handling.
+var colorForcingEnv = []string{
+	"COLORTERM=truecolor",
+	"CLICOLOR_FORCE=1",
+	"FORCE_COLOR=1",
+}
+
+// nonInteractiveEnv is forced on every shell command. A command that opens an
+// editor or a pager has no terminal to do it with, so it hangs until the timeout
+// and produces nothing. These values are overrides rather than additions: a
+// user's EDITOR is preserved by their shell configuration for their own use, and
+// inheriting it into a non-interactive child buys nothing but a hang.
+//
+// PAGER=cat and GIT_PAGER=cat keep git from opening less on output it is about
+// to hand straight back to a pipe.
+var nonInteractiveEnv = []string{
+	"TERM=xterm-256color",
+	"GIT_EDITOR=false",
+	"EDITOR=false",
+	"VISUAL=false",
+	"PAGER=cat",
+	"GIT_PAGER=cat",
+}
+
+// shellEnv builds the environment for one shell command from base. It replaces
+// the SHELL variable when shellPath is set, forces the non-interactive values,
+// and forces colour.
+//
+// base is never modified: the returned slice is a fresh allocation, because
+// callers share one base across concurrent commands.
+func shellEnv(base []string, shellPath string) []string {
+	env := make([]string, 0, len(base)+len(nonInteractiveEnv)+len(colorForcingEnv)+1)
+
+	// NO_COLOR is an explicit request from the user for no colour anywhere, per
+	// no-color.org. It is honoured by not forcing colour, and not by adding a
+	// conflicting FORCE_COLOR next to it: the child would then see both and
+	// which one wins would depend on the program. The variable is still passed
+	// through in base, so a program that already understands it stays quiet.
+	forceColor := os.Getenv("NO_COLOR") == ""
+
+	override := make(map[string]bool, len(nonInteractiveEnv)+1)
+	override["SHELL"] = shellPath != ""
+	for _, kv := range nonInteractiveEnv {
+		if key, _, ok := strings.Cut(kv, "="); ok {
+			override[key] = true
+		}
 	}
-	return r.commandArgs(command), r.shellPath, nil
+
+	for _, kv := range base {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok && override[key] {
+			continue
+		}
+		env = append(env, kv)
+	}
+
+	if shellPath != "" {
+		env = append(env, "SHELL="+shellPath)
+	}
+	env = append(env, nonInteractiveEnv...)
+	if forceColor {
+		env = append(env, colorForcingEnv...)
+	}
+	return env
 }
 
 // shellDisplayName is the shell as the tool descriptions name it: the
@@ -408,12 +469,11 @@ func executeShell(ctx context.Context, call fantasy.ToolCall, workDir string, sh
 		cmd.Dir = workDir
 	}
 
-	// Ensure SHELL is set to the resolved shell so child processes (e.g. tmux)
-	// use it rather than the user's login shell (which may be nushell, fish,
-	// etc.). A launcher vector leaves SHELL inherited; see resolveShell.
-	if resolution.shellPath != "" {
-		cmd.Env = append(os.Environ(), "SHELL="+resolution.shellPath)
-	}
+	// SHELL points at the resolved shell so child processes (e.g. tmux) use it
+	// rather than the login shell of the user, which may be nushell or fish.
+	// The same environment also forces colour and the non-interactive
+	// overrides; see shellEnv.
+	cmd.Env = shellEnv(os.Environ(), resolution.shellPath)
 
 	// Get the output callback if present (for streaming support)
 	outputCallback := toolOutputCallbackFromContext(ctx)
@@ -489,32 +549,29 @@ func (p *shellPipes) waitForDrain(readersDone <-chan struct{}) {
 	}
 }
 
-// setupShellPipes opens stdout/stderr pipes (plus an optional sudo stdin),
-// starts the command, and asynchronously writes the sudo password if any.
-// Returns the readers ready for the caller to consume. If setup fails,
-// errResp is non-nil and the readers must not be used; the caller should
-// return the response directly.
+// openShellPipes attaches stdout/stderr pipes to cmd, starts it, and returns
+// the parent's read ends. It fails without starting the command only when a pipe
+// cannot be created; a failure to start returns an error too, and the caller
+// must not use the returned pipes in that case.
 //
 // The caller owns the returned pipes and must drain them via
 // [shellPipes.waitForDrain] after cmd.Wait returns.
-func setupShellPipes(cmd *exec.Cmd, sudoPassword string) (pipes *shellPipes, errResp *fantasy.ToolResponse) {
-	fail := func(msg string) (*shellPipes, *fantasy.ToolResponse) {
-		r := fantasy.NewTextErrorResponse(msg)
-		return nil, &r
-	}
-
+//
+// sudoPassword is written to the command's standard input from a goroutine when
+// non-empty, for a command that needs a password and cannot prompt for one.
+func openShellPipes(cmd *exec.Cmd, sudoPassword string) (*shellPipes, error) {
 	// os.Pipe rather than cmd.StdoutPipe: see the shellPipes doc comment. The
 	// write ends are handed to the child and closed in the parent right after
 	// Start, so the readers see EOF once every writer has exited.
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
-		return fail("failed to create stdout pipe")
+		return nil, errors.New("failed to create stdout pipe")
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
 		_ = stdoutR.Close()
 		_ = stdoutW.Close()
-		return fail("failed to create stderr pipe")
+		return nil, errors.New("failed to create stderr pipe")
 	}
 	cmd.Stdout = stdoutW
 	cmd.Stderr = stderrW
@@ -531,13 +588,13 @@ func setupShellPipes(cmd *exec.Cmd, sudoPassword string) (pipes *shellPipes, err
 		stdinPipe, err = cmd.StdinPipe()
 		if err != nil {
 			closeAll()
-			return fail("failed to create stdin pipe")
+			return nil, errors.New("failed to create stdin pipe")
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
 		closeAll()
-		return fail(fmt.Sprintf("failed to start command: %v", err))
+		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
 
 	// Drop the parent's copies of the write ends. Without this the readers
@@ -553,6 +610,18 @@ func setupShellPipes(cmd *exec.Cmd, sudoPassword string) (pipes *shellPipes, err
 	}
 
 	return &shellPipes{stdout: stdoutR, stderr: stderrR}, nil
+}
+
+// setupShellPipes is openShellPipes with the tool-response error type, for the
+// shell tool path. A caller outside the tool path should use openShellPipes and
+// handle the error itself.
+func setupShellPipes(cmd *exec.Cmd, sudoPassword string) (pipes *shellPipes, errResp *fantasy.ToolResponse) {
+	p, err := openShellPipes(cmd, sudoPassword)
+	if err != nil {
+		r := fantasy.NewTextErrorResponse(err.Error())
+		return nil, &r
+	}
+	return p, nil
 }
 
 // interpretShellExit decodes cmd.Wait()'s error into an exit code, mapping
@@ -715,17 +784,23 @@ func executeShellStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *e
 }
 
 // buildShellResponse constructs the final tool response from stdout/stderr.
+//
+// Escape sequences are removed here rather than left for the display layer. This
+// text is what the model reads: the shell forces colour so the transcript can
+// show it, and every one of those bytes would otherwise be spent on context the
+// model cannot use and may misread as content. The transcript keeps the coloured
+// original because it receives the streamed bytes directly.
 func buildShellResponse(stdout, stderr string, exitCode int) (fantasy.ToolResponse, error) {
 	var result strings.Builder
 	if stdout != "" {
-		result.WriteString(stdout)
+		result.WriteString(ansi.Strip(stdout))
 	}
 	if stderr != "" {
 		if result.Len() > 0 {
 			result.WriteString("\n")
 		}
 		result.WriteString("STDERR:\n")
-		result.WriteString(stderr)
+		result.WriteString(ansi.Strip(stderr))
 	}
 	if exitCode != 0 {
 		if result.Len() > 0 {

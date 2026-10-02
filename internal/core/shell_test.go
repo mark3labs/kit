@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -237,18 +239,31 @@ func TestResolveShell_LauncherVectorLeavesSHELLAlone(t *testing.T) {
 	}
 }
 
-func TestShellCommandArgs_MatchesTheToolConstruction(t *testing.T) {
-	args, shellPath, err := ShellCommandArgs([]string{"busybox", "ash"}, "make all")
+// TestRunShellCommandLauncherVector checks that a launcher vector
+// reaches the bang-mode runner intact: the leading arguments the user configured
+// must sit in front of the shell name, not be treated as the shell itself.
+func TestRunShellCommandLauncherVector(t *testing.T) {
+	if _, err := exec.LookPath("busybox"); err != nil {
+		t.Skip("busybox is not installed")
+	}
+
+	res, err := RunShellCommand(context.Background(), ShellRunOptions{
+		Command: "echo launcher-ok",
+		Shell:   []string{"busybox", "ash"},
+	})
 	if err != nil {
-		t.Fatalf("ShellCommandArgs: %v", err)
+		t.Fatalf("RunShellCommand: %v", err)
 	}
-	if !reflect.DeepEqual(args, []string{"busybox", "ash", "-c", "make all"}) {
-		t.Errorf("args = %#v", args)
+	if !strings.Contains(res.Output, "launcher-ok") {
+		t.Errorf("a launcher vector did not run the shell: %q", res.Output)
 	}
-	if shellPath != "" {
-		t.Errorf("shellPath = %q, want empty for a launcher vector", shellPath)
-	}
-	if _, _, err := ShellCommandArgs([]string{""}, "true"); err == nil {
-		t.Error("an empty element must be rejected")
+}
+
+func TestRunShellCommandRejectsEmptyShellElement(t *testing.T) {
+	if _, err := RunShellCommand(context.Background(), ShellRunOptions{
+		Command: "true",
+		Shell:   []string{""},
+	}); err == nil {
+		t.Error("an empty shell element must be rejected")
 	}
 }

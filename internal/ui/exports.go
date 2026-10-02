@@ -21,6 +21,7 @@ type (
 	TreeCancelledMsg      = core.TreeCancelledMsg
 	ShellCommandMsg       = core.ShellCommandMsg
 	ShellCommandResultMsg = core.ShellCommandResultMsg
+	ShellStreamChunkMsg   = core.ShellStreamChunkMsg
 )
 
 // Re-export from commands package
