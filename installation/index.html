@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Installation | Kit</title>
-<meta name="description" content="Install Kit using the install script, npm, bun, pnpm, Go, or build from source.">
+<meta name="description" content="Install Kit using the install script, npm, bun, pnpm, Nix, Go, or build from source.">
 <link rel="canonical" href="/installation">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CQPklX4F.js"></script>
+<script type="module" src="/assets/index-Bb6Stx3_.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -56,6 +56,24 @@ bun install -g @mark3labs/kit
 ```bash
 pnpm install -g @mark3labs/kit
 ```
+
+## Using Nix
+
+```bash
+nix profile install github:mark3labs/kit
+```
+
+This installs the newest tagged release, built from source for linux and macOS
+on amd64 and arm64. To install a specific release instead, name its tag:
+
+```bash
+nix profile install github:mark3labs/kit/v0.111.0
+```
+
+Run `nix develop` in a clone to hack on kit with a Nix-provided toolchain: it
+puts `go` (the version `go.mod` asks for), `gopls`, and `golangci-lint` on
+`$PATH`; build the binary yourself with `go build ./cmd/kit`. See
+[Development](/development) for details.
 
 ## Using Go
 

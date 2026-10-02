@@ -44,6 +44,24 @@ bun install -g @mark3labs/kit
 pnpm install -g @mark3labs/kit
 ```
 
+## Using Nix
+
+```bash
+nix profile install github:mark3labs/kit
+```
+
+This installs the newest tagged release, built from source for linux and macOS
+on amd64 and arm64. To install a specific release instead, name its tag:
+
+```bash
+nix profile install github:mark3labs/kit/v0.111.0
+```
+
+Run `nix develop` in a clone to hack on kit with a Nix-provided toolchain: it
+puts `go` (the version `go.mod` asks for), `gopls`, and `golangci-lint` on
+`$PATH`; build the binary yourself with `go build ./cmd/kit`. See
+[Development](/development) for details.
+
 ## Using Go
 
 ```bash

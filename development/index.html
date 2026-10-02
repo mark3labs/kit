@@ -7,7 +7,7 @@
 <meta name="description" content="Build, test, and contribute to Kit.">
 <link rel="canonical" href="/development">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CQPklX4F.js"></script>
+<script type="module" src="/assets/index-Bb6Stx3_.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -32,6 +32,20 @@ go vet ./...
 # Format
 go fmt ./...
 ```
+
+## Nix
+
+The repository ships a flake. If you use Nix, you can get the toolchain
+without installing Go by hand:
+
+```bash
+nix develop
+```
+
+The shell puts `go` (the version `go.mod` asks for), `gopls`, and
+`golangci-lint` on your `$PATH` — it ships no prebuilt `kit`, so build it
+yourself with `go build ./cmd/kit`. To build or install a released `kit`
+binary instead, see [Using Nix](/installation#using-nix).
 
 ## Project structure
 

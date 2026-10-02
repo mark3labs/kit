@@ -14,6 +14,14 @@ var e={frontmatter:{title:`Development`,description:`Build, test, and contribute
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Format</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> fmt</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ./...</span></span></code></pre>
+<h2 id="nix"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#nix"><span class="icon icon-link"></span></a>Nix</h2>
+<p>The repository ships a flake. If you use Nix, you can get the toolchain
+without installing Go by hand:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">nix</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> develop</span></span></code></pre>
+<p>The shell puts <code>go</code> (the version <code>go.mod</code> asks for), <code>gopls</code>, and
+<code>golangci-lint</code> on your <code>$PATH</code> — it ships no prebuilt <code>kit</code>, so build it
+yourself with <code>go build ./cmd/kit</code>. To build or install a released <code>kit</code>
+binary instead, see <a href="/installation#using-nix">Using Nix</a>.</p>
 <h2 id="project-structure"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#project-structure"><span class="icon icon-link"></span></a>Project structure</h2>
 <pre><code>cmd/kit/             - CLI entry point (main.go)
 cmd/                 - CLI command implementations (root, auth, models, etc.)
@@ -55,7 +63,7 @@ npm/                 - NPM package wrapper for distribution
 <ul>
 <li><a href="https://discord.gg/RqSS2NQVsY">Discord</a></li>
 <li><a href="https://github.com/mark3labs/kit/issues">GitHub Issues</a></li>
-</ul>`,headings:[{depth:2,text:`Build and test`,id:`build-and-test`},{depth:2,text:`Project structure`,id:`project-structure`},{depth:2,text:`Architecture overview`,id:`architecture-overview`},{depth:3,text:`Multi-provider LLM support`,id:`multi-provider-llm-support`},{depth:3,text:`MCP client-server model`,id:`mcp-client-server-model`},{depth:3,text:`Extension system`,id:`extension-system`},{depth:3,text:`TUI architecture`,id:`tui-architecture`},{depth:3,text:`Decoupling pattern`,id:`decoupling-pattern`},{depth:2,text:`Contributing`,id:`contributing`},{depth:2,text:`Community`,id:`community`}],raw:`
+</ul>`,headings:[{depth:2,text:`Build and test`,id:`build-and-test`},{depth:2,text:`Nix`,id:`nix`},{depth:2,text:`Project structure`,id:`project-structure`},{depth:2,text:`Architecture overview`,id:`architecture-overview`},{depth:3,text:`Multi-provider LLM support`,id:`multi-provider-llm-support`},{depth:3,text:`MCP client-server model`,id:`mcp-client-server-model`},{depth:3,text:`Extension system`,id:`extension-system`},{depth:3,text:`TUI architecture`,id:`tui-architecture`},{depth:3,text:`Decoupling pattern`,id:`decoupling-pattern`},{depth:2,text:`Contributing`,id:`contributing`},{depth:2,text:`Community`,id:`community`}],raw:`
 # Development
 
 ## Build and test
@@ -76,6 +84,20 @@ go vet ./...
 # Format
 go fmt ./...
 \`\`\`
+
+## Nix
+
+The repository ships a flake. If you use Nix, you can get the toolchain
+without installing Go by hand:
+
+\`\`\`bash
+nix develop
+\`\`\`
+
+The shell puts \`go\` (the version \`go.mod\` asks for), \`gopls\`, and
+\`golangci-lint\` on your \`$PATH\` — it ships no prebuilt \`kit\`, so build it
+yourself with \`go build ./cmd/kit\`. To build or install a released \`kit\`
+binary instead, see [Using Nix](/installation#using-nix).
 
 ## Project structure
 

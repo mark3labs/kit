@@ -188,6 +188,7 @@
       "description": "Build, test, and contribute to Kit.",
       "headings": [
         "Build and test",
+        "Nix",
         "Project structure",
         "Architecture overview",
         "Multi-provider LLM support",
@@ -199,7 +200,7 @@
         "Community"
       ],
       "tags": [],
-      "wordCount": 354
+      "wordCount": 420
     },
     {
       "id": "extensions/capabilities",
@@ -359,17 +360,18 @@
       "id": "installation",
       "url": "https://go-kit.dev/installation",
       "title": "Installation",
-      "description": "Install Kit using the install script, npm, bun, pnpm, Go, or build from source.",
+      "description": "Install Kit using the install script, npm, bun, pnpm, Nix, Go, or build from source.",
       "headings": [
         "Using the install script (macOS / Linux)",
         "Using npm / bun / pnpm",
+        "Using Nix",
         "Using Go",
         "Building from source",
         "Verifying the installation",
         "Setting up a provider"
       ],
       "tags": [],
-      "wordCount": 304
+      "wordCount": 384
     },
     {
       "id": "providers",
