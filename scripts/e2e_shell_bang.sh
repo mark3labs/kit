@@ -5,7 +5,11 @@
 # Usage: e2e_shell_bang.sh [session-name]
 set -uo pipefail
 
-KIT=${KIT:-output/kit}
+# REPO is the working directory both tmux sessions run in. It is resolved from
+# the script's own location so the script works on any checkout, and can be
+# overridden for a build that lives elsewhere.
+REPO=${REPO:-$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)}
+KIT=${KIT:-$REPO/output/kit}
 SESSION=${1:-kitbash}
 W=110
 H=38
@@ -77,7 +81,7 @@ assert_styled() {
 
 note "starting kit"
 tmux new-session -d -s "$SESSION" -x "$W" -y "$H" \
-    "cd /home/space_cowboy/Workspace/kit && $KIT --no-session 2>/tmp/kitbash_stderr.log"
+    "cd '$REPO' && $KIT --no-session 2>/tmp/kitbash_stderr.log"
 sleep 4
 tmux send-keys -t "$SESSION" -X clear 2>/dev/null
 
@@ -251,6 +255,13 @@ fi
 tmux send-keys -t "$SESSION" Escape
 sleep 1
 
+# Expanding no longer sends the viewport to the bottom of the transcript — that
+# was the bug this script's sibling tests cover — so a block selected in
+# navigation mode leaves the viewport up there. Ctrl+End brings it back for the
+# checks that follow, the same way a user would.
+tmux send-keys -t "$SESSION" C-End
+sleep 1
+
 # ---------------------------------------------------------------------------
 note "8. stderr is shown"
 tmux send-keys -t "$SESSION" '!sh -c "echo to-stdout; echo to-stderr >&2"' Enter
@@ -340,7 +351,7 @@ note "12b. NO_COLOR set on kit suppresses the colour"
 # not add FORCE_COLOR beside it, so the program stays plain.
 tmux kill-session -t nocolor 2>/dev/null
 tmux new-session -d -s nocolor -x "$W" -y "$H" \
-    "cd /home/space_cowboy/Workspace/kit && NO_COLOR=1 $KIT --no-session 2>/tmp/kitnocolor_stderr.log"
+    "cd '$REPO' && NO_COLOR=1 $KIT --no-session 2>/tmp/kitnocolor_stderr.log"
 sleep 4
 tmux send-keys -t nocolor '!printf "\033[32mnc\033[0m\n"' Enter
 sleep 3

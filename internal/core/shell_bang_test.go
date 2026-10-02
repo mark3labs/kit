@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-func TestShellEnvForcesColor(t *testing.T) {
+func TestShellEnvForcesColorWhenAsked(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 
-	env := shellEnv([]string{"PATH=/bin", "FORCE_COLOR=0"}, "/bin/bash")
+	env := shellEnv([]string{"PATH=/bin", "FORCE_COLOR=0"}, "/bin/bash", true)
 	want := []string{
 		"COLORTERM=truecolor",
 		"CLICOLOR_FORCE=1",
@@ -36,7 +36,7 @@ func TestShellEnvForcesColor(t *testing.T) {
 func TestShellEnvOverridesRatherThanAppends(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 
-	env := shellEnv([]string{"EDITOR=nvim", "PAGER=less", "PATH=/bin"}, "")
+	env := shellEnv([]string{"EDITOR=nvim", "PAGER=less", "PATH=/bin"}, "", true)
 	if n := countEnv(env, "EDITOR="); n != 1 {
 		t.Errorf("EDITOR appears %d times: %v", n, env)
 	}
@@ -57,7 +57,7 @@ func TestShellEnvOverridesRatherThanAppends(t *testing.T) {
 func TestShellEnvHonoursNoColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 
-	env := shellEnv([]string{"PATH=/bin", "NO_COLOR=1"}, "/bin/bash")
+	env := shellEnv([]string{"PATH=/bin", "NO_COLOR=1"}, "/bin/bash", true)
 	for _, k := range []string{"FORCE_COLOR", "CLICOLOR_FORCE", "COLORTERM"} {
 		if n := countEnv(env, k+"="); n != 0 {
 			t.Errorf("%s was set %d times with NO_COLOR present: %v", k, n, env)
@@ -73,9 +73,26 @@ func TestShellEnvDoesNotMutateInput(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	base := []string{"EDITOR=nvim", "PATH=/bin"}
 	before := len(base)
-	shellEnv(base, "/bin/bash")
+	shellEnv(base, "/bin/bash", true)
 	if len(base) != before || base[0] != "EDITOR=nvim" {
 		t.Errorf("base was modified: %v", base)
+	}
+}
+
+// Colour is a per-caller decision. The shell tool must not get it, because the
+// variables reach every process in the command tree.
+func TestShellEnvOmitsColorWhenNotAsked(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	env := shellEnv([]string{"PATH=/bin"}, "/bin/bash", false)
+	for _, k := range []string{"FORCE_COLOR", "CLICOLOR_FORCE", "COLORTERM"} {
+		if n := countEnv(env, k+"="); n != 0 {
+			t.Errorf("%s was set %d times with colour declined: %v", k, n, env)
+		}
+	}
+	// The non-interactive overrides are unconditional.
+	if got := envValue(env, "PAGER"); got != "cat" {
+		t.Errorf("PAGER = %q, want cat", got)
 	}
 }
 

@@ -185,11 +185,23 @@ var nonInteractiveEnv = []string{
 
 // shellEnv builds the environment for one shell command from base. It replaces
 // the SHELL variable when shellPath is set, forces the non-interactive values,
-// and forces colour.
+// and adds the colour variables when wantColor is set.
+//
+// Colour is a per-caller decision rather than a global one, because these
+// variables are not scoped to the child: they describe the terminal the whole
+// process tree believes it is attached to. A bang command wants that, because a
+// person is reading the output. A command the model issued does not, because
+// every process inside it inherits the answer:
+//
+//	ls > files.txt        → escape bytes written into the file
+//	some-tool | jq .      → the parser sees escape bytes and fails
+//
+// Nothing downstream can repair that. The tool result is stripped on the way
+// out, but a file on disk or the output of an intermediate pipe is not.
 //
 // base is never modified: the returned slice is a fresh allocation, because
 // callers share one base across concurrent commands.
-func shellEnv(base []string, shellPath string) []string {
+func shellEnv(base []string, shellPath string, wantColor bool) []string {
 	env := make([]string, 0, len(base)+len(nonInteractiveEnv)+len(colorForcingEnv)+1)
 
 	// NO_COLOR is an explicit request from the user for no colour anywhere, per
@@ -197,7 +209,7 @@ func shellEnv(base []string, shellPath string) []string {
 	// conflicting FORCE_COLOR next to it: the child would then see both and
 	// which one wins would depend on the program. The variable is still passed
 	// through in base, so a program that already understands it stays quiet.
-	forceColor := os.Getenv("NO_COLOR") == ""
+	forceColor := wantColor && os.Getenv("NO_COLOR") == ""
 
 	override := make(map[string]bool, len(nonInteractiveEnv)+1)
 	override["SHELL"] = shellPath != ""
@@ -471,9 +483,13 @@ func executeShell(ctx context.Context, call fantasy.ToolCall, workDir string, sh
 
 	// SHELL points at the resolved shell so child processes (e.g. tmux) use it
 	// rather than the login shell of the user, which may be nushell or fish.
-	// The same environment also forces colour and the non-interactive
-	// overrides; see shellEnv.
-	cmd.Env = shellEnv(os.Environ(), resolution.shellPath)
+	// The same environment also forces the non-interactive overrides.
+	//
+	// Colour is deliberately not forced here. This command was chosen by the
+	// model and every process it starts inherits the environment, so forcing
+	// colour would put escape bytes into files and into the output of any pipe
+	// inside the command line. See shellEnv.
+	cmd.Env = shellEnv(os.Environ(), resolution.shellPath, false)
 
 	// Get the output callback if present (for streaming support)
 	outputCallback := toolOutputCallbackFromContext(ctx)

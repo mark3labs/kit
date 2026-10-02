@@ -2,17 +2,17 @@ package core
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 )
 
-// The two consumers of shell tool output need opposite treatments, and this is
-// the property that keeps them separate: the transcript gets the colour, the
-// model gets plain text.
-//
-// It is the whole reason the shell forces colour. Without it the program emits
-// nothing, and there is nothing for the two paths to disagree about.
+// A program that emits colour unconditionally must still reach the transcript
+// coloured while the model sees plain text. The shell tool does not force
+// colour any more (see shellEnv), so this is about the split rather than about
+// the environment.
 func TestShellToolColourReachesStreamButNotModel(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 
@@ -44,22 +44,98 @@ func TestShellToolColourReachesStreamButNotModel(t *testing.T) {
 	}
 }
 
-// Colour is only forced when the user has not asked for none. The program here
-// emits colour unconditionally, so what the test actually pins down is that kit
-// did not put a conflicting FORCE_COLOR next to the user's NO_COLOR.
-func TestShellToolRespectsNoColor(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
+// probeColorEnv is the command used to report which colour variables a child
+// actually sees.
+const probeColorEnv = `printf 'C=[%s] F=[%s] CF=[%s]\n' "$COLORTERM" "$FORCE_COLOR" "$CLICOLOR_FORCE"`
+
+// The shell tool must not force colour. These variables are not scoped to the
+// child: they tell every process in the tree that a terminal is attached, so
+// forcing them for a model-issued command writes escape bytes into files and
+// into the output of any pipe inside the command line. Nothing downstream can
+// repair that — the tool result is stripped on the way out, but a file on disk
+// and an intermediate pipe are not.
+func TestShellToolDoesNotForceColour(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 
 	resp, err := executeShell(context.Background(),
-		shellCall(`printf 'COLORTERM=[%s] CLICOLOR_FORCE=[%s] FORCE_COLOR=[%s]\n' "$COLORTERM" "$CLICOLOR_FORCE" "$FORCE_COLOR"`, 0),
-		"", nil, defaultShellTimeout, maxShellTimeout)
+		shellCall(probeColorEnv, 0), "", nil, defaultShellTimeout, maxShellTimeout)
 	if err != nil {
 		t.Fatalf("executeShell: %v", err)
 	}
-
-	for _, name := range []string{"COLORTERM", "CLICOLOR_FORCE", "FORCE_COLOR"} {
+	for _, name := range []string{"C", "F", "CF"} {
 		if !strings.Contains(resp.Content, name+"=[]") {
-			t.Errorf("%s was forced despite NO_COLOR: %q", name, resp.Content)
+			t.Errorf("the shell tool forced %s: %q", name, resp.Content)
+		}
+	}
+}
+
+// A redirect inside a model-issued command must receive plain bytes. This is the
+// failure the tool path exists to avoid: `some-tool > file` would otherwise
+// leave escape sequences in a file the model reads back later.
+func TestShellToolRedirectReceivesPlainBytes(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.txt")
+	// A program that colours whenever it is told to, written so that the only
+	// thing deciding its behaviour is the environment kit handed it.
+	script := filepath.Join(dir, "colour.sh")
+	body := `#!/bin/sh
+if [ -n "$FORCE_COLOR" ] || [ -n "$CLICOLOR_FORCE" ]; then
+  printf '\033[31mdanger\033[0m\n'
+else
+  printf 'danger\n'
+fi
+`
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	if _, err := executeShell(context.Background(),
+		shellCall(script+" > "+target, 0), dir, nil, defaultShellTimeout, maxShellTimeout); err != nil {
+		t.Fatalf("executeShell: %v", err)
+	}
+
+	written, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read redirect target: %v", err)
+	}
+	if strings.ContainsRune(string(written), 0x1b) {
+		t.Errorf("a redirect received escape sequences: %q", written)
+	}
+	if !strings.Contains(string(written), "danger") {
+		t.Errorf("the redirect lost its content: %q", written)
+	}
+}
+
+// The bang path is the one that wants colour: a person is reading the output.
+func TestBangCommandForcesColour(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	res, err := RunShellCommand(context.Background(), ShellRunOptions{Command: probeColorEnv})
+	if err != nil {
+		t.Fatalf("RunShellCommand: %v", err)
+	}
+	for _, name := range []string{"C", "F", "CF"} {
+		if strings.Contains(res.Output, name+"=[]") {
+			t.Errorf("the bang path did not force %s: %q", name, res.Output)
+		}
+	}
+}
+
+// NO_COLOR is honoured by not forcing colour, and not by putting a conflicting
+// FORCE_COLOR next to the user's NO_COLOR. The program here reports what it
+// sees either way, so this pins down the environment and nothing else.
+func TestBangCommandRespectsNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	res, err := RunShellCommand(context.Background(), ShellRunOptions{Command: probeColorEnv})
+	if err != nil {
+		t.Fatalf("RunShellCommand: %v", err)
+	}
+	for _, name := range []string{"C", "F", "CF"} {
+		if !strings.Contains(res.Output, name+"=[]") {
+			t.Errorf("%s was forced despite NO_COLOR: %q", name, res.Output)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -113,7 +114,10 @@ func RunShellCommand(ctx context.Context, opts ShellRunOptions) (ShellRunResult,
 	if opts.WorkDir != "" {
 		cmd.Dir = opts.WorkDir
 	}
-	cmd.Env = shellEnv(os.Environ(), resolution.shellPath)
+	// Colour is forced here, unlike on the shell tool path. A bang command is
+	// typed by a person who is reading the output, and nothing inside it
+	// redirects or pipes that output anywhere the user did not intend.
+	cmd.Env = shellEnv(os.Environ(), resolution.shellPath, true)
 
 	pipes, err := openShellPipes(cmd, "")
 	if err != nil {
@@ -195,9 +199,11 @@ func exitCodeOf(waitErr error) int {
 			return code
 		}
 		// ExitCode reports -1 when the process died from a signal, so the
-		// status is reconstructed here.
-		if status, ok := exitErr.Sys().(interface{ Signaled() bool }); ok && status.Signaled() {
-			return 128
+		// status is reconstructed here. WaitStatus.Signaled reports false and
+		// Signal returns -1 on Windows, where this type exists but carries no
+		// signal information, so the type assertion is safe to make there.
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return 128 + int(ws.Signal())
 		}
 		return 1
 	}

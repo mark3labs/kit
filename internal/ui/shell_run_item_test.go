@@ -542,6 +542,108 @@ func TestShellRunItemExpandedViewIsBounded(t *testing.T) {
 	}
 }
 
+// The hidden count must describe lines the block actually dropped. Most
+// commands end their output with a newline, and trimming it used to leave the
+// notice one line too high on nearly every capped block.
+func TestShellRunItemHiddenCountIsAccurate(t *testing.T) {
+	const total = 60
+
+	// With a trailing newline: 60 lines, 12 shown, 48 hidden.
+	trimmed := NewShellRunItem("id", "seq 1 60", false)
+	trimmed.MarkComplete(lines(1, total+1), 0)
+	if got := noticeLineOf(t, trimmed); !strings.Contains(got, "48 more lines") {
+		t.Errorf("with a trailing newline: %q, want 48 more lines", got)
+	}
+
+	// Without one: the same 60 lines, the same 48 hidden.
+	untrimmed := NewShellRunItem("id", "seq 1 60", false)
+	untrimmed.MarkComplete(strings.TrimSuffix(lines(1, total+1), "\n"), 0)
+	if got := noticeLineOf(t, untrimmed); !strings.Contains(got, "48 more lines") {
+		t.Errorf("without a trailing newline: %q, want 48 more lines", got)
+	}
+}
+
+func TestShellRunItemHiddenCountWhilePending(t *testing.T) {
+	item := NewShellRunItem("id", "seq 1 60", false)
+	for i := 1; i <= 60; i++ {
+		item.AppendOutput(itoa(i) + "\n")
+	}
+	if got := noticeLineOf(t, item); !strings.Contains(got, "48 earlier lines") {
+		t.Errorf("%q, want 48 earlier lines", got)
+	}
+}
+
+// noticeLineOf returns the truncation notice from a rendered block.
+func noticeLineOf(t *testing.T, item *ShellRunItem) string {
+	t.Helper()
+	for line := range strings.SplitSeq(xansi.Strip(item.Render(80)), "\n") {
+		if strings.Contains(line, "more lines") || strings.Contains(line, "earlier lines") {
+			return strings.TrimSpace(line)
+		}
+	}
+	t.Fatalf("no truncation notice in %q", xansi.Strip(item.Render(80)))
+	return ""
+}
+
+// A window cut inside an escape sequence must not print the fragment as text.
+// This needs the cut to land inside the sequence rather than in the text run,
+// which is what happens when one line is long enough to hit the byte budget.
+func TestShellRunItemStraddlingEscapeIsNotPrinted(t *testing.T) {
+	const seq = "\x1b[32m"
+
+	// Place the sequence so it begins two bytes before the offset
+	// lastWindowBytes cuts at, putting the cut inside the final byte.
+	total := shellWindowMaxBytes + 10
+	cut := total - shellWindowMaxBytes
+	prefix := strings.Repeat("X", cut-2)
+	line := prefix + seq + strings.Repeat("Y", total-len(prefix)-len(seq))
+	if len(line) != total {
+		t.Fatalf("test setup: len = %d, want %d", len(line), total)
+	}
+
+	item := NewShellRunItem("id", "huge", false)
+	item.AppendOutput(line)
+
+	out := xansi.Strip(item.Render(80))
+	if strings.Contains(out, "32m") {
+		t.Errorf("a fragment of the sequence reached the frame: %.80q", out)
+	}
+	if !strings.Contains(out, "Y") {
+		t.Errorf("the window is empty: %.80q", out)
+	}
+}
+
+// The inspector and the clipboard both read RawContent, and neither can use
+// escape sequences: one draws it inside an overlay, the other pastes it
+// somewhere that has no styling.
+func TestShellRunItemRawContentIsPlain(t *testing.T) {
+	item := NewShellRunItem("id", "colour", false)
+	item.MarkComplete("\x1b[31mRED\x1b[0m text\n", 0)
+
+	raw := item.RawContent()
+	if strings.ContainsRune(raw, 0x1b) {
+		t.Errorf("RawContent carries escape sequences: %q", raw)
+	}
+	for _, want := range []string{"$ colour", "RED text"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("RawContent missing %q: %q", want, raw)
+		}
+	}
+}
+
+func TestShellRunItemRawContentReportsFailure(t *testing.T) {
+	item := NewShellRunItem("id", "fail", false)
+	item.MarkTimedOut("partial output\n")
+
+	raw := item.RawContent()
+	if !strings.Contains(raw, "(timed out)") {
+		t.Errorf("RawContent does not report the timeout: %q", raw)
+	}
+	if !strings.Contains(raw, "partial output") {
+		t.Errorf("RawContent lost the output collected before the kill: %q", raw)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks
 //

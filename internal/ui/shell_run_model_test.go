@@ -122,10 +122,17 @@ func TestShellCommandResultReplacesStreamedOutput(t *testing.T) {
 	m = sendMsg(m, uicore.ShellStreamChunkMsg{ItemID: id, Chunk: "1\n2\n3\n"})
 	m = sendMsg(m, uicore.ShellCommandResultMsg{Command: "seq 1 3", Output: "1\n2\n3\n", ItemID: id})
 
-	out := m.shellRunItem(id).RawContent()
+	raw := m.shellRunItem(id).RawContent()
+	// Only the output section is counted. The header repeats the command text,
+	// and the command is "seq 1 3", so a whole-string count would match "3\n"
+	// there too.
+	_, out, found := strings.Cut(raw, "\n\n")
+	if !found {
+		t.Fatalf("RawContent has no output section: %q", raw)
+	}
 	for _, want := range []string{"1\n", "2\n", "3\n"} {
 		if n := strings.Count(out, want); n != 1 {
-			t.Errorf("expected one copy of %q, got %d: %q", want, n, out)
+			t.Errorf("expected one copy of %q in the output, got %d: %q", want, n, out)
 		}
 	}
 }
@@ -412,6 +419,52 @@ func TestSelectedShellRunOnlyMatchesShellItems(t *testing.T) {
 
 	if m.selectedShellRun() != item {
 		t.Error("the shell block was not selected")
+	}
+}
+
+// Expanding a block must keep that block on screen. In navigation mode the
+// selection can be any item, so scrolling to the bottom of the transcript would
+// move the block the user is reading out of sight.
+func TestToggleShellRunExpansionKeepsSelectionVisible(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+
+	// Several finished blocks, so there is a newer item below the selected one.
+	var items []*ShellRunItem
+	for i := range 5 {
+		item := NewShellRunItem(itoa(i), "seq 1 60", false)
+		item.MarkComplete(shellLines(1, 61), 0)
+		items = append(items, item)
+	}
+	asItems := make([]MessageItem, len(items))
+	for i, item := range items {
+		asItems[i] = item
+	}
+	m.messages = append(m.messages, asItems...)
+	m.scrollList.SetItems(m.messages)
+	m.scrollList.SetHeight(20)
+	m.selectMessage(1) // an older block, not the last
+
+	m.toggleShellRunExpansion(items[1])
+
+	if !items[1].Expanded() {
+		t.Fatal("the block was not expanded")
+	}
+	if idx := m.scrollList.SelectedIndex(); idx != 1 {
+		t.Fatalf("selection moved to %d, want 1", idx)
+	}
+	// The expanded block starts well above the end of the list, so a viewport
+	// parked on the newest item would no longer be showing it.
+	if !isItemVisible(m.scrollList, 1) {
+		t.Error("the expanded block is not on screen; the viewport followed the transcript instead")
+	}
+
+	// Collapsing brings it back without moving the selection either.
+	m.toggleShellRunExpansion(items[1])
+	if items[1].Expanded() {
+		t.Fatal("the block was not collapsed")
+	}
+	if idx := m.scrollList.SelectedIndex(); idx != 1 {
+		t.Errorf("selection moved to %d on collapse, want 1", idx)
 	}
 }
 

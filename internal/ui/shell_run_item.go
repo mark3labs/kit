@@ -202,11 +202,31 @@ func (s *ShellRunItem) ScrollHorizontalBy(direction int) bool {
 	return true
 }
 
-// CopyText returns the block as plain text for the clipboard: the header, then
-// the output with every escape sequence removed. A clipboard cannot carry the
-// styling a user cannot select anyway.
-func (s *ShellRunItem) CopyText() string {
-	return s.RawContent()
+// RawContent returns the header and the complete output, without the display
+// cap, for the message inspector and the clipboard.
+//
+// Both consumers want plain text. The inspector draws the string inside a
+// scrollable overlay, where an escape sequence is either noise or corruption,
+// and a clipboard paste cannot carry the styling anyway. So the themed header
+// and the program's own colour codes are both removed here rather than at each
+// call site, which is where this used to be forgotten.
+func (s *ShellRunItem) RawContent() string {
+	var b strings.Builder
+	b.WriteString(xansi.Strip(s.header()))
+
+	out := style.StripForContext(s.output.String())
+	if out == "" {
+		b.WriteString("\n\n(no output)")
+	} else {
+		b.WriteString("\n\n")
+		b.WriteString(out)
+	}
+	if s.timedOut {
+		b.WriteString("\n\n(timed out)")
+	} else if s.exitCode != 0 {
+		fmt.Fprintf(&b, "\n\nExit code: %d", s.exitCode)
+	}
+	return b.String()
 }
 
 func (s *ShellRunItem) invalidate() {
@@ -221,15 +241,19 @@ func (s *ShellRunItem) invalidate() {
 // because the newest line is what the user is waiting for; finished output
 // starts at the beginning, because a finished command is read like any other.
 //
+// total is the number of lines in raw. The caller supplies it because raw has
+// already had its trailing whitespace trimmed, while s.newlines counts the
+// untrimmed buffer. Without the correction every command that ends its output
+// with a newline reports one hidden line too many, which is most of them.
+//
 // The result is cached against the output length. Every state change clears the
 // cache, so a window is rebuilt at most once per chunk rather than once per
 // frame.
-func (s *ShellRunItem) visibleWindow(raw string) (string, int) {
+func (s *ShellRunItem) visibleWindow(raw string, total int) (string, int) {
 	if s.windowValid && s.windowSize == s.output.Len() {
 		return s.window, s.windowHidden
 	}
 
-	total := s.newlines + 1
 	window := raw
 	hidden := 0
 	byteCapped := false
@@ -251,9 +275,15 @@ func (s *ShellRunItem) visibleWindow(raw string) (string, int) {
 		}
 	}
 
-	// The reset closes any colour the command opened before the window began.
-	// Without it, a colour that spans the cut would bleed across the whole block.
-	window = style.NormalizeOutput(style.CompleteANSIFrom("\x1b[0m" + window))
+	// The fragment is repaired first and the reset is prepended second. The
+	// order is the whole point: CompleteANSIFrom inspects only the first byte
+	// and returns a string beginning with ESC unchanged, so prepending the reset
+	// first would skip the check entirely, and a window cut inside a colour
+	// sequence would print the fragment as text.
+	//
+	// The reset then closes any colour the command opened before the window
+	// began. Without it, a colour that spans the cut bleeds across the block.
+	window = style.NormalizeOutput("\x1b[0m" + style.CompleteANSIFrom(window))
 
 	s.window = window
 	s.windowHidden = hidden
@@ -349,26 +379,6 @@ func lastWindowBytes(raw string, count, maxBytes int) string {
 	return raw[cut:]
 }
 
-// RawContent returns the header and the complete output, without the display
-// cap, for the message inspector.
-func (s *ShellRunItem) RawContent() string {
-	var b strings.Builder
-	b.WriteString(s.header())
-	out := s.output.String()
-	if out != "" {
-		b.WriteString("\n\n")
-		b.WriteString(out)
-	} else {
-		b.WriteString("\n\n(no output)")
-	}
-	if s.timedOut {
-		b.WriteString("\n\n(timed out)")
-	} else if s.exitCode != 0 {
-		fmt.Fprintf(&b, "\n\nExit code: %d", s.exitCode)
-	}
-	return b.String()
-}
-
 // Height returns the number of lines the item occupies at this width.
 func (s *ShellRunItem) Height() int {
 	rendered := s.cachedRender
@@ -454,10 +464,18 @@ func (s *ShellRunItem) render(width int) string {
 // renderOutput draws the visible window of the command output, one line at a
 // time, inside the standard gutter block.
 func (s *ShellRunItem) renderOutput(width int) string {
-	raw := style.TrimTrailingResets(s.output.String())
+	full := s.output.String()
+	raw := style.TrimTrailingResets(full)
 	if raw == "" {
 		return ""
 	}
+
+	// TrimTrailingResets only shortens the tail, so raw stays a prefix of full
+	// and the removed slice can be measured rather than re-counted. Those
+	// newlines are not lines the block will ever show, so they must not be
+	// counted as hidden ones.
+	trimmedNewlines := strings.Count(full[len(raw):], "\n")
+	total := s.newlines - trimmedNewlines + 1
 
 	// The block spends four columns before any text: the border glyph, the
 	// gutter indent, the row's own left padding, and the right margin. What is
@@ -479,7 +497,7 @@ func (s *ShellRunItem) renderOutput(width int) string {
 	// one. Escape sequences never span a newline, so a line-start cut cannot land
 	// inside one; the byte fallback below is the only case that can, and
 	// CompleteANSIFrom is there for it.
-	normalized, hidden := s.visibleWindow(raw)
+	normalized, hidden := s.visibleWindow(raw, total)
 
 	lines := strings.Split(normalized, "\n")
 
