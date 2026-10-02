@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/creack/pty"
@@ -62,8 +63,9 @@ type sessionIO interface {
 
 // ptyIO is a session whose PTY master this daemon holds.
 type ptyIO struct {
-	cmd  *exec.Cmd
-	ptmx *os.File
+	cmd   *exec.Cmd
+	ptmx  *os.File
+	sizer ptySizer
 }
 
 func (p *ptyIO) Read(b []byte) (int, error)  { return p.ptmx.Read(b) }
@@ -81,10 +83,7 @@ func (p *ptyIO) PID() int {
 // Resize sets the PTY size, ignoring the zero size that means no attached
 // client has reported one yet.
 func (p *ptyIO) Resize(ws winSize) error {
-	if ws.cols == 0 || ws.rows == 0 {
-		return nil
-	}
-	return pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
+	return p.sizer.resize(p.ptmx, ws)
 }
 
 // Redraw makes the child repaint by changing the PTY size and putting it
@@ -96,14 +95,7 @@ func (p *ptyIO) Resize(ws winSize) error {
 // child needs to observe two distinct sizes: setting the same size twice
 // is not a change and produces no repaint.
 func (p *ptyIO) Redraw(ws winSize) {
-	if ws.cols < 2 || ws.rows < 2 {
-		return
-	}
-	go func() {
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows - 1)})
-		time.Sleep(redrawNudgeGap)
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
-	}()
+	p.sizer.nudge(p.ptmx, ws)
 }
 
 // Rename is a no-op for a PTY-backed session: its name lives in the
@@ -133,3 +125,63 @@ func (p *ptyIO) Terminate() {
 // size during a redraw nudge. Long enough for a SIGWINCH to be delivered
 // and acted on, short enough not to be seen as a resize by the user.
 const redrawNudgeGap = 40 * time.Millisecond
+
+// ptySizer serializes every size change made to one PTY and remembers the
+// last size a client asked for.
+//
+// A redraw nudge is two size changes with a sleep between them. Without
+// this, the second change put back the size captured BEFORE the sleep, so
+// a real resize that landed in the gap — a multiplexer settling its pane
+// layout right after an attach, or a SIGWINCH that crossed the network
+// with the redraw request — was undone. Nothing sends a further resize, so
+// the session stayed drawn at the stale size until the user resized again.
+// The nudge now restores the LATEST requested size instead.
+//
+// The zero value is ready to use. The PTY is passed per call so the type
+// can sit beside a ptmx field that is filled in later.
+type ptySizer struct {
+	mu   sync.Mutex
+	last winSize // last size requested through resize; zero until then
+}
+
+// resize records ws as the authoritative size and applies it. The zero
+// size means no client has reported one yet and is ignored.
+func (s *ptySizer) resize(ptmx *os.File, ws winSize) error {
+	if ws.cols <= 0 || ws.rows <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.last = ws
+	return setPTYSize(ptmx, ws)
+}
+
+// nudge makes the child repaint by shrinking the PTY by one row and then
+// restoring it after redrawNudgeGap. The restore uses the latest size
+// recorded by resize, so a resize that arrives during the gap wins.
+func (s *ptySizer) nudge(ptmx *os.File, ws winSize) {
+	if ws.cols < 2 || ws.rows < 2 {
+		return
+	}
+	s.mu.Lock()
+	if s.last.cols <= 0 || s.last.rows <= 0 {
+		s.last = ws
+	}
+	_ = setPTYSize(ptmx, winSize{cols: ws.cols, rows: ws.rows - 1})
+	s.mu.Unlock()
+
+	go func() {
+		time.Sleep(redrawNudgeGap)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = setPTYSize(ptmx, s.last)
+	}()
+}
+
+// setPTYSize applies ws to a PTY.
+func setPTYSize(ptmx *os.File, ws winSize) error {
+	if ptmx == nil {
+		return nil
+	}
+	return pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
+}

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
+
 	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
@@ -143,6 +145,43 @@ func childEnv(base []string, info TerminalInfo, own map[string]string) []string 
 		out = append(out, "TERM="+fallbackTerm)
 	}
 	return out
+}
+
+// colorTermFor decides the COLORTERM a client reports for its terminal.
+//
+// The child cannot find out the colour depth itself: its terminal is a PTY,
+// which has no terminfo entry of its own and no multiplexer to ask. It
+// reads COLORTERM, and a child told only TERM=xterm-256color renders a
+// 24-bit theme in 256 colours. That conversion is not just less precise:
+// dark blue-grey surfaces land on palette index 17, which base16 themes
+// redefine (catppuccin makes it pink), so whole panels change colour.
+//
+// COLORTERM is often missing where 24-bit colour works. ssh does not
+// forward it by default, and zellij sets TERM=xterm-256color without
+// setting it. So when the variable is empty, the client reports
+// "truecolor" if it can show 24-bit support another way:
+//
+//   - detected is TrueColor. colorprofile.Detect checks the environment,
+//     terminfo (Tc/RGB) and, inside tmux, `tmux info`.
+//   - The client runs inside zellij and has at least 256 colours. zellij
+//     always accepts 24-bit SGR from its panes.
+//
+// An existing COLORTERM is never changed, and nothing is reported below
+// 256 colours, so NO_COLOR and dumb terminals are respected.
+//
+// A tmux client gains nothing from this: colorprofile ignores COLORTERM
+// when TERM names tmux or screen.
+func colorTermFor(current string, detected colorprofile.Profile, multiplexer string) string {
+	if current != "" {
+		return current
+	}
+	if detected == colorprofile.TrueColor {
+		return "truecolor"
+	}
+	if multiplexer == termgfx.MultiplexerZellij && detected >= colorprofile.ANSI256 {
+		return "truecolor"
+	}
+	return ""
 }
 
 // hasEnv reports whether key is present in an environment slice.

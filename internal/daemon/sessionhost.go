@@ -169,6 +169,9 @@ type sessionHost struct {
 
 	cmd  *exec.Cmd
 	ptmx *os.File
+	// sizer serializes size changes so a redraw nudge cannot undo a
+	// resize that arrives while it waits. See ptySizer.
+	sizer ptySizer
 
 	// modes and scroll are what a client that attaches later is owed: the
 	// terminal state the child set once and will not repeat, and enough
@@ -352,8 +355,8 @@ func (h *sessionHost) readDaemon(ctx context.Context, r io.Reader) {
 				return
 			}
 		case FrameResize:
-			if cols, rows, derr := DecodeResize(frame.Payload); derr == nil && cols > 0 && rows > 0 {
-				_ = pty.Setsize(h.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+			if cols, rows, derr := DecodeResize(frame.Payload); derr == nil {
+				_ = h.sizer.resize(h.ptmx, winSize{cols: cols, rows: rows})
 			}
 		case FrameSessionRedraw:
 			cols, rows, derr := DecodeResize(frame.Payload)
@@ -391,14 +394,7 @@ func (h *sessionHost) redraw(cols, rows int) {
 	if recent := h.scroll.Bytes(); len(recent) > 0 {
 		h.send(Frame{Type: FrameData, Payload: recent})
 	}
-	if cols < 2 || rows < 2 {
-		return
-	}
-	go func() {
-		_ = pty.Setsize(h.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows - 1)})
-		time.Sleep(redrawNudgeGap)
-		_ = pty.Setsize(h.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
-	}()
+	h.sizer.nudge(h.ptmx, winSize{cols: cols, rows: rows})
 }
 
 // rename records a display name. It lives here so it survives the daemon

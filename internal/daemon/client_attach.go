@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/creack/pty"
 	"github.com/muesli/cancelreader"
 	"golang.org/x/term"
@@ -1393,8 +1394,10 @@ const (
 // detectTerminalInfo describes the terminal this client runs in, for the
 // daemon to hand to the session's child.
 //
-// TERM and COLORTERM are forwarded the way ssh forwards them. The
-// background colour is queried here, on the machine holding the terminal,
+// TERM and COLORTERM are forwarded the way ssh forwards them. A missing
+// COLORTERM is filled in when this side can prove 24-bit colour; see
+// colorTermFor. The background colour is queried here, on the machine
+// holding the terminal,
 // rather than left to the child: the child's own query would have to reach
 // this terminal through a PTY — and, for a remote session, a network round
 // trip — before it could draw its first frame, and the answer decides
@@ -1406,11 +1409,17 @@ const (
 // never sees them, and a child that cannot see the multiplexer draws
 // graphics the multiplexer throws away.
 func detectTerminalInfo() TerminalInfo {
+	mux := termgfx.LocalMultiplexer()
 	info := TerminalInfo{
 		Term:        os.Getenv("TERM"),
 		ColorTerm:   os.Getenv("COLORTERM"),
 		Background:  BackgroundUnknown,
-		Multiplexer: termgfx.LocalMultiplexer(),
+		Multiplexer: mux,
+	}
+	if info.ColorTerm == "" {
+		// Only probed when the variable is missing: Detect can read
+		// terminfo and run `tmux info`, which is wasted work otherwise.
+		info.ColorTerm = colorTermFor("", colorprofile.Detect(os.Stdout, os.Environ()), mux)
 	}
 	if bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout); err == nil {
 		if hex := HexColor(bg); hex != "" {
