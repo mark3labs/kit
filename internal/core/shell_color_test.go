@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,16 +64,101 @@ func clearColorEnv(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "")
 }
 
-// wantsColor reports whether the probe output shows all three variables filled
-// in, and names the ones that are not.
-func wantsColor(output string) (bool, []string) {
-	var missing []string
-	for _, name := range []string{"C", "F", "CF"} {
-		if strings.Contains(output, name+"=[]") {
-			missing = append(missing, name)
+// colorProbe reports which of the three colour variables a child saw set.
+type colorProbe struct {
+	set   []string
+	unset []string
+}
+
+// probeColor parses the output of probeColorEnv, which has one "NAME=[value]"
+// field per colour variable.
+//
+// The fields are split rather than searched for: "F=[]" occurs inside "CF=[]",
+// so a substring search reports every field as unset whenever the last one is
+// empty. Only the name half of each field is recorded, so the caller compares
+// like with like.
+func probeColor(output string) colorProbe {
+	var p colorProbe
+	for field := range strings.FieldsSeq(output) {
+		name, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
 		}
+		// A value is present unless the brackets are empty.
+		if strings.Trim(value, "[]") == "" {
+			p.unset = append(p.unset, name)
+			continue
+		}
+		p.set = append(p.set, name)
 	}
-	return len(missing) == 0, missing
+	return p
+}
+
+// wantsColor reports whether all three variables were set, and names the ones
+// that were not.
+//
+// It has to be all-or-nothing in both directions. A weaker "at least one was
+// set" check would pass a command that forced only COLORTERM, and a weaker
+// "at least one was empty" check would pass one that forced only FORCE_COLOR —
+// and a single forced variable is enough to make git or ripgrep emit colour
+// into a file or a pipe.
+func wantsColor(output string) (bool, []string) {
+	p := probeColor(output)
+	return len(p.unset) == 0, p.unset
+}
+
+// wantsNoColor reports whether every variable was left alone, and names the ones
+// that were not.
+func wantsNoColor(output string) (bool, []string) {
+	p := probeColor(output)
+	return len(p.set) == 0, p.set
+}
+
+func TestProbeColorParsesFieldsWholesale(t *testing.T) {
+	tests := []struct {
+		name      string
+		out       string
+		wantSet   []string
+		wantUnset []string
+	}{
+		{
+			name:      "none set",
+			out:       "C=[] F=[] CF=[]\n",
+			wantUnset: []string{"C", "F", "CF"},
+		},
+		{
+			name:    "all set",
+			out:     "C=[truecolor] F=[1] CF=[1]\n",
+			wantSet: []string{"C", "F", "CF"},
+		},
+		{
+			// The case a substring search gets wrong: "F=[]" occurs inside
+			// "CF=[]", so checking for the shorter field name would report all
+			// three as unset.
+			name:      "only the middle set",
+			out:       "C=[] F=[1] CF=[]\n",
+			wantSet:   []string{"F"},
+			wantUnset: []string{"C", "CF"},
+		},
+		{
+			name:      "only the last set",
+			out:       "C=[] F=[] CF=[1]\n",
+			wantSet:   []string{"CF"},
+			wantUnset: []string{"C", "F"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := probeColor(tt.out)
+			if !slices.Equal(got.set, tt.wantSet) {
+				t.Errorf("set = %v, want %v", got.set, tt.wantSet)
+			}
+			if !slices.Equal(got.unset, tt.wantUnset) {
+				t.Errorf("unset = %v, want %v", got.unset, tt.wantUnset)
+			}
+		})
+	}
 }
 
 // The shell tool must not force colour. These variables are not scoped to the
@@ -90,8 +176,8 @@ func TestShellToolDoesNotForceColour(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeShell: %v", err)
 	}
-	if forced, missing := wantsColor(resp.Content); forced {
-		t.Errorf("the shell tool forced colour: %v not set: %q", missing, resp.Content)
+	if forced, set := wantsNoColor(resp.Content); !forced {
+		t.Errorf("the shell tool forced %v: %q", set, resp.Content)
 	}
 }
 
@@ -160,8 +246,8 @@ func TestBangCommandRespectsNoColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunShellCommand: %v", err)
 	}
-	if forced, missing := wantsColor(res.Output); forced {
-		t.Errorf("%v was forced despite NO_COLOR: %q", missing, res.Output)
+	if forced, set := wantsNoColor(res.Output); !forced {
+		t.Errorf("%v was forced despite NO_COLOR: %q", set, res.Output)
 	}
 }
 

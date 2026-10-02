@@ -24,23 +24,15 @@ import (
 func pinColourCapabilities(t *testing.T) {
 	t.Helper()
 
-	// Both halves of the capability are snapshotted, because both are global and
-	// SetTerminalCapabilities has no inverse. Restoring only the theme would
-	// leave truecolor in force for every later test in this package, and a test
-	// that reaches style.NormalizeOutput would then skip the downsampling its
-	// own profile calls for.
-	originalTheme := style.GetTheme()
-	originalDark := style.IsDarkBackground()
-	originalProfile := style.ColorProfile()
-
+	// The whole styling state is snapshotted, not just the profile. SetTheme
+	// marks a theme explicit and SetTerminalCapabilities overwrites the profile,
+	// and neither has an inverse, so restoring only the theme or only the
+	// profile leaves a state no setter could produce — and a profile that
+	// stayed at truecolor would silently skip the downsampling every later test
+	// in this package expects from its own profile.
+	state := style.CaptureStylingState()
 	style.SetTerminalCapabilities(true, colorprofile.TrueColor)
-	t.Cleanup(func() {
-		// Capabilities first: SetTerminalCapabilities drops a derived theme so it
-		// can be rebuilt against the restored background, and SetTheme then puts
-		// the saved theme back.
-		style.SetTerminalCapabilities(originalDark, originalProfile)
-		style.SetTheme(originalTheme)
-	})
+	t.Cleanup(state.Restore)
 }
 
 // A real command in a real repository. This is the case the colour work exists
@@ -203,12 +195,18 @@ func TestStreamingBashOutputColouredRowKeepsProgramColour(t *testing.T) {
 	}
 }
 
-// pinColourCapabilities changes package-global state, so it has to put both
-// halves back. Without the profile restored, truecolor leaks into every later
-// test in this package and any of them that reaches style.NormalizeOutput
-// silently skips the downsampling its own profile calls for.
+// pinColourCapabilities changes package-global state, so it has to put all of
+// it back. Without the profile restored, truecolor leaks into every later test
+// in this package and any of them that reaches style.NormalizeOutput silently
+// skips the downsampling its own profile calls for.
 func TestPinColourCapabilitiesRestoresGlobals(t *testing.T) {
-	// Start from a profile the helper does not set, so a leak is visible.
+	// This test sets a profile of its own, so it has to restore that too: the
+	// helper restores whatever was current when it ran, which is the ANSI256 set
+	// here rather than the value from before this test.
+	state := style.CaptureStylingState()
+	t.Cleanup(state.Restore)
+
+	// A profile the helper does not set, so a leak is visible.
 	style.SetTerminalCapabilities(true, colorprofile.ANSI256)
 
 	// A sub-test is the unit of scoping for t.Cleanup, so the helper's cleanup
@@ -234,11 +232,8 @@ func TestPinColourCapabilitiesRestoresGlobals(t *testing.T) {
 // ColorProfile is the read side of SetTerminalCapabilities. It has to exist for
 // a caller that overrides the capabilities to be able to put them back.
 func TestColorProfileFollowsSetTerminalCapabilities(t *testing.T) {
-	originalDark, originalProfile := style.IsDarkBackground(), style.ColorProfile()
-	t.Cleanup(func() {
-		style.SetTerminalCapabilities(originalDark, originalProfile)
-		style.SetTheme(style.GetTheme())
-	})
+	state := style.CaptureStylingState()
+	t.Cleanup(state.Restore)
 
 	style.SetTerminalCapabilities(false, colorprofile.ANSI)
 	if got := style.ColorProfile(); got != colorprofile.ANSI {
