@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -538,20 +539,33 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 	// lipgloss renders nothing at all.
 	lineWidth := max(style.BodyWidth(width)-1, style.MinContentWidth)
 
-	// The style carries the fill only. A foreground is left unset because the
-	// program's own colour codes set it, and a reset inside a line would clear
-	// one that was set here.
-	outputStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-	stderrStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+	// The fill is set on every row. The foreground is set only on rows the
+	// program left plain: a line that carries its own colour codes must not be
+	// given a foreground here, or a reset inside it would clear this one and the
+	// rest of the row would lose its colour.
+	//
+	// The fill itself is re-armed after the content rather than left to
+	// lipgloss's Width, because a program is free to end a line with a reset
+	// that would otherwise leave the trailing padding unstyled.
+	panel := lipgloss.NewStyle().Background(theme.CodeBg)
+	fill := lipgloss.NewStyle().Background(theme.CodeBg)
 
-	render := func(st lipgloss.Style, lines []string) {
+	render := func(lines []string, plainFg color.Color) {
+		plain := lipgloss.NewStyle().Foreground(plainFg).Background(theme.CodeBg).PaddingLeft(1)
 		for _, line := range lines {
 			// Truncate before styling: cutting a string that already holds
 			// escape sequences cuts the sequences with it.
 			line = xansi.Truncate(line, lineWidth-1, "…")
+
+			st := plain
+			if strings.ContainsRune(line, 0x1b) {
+				// The program colours this row itself.
+				st = panel.PaddingLeft(1)
+			}
+
 			body := st.Render(line)
 			if gap := lineWidth - xansi.StringWidth(body); gap > 0 {
-				body += st.Render(strings.Repeat(" ", gap))
+				body += fill.Render(strings.Repeat(" ", gap))
 			}
 			parts = append(parts, lineIndent+body)
 		}
@@ -559,12 +573,12 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 
 	// Stdout lines
 	if len(m.stdoutLines) > 0 {
-		render(outputStyle, m.stdoutLines)
+		render(m.stdoutLines, theme.Text)
 	}
 
 	// Stderr lines
 	if len(m.stderrLines) > 0 {
-		render(stderrStyle, m.stderrLines)
+		render(m.stderrLines, theme.Error)
 	}
 
 	result := strings.Join(parts, "\n")

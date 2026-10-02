@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
 	xansi "github.com/charmbracelet/x/ansi"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // A real command in a real repository. This is the case the colour work exists
@@ -81,5 +85,78 @@ func TestToolPanelBlankFillsWidth(t *testing.T) {
 	panel := newToolPanel(80)
 	if w := xansi.StringWidth(panel.blank()); w != panel.width {
 		t.Errorf("blank row is %d columns, want %d", w, panel.width)
+	}
+}
+
+// fgSeq returns the prefix lipgloss writes to set a colour. It deliberately
+// stops before the terminator: lipgloss merges a foreground and a background
+// into one sequence, so the prefix is matched rather than the whole escape.
+func fgSeq(t *testing.T, c color.Color) string {
+	t.Helper()
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+// rowContaining returns the rendered line holding needle, with its escape
+// sequences intact.
+func rowContaining(out, needle string) string {
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.Contains(xansi.Strip(line), needle) {
+			return line
+		}
+	}
+	return ""
+}
+
+// A row the program left plain must still be drawn in the theme's text colour,
+// not the terminal default. Dropping the foreground was a regression once the
+// shell started forcing colour: the codes are what separate "this row is
+// uncoloured" from "this row is whatever the terminal defaults to".
+func TestStreamingBashOutputPlainRowUsesThemeColour(t *testing.T) {
+	item := NewStreamingBashOutputItem("id", "echo hi")
+	item.AppendStdout("plain text")
+	item.MarkComplete()
+
+	row := rowContaining(item.Render(80), "plain text")
+	if row == "" {
+		t.Fatal("the row was not found")
+	}
+	if want := fgSeq(t, style.GetTheme().Text); !strings.Contains(row, want) {
+		t.Errorf("the theme text colour is missing from a plain row: %q", row)
+	}
+}
+
+func TestStreamingBashOutputStderrRowUsesErrorColour(t *testing.T) {
+	item := NewStreamingBashOutputItem("id", "boom")
+	item.AppendStderr("it went wrong")
+	item.MarkComplete()
+
+	row := rowContaining(item.Render(80), "it went wrong")
+	if row == "" {
+		t.Fatal("the row was not found")
+	}
+	if want := fgSeq(t, style.GetTheme().Error); !strings.Contains(row, want) {
+		t.Errorf("a plain stderr row is not in the error colour: %q", row)
+	}
+}
+
+// A row the program coloured must not be given a foreground here, or a reset
+// inside it clears this one and the rest of the row loses its colour.
+func TestStreamingBashOutputColouredRowKeepsProgramColour(t *testing.T) {
+	item := NewStreamingBashOutputItem("id", "colour")
+	item.AppendStdout("\x1b[32mgreen\x1b[0m tail")
+	item.MarkComplete()
+
+	row := rowContaining(item.Render(80), "green")
+	if row == "" {
+		t.Fatal("the row was not found")
+	}
+	if strings.Contains(row, fgSeq(t, style.GetTheme().Text)) {
+		t.Errorf("a foreground was imposed on a coloured row: %q", row)
+	}
+	// The fill has to be re-armed after the program's reset, or the padding to
+	// the right of the row loses the panel background.
+	if idx := strings.Index(row, "tail"); idx >= 0 && !strings.Contains(row[idx:], "\x1b[48;") {
+		t.Errorf("the fill was not re-armed after the program's reset: %q", row)
 	}
 }
