@@ -4160,14 +4160,20 @@ pnpm install -g @mark3labs/kit
 ## Using Nix
 
 ```bash
-nix profile install github:mark3labs/kit
+nix profile install github:mark3labs/kit --no-write-lock-file
 ```
+
+The flake ships no lock file: its only inputs are `nixpkgs` and the pinned
+release, and an unlocked `nixpkgs` is what keeps the build working as kit asks
+for newer Go. Nix cannot create a lock file inside the read-only source it
+fetched, so an install without `--no-write-lock-file` fails with `cannot
+write modified lock file`.
 
 This installs the newest tagged release, built from source for linux and macOS
 on amd64 and arm64. To install a specific release instead, name its tag:
 
 ```bash
-nix profile install github:mark3labs/kit/v0.111.0
+nix profile install github:mark3labs/kit/v0.111.0 --no-write-lock-file
 ```
 
 Run `nix develop` in a clone to hack on kit with a Nix-provided toolchain: it
