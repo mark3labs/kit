@@ -8,6 +8,10 @@ Always talk in ASD-STE100 Simplified Technical English
 - **Test single**: `go test -race ./cmd -run TestScriptExecution`
 - **Lint**: `go vet ./...`
 - **Format**: `go fmt ./...`
+- **Nix**: `nix build .#default` builds the pinned release (see flake.nix);
+  `nix develop` gives go/gopls/golangci-lint. After a release, bump the pin
+  with `scripts/bump-flake-release-pin.sh vX.Y.Z`, then
+  `scripts/update-flake-vendor-hash.sh` if dependencies moved.
 
 ## Code Style
 - **Imports**: stdlib → third-party → local (blank lines between)

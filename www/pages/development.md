@@ -24,6 +24,20 @@ go vet ./...
 go fmt ./...
 ```
 
+## Nix
+
+The repository ships a flake. If you use Nix, you can get the toolchain
+without installing Go by hand:
+
+```bash
+nix develop
+```
+
+The shell puts `go` (the version `go.mod` asks for), `gopls`, and
+`golangci-lint` on your `$PATH` — it ships no prebuilt `kit`, so build it
+yourself with `go build ./cmd/kit`. To build or install a released `kit`
+binary instead, see [Using Nix](/installation#using-nix).
+
 ## Project structure
 
 ```

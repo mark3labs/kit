@@ -94,6 +94,50 @@ jobs:
           git tag -f "$MAJOR" "$FULL_TAG"
           git push -f origin "refs/tags/$MAJOR"
 
+  # Keep the flake's `kit-release` input on the newest tag. Without it,
+  # `nix profile install github:mark3labs/kit` would install whatever the
+  # default branch holds instead of a release: a flake input cannot say
+  # "latest tag", so flake.nix pins a tag and this job moves the pin.
+  # Same bot-push pattern as action-tags above, same reason for fetch-depth.
+  nix-release-pin:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    if: ${{ github.event_name == 'push' && needs.goreleaser.result == 'success' }}
+    permissions:
+      contents: write
+    # The release is out either way at this point — the pin bump is a
+    # follow-up convenience for Nix users, so a failure here (a push race
+    # with a commit that landed first, say) must not turn the release red.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pin lives on the default branch, not on the release tag this
+          # run was triggered from.
+          ref: master
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Point the flake pin at the new release
+        env:
+          FULL_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          ./scripts/bump-flake-release-pin.sh "$FULL_TAG"
+          # The release may ship different Go dependencies, in which case the
+          # vendored-module hash has to move with the pin.
+          ./scripts/update-flake-vendor-hash.sh
+          if git diff --quiet flake.nix; then
+            echo "flake.nix already pins $FULL_TAG"
+            exit 0
+          fi
+          git add flake.nix
+          git commit -m "chore(nix): pin flake to ${FULL_TAG} [skip ci]"
+          git push origin master
+
   # Rebuild the GHCR sandbox image so it ships the just-released kit binary.
   # Called directly instead of relying on a `release: [published]` trigger in
   # sandbox-image.yml: goreleaser publishes the release with GITHUB_TOKEN, and

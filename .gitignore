@@ -13,5 +13,10 @@ dist/
 contribute/output/
 CONTEXT.md
 output/
+
+# Nix: `nix build` leaves a result symlink, and flake.lock is not committed
+# on purpose (see the comment in flake.nix).
+result*
+/flake.lock
 .agents/
 skills-lock.json

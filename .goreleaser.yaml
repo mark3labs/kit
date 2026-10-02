@@ -41,6 +41,9 @@ release:
     bun add -g @mark3labs/kit
     # or: npm install -g @mark3labs/kit
 
+    # Nix
+    nix profile install github:mark3labs/kit
+
     # Go install (requires Go 1.27+)
     go install github.com/mark3labs/kit/cmd/kit@latest
 
