@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/charmbracelet/log"
@@ -39,7 +40,12 @@ const interruptedResultText = "[interrupted] The process running this session st
 // it is a no-op because they have no crash window.
 func (tm *TreeManager) repairInterruptedToolCalls() (int, error) {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			tm.mu.Unlock()
+		}
+	}()
 
 	if tm.leafID == "" {
 		return 0, nil
@@ -128,24 +134,14 @@ walk:
 		Role:  message.RoleTool,
 		Parts: parts,
 	}
-	entry, err := NewMessageEntry(tm.leafID, resultMsg)
+	tm.mu.Unlock()
+	locked = false
+	ids, err := tm.AppendStep(context.Background(), resultMsg.ToLLMMessages())
 	if err != nil {
-		return 0, fmt.Errorf("failed to build interrupted tool result: %w", err)
+		return 0, fmt.Errorf("persist interrupted tool repair: %w", err)
 	}
-	if err := tm.appendAndPersist(entry); err != nil {
-		return 0, fmt.Errorf("failed to append interrupted tool result: %w", err)
-	}
-	if err := tm.flushLocked(); err != nil {
-		return 0, fmt.Errorf("failed to flush interrupted tool result: %w", err)
-	}
-	if tm.file != nil {
-		if err := tm.file.Sync(); err != nil {
-			return 0, fmt.Errorf("failed to sync interrupted tool result: %w", err)
-		}
-	}
-	tm.leafID = entry.ID
 
 	log.Warn("session: repaired tool calls left unanswered by a stopped process",
-		"calls", len(orphaned), "entry", entry.ID)
+		"calls", len(orphaned), "entry", ids[0])
 	return len(orphaned), nil
 }

@@ -617,7 +617,8 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 	// reject. The repair appends through the handle opened above, so the
 	// synthetic results are persisted with the rest of the session.
 	if _, err := tm.repairInterruptedToolCalls(); err != nil {
-		log.Warn("session: could not repair interrupted tool calls", "path", path, "error", err)
+		_ = tm.Close()
+		return nil, fmt.Errorf("repair interrupted session: %w", err)
 	}
 
 	return tm, nil

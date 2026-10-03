@@ -82,10 +82,7 @@ func acquireSessionLockForRewrite(path string, rewriting bool) (func(), error) {
 		if isLockBusy(err) {
 			return nil, fmt.Errorf("session file is already open in another process: %s", path)
 		}
-		// A filesystem that cannot lock (some network mounts) must not stop
-		// kit from running. Proceed unlocked, and remember nothing: the next
-		// open will try again.
-		return func() {}, nil
+		return nil, fmt.Errorf("lock session file: %w", err)
 	}
 
 	lockTable.entries[clean] = &lockEntry{file: f, refs: 1}
