@@ -149,7 +149,7 @@ func TestTreeManagerAdapterRecoversInterruptedTurn(t *testing.T) {
 // nonEmptyLines splits file content into non-blank lines.
 func nonEmptyLines(data []byte) []string {
 	var lines []string
-	for _, line := range bytes.Split(data, []byte("\n")) {
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) > 0 {
 			lines = append(lines, string(line))
 		}
