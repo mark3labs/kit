@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -251,6 +252,12 @@ func MarshalEntry(entry any) ([]byte, error) {
 	return json.Marshal(entry)
 }
 
+// ErrUnknownEntryType is returned by UnmarshalEntry when a line is valid
+// JSON but carries an entry type this build does not know. Callers must not
+// treat it as corruption of the transcript: the line is complete and was
+// written by a newer version of kit.
+var ErrUnknownEntryType = errors.New("unknown entry type")
+
 // entryEnvelope is used for initial unmarshaling to determine the entry type.
 type entryEnvelope struct {
 	Type EntryType `json:"type"`
@@ -330,7 +337,7 @@ func UnmarshalEntry(data []byte) (any, error) {
 		return &e, nil
 
 	default:
-		return nil, fmt.Errorf("unknown entry type: %q", env.Type)
+		return nil, fmt.Errorf("%w: %q", ErrUnknownEntryType, env.Type)
 	}
 }
 

@@ -3,8 +3,11 @@ package session
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/message"
 )
@@ -71,6 +75,27 @@ type TreeManager struct {
 	// public Append* call, in Close, etc.) to reduce syscall overhead.
 	writer *bufio.Writer
 
+	// lockRelease drops the process-level exclusive lock on filePath. It is
+	// nil for in-memory sessions and after Close. The lock makes "one
+	// process owns one session file" true: a second kit process that tries
+	// to open the same transcript fails instead of interleaving appends.
+	lockRelease func()
+
+	// persistFailed marks a session whose file could not be rolled back to
+	// a consistent state after a failed append. The in-memory tree and the
+	// file can no longer be kept in agreement, so every append path refuses
+	// to persist rather than silently fork the transcript.
+	persistFailed bool
+
+	// cleanPath is filepath.Clean(filePath), the lock table's key. It is
+	// empty for in-memory sessions.
+	cleanPath string
+
+	// syncHook, when set, replaces file.Sync in AppendStep. Test-only: it
+	// lets a test fail the step after the bytes reached the file, which is
+	// the case the rollback path exists for.
+	syncHook func() error
+
 	// llmCache holds the decoded LLM messages of each MessageEntry. It has
 	// its own mutex because it is filled lazily by readers holding only
 	// mu.RLock. See llmMessagesLocked.
@@ -84,7 +109,7 @@ type TreeManager struct {
 // location for the given working directory.
 func CreateTreeSession(cwd string) (*TreeManager, error) {
 	sessionDir := DefaultSessionDir(cwd)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+	if err := createSessionDirs(sessionDir); err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
 
@@ -110,6 +135,7 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		childIndex: make(map[string][]string),
 		labels:     make(map[string]string),
 		filePath:   filePath,
+		cleanPath:  filepath.Clean(filePath),
 	}
 
 	// Create the file and write the header.
@@ -128,6 +154,24 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		_ = f.Close()
 		return nil, fmt.Errorf("failed to flush session header: %w", err)
 	}
+
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("sync new session file: %w", err)
+	}
+	if err := syncSessionDir(sessionDir); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("sync new session directory: %w", err)
+	}
+
+	// Claim the file before handing the session out, so a parallel run
+	// cannot open it while this one is still empty.
+	release, err := acquireSessionLock(filePath)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	tm.lockRelease = release
 
 	return tm, nil
 }
@@ -307,12 +351,27 @@ func cloneEntry(old Entry, newID, parentID string) Entry {
 // For persisted sessions the header rewrite is atomic: the updated header
 // plus all existing entries are written to a temp file which then replaces
 // the original via rename, so a partial write can never corrupt the session.
-// Sessions are typically freshly created when this is called, so the entry
-// list is small (usually empty). For in-memory sessions the header is
-// updated in memory only.
+// The session file lock is held for the whole rewrite except the rename
+// itself (see below), and every error path either re-claims it or reports
+// losing it, so the session never keeps appending unlocked. Sessions are
+// typically freshly created when this is called, so the entry list is small
+// (usually empty). For in-memory sessions the header is updated in memory
+// only.
 func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagentTask string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+
+	if tm.filePath != "" {
+		done, err := tm.reserveRewrite()
+		if err != nil {
+			return err
+		}
+		defer done()
+		if pathMu := tm.appendPathMu(); pathMu != nil {
+			pathMu.Lock()
+			defer pathMu.Unlock()
+		}
+	}
 
 	tm.header.ParentSession = parentSessionPath
 	tm.header.ParentSessionID = parentSessionID
@@ -323,6 +382,9 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	if tm.file == nil {
 		return nil // in-memory session: header updated in place
 	}
+
+	// A stable sidecar lock protects ownership through the rename on all
+	// platforms. Only transcript handles must close for Windows replacement.
 
 	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
@@ -371,35 +433,78 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return fmt.Errorf("failed to write temp session file: %w", rewriteErr)
 	}
 
-	// Close the current handle before the rename (required on Windows), then
-	// swap in the rewritten file and reopen for appending. The original file
-	// stays intact on disk until the rename succeeds.
+	// Close the current handle before the rename (required on Windows). The
+	// lock handle is separate and unaffected. A close failure leaves the
+	// original file and its lock intact; the append handle may be in an
+	// unknown state, so reopen it best effort before reporting.
 	if err := tm.file.Close(); err != nil {
 		_ = os.Remove(tmpPath)
+		tm.file = nil
+		tm.writer = nil
+		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
+			tm.file = f
+			tm.writer = bufio.NewWriter(f)
+		} else {
+			tm.persistFailed = true
+		}
 		return fmt.Errorf("failed to close session file for header rewrite: %w", err)
 	}
 	tm.file = nil
 	tm.writer = nil
+
+	// The sidecar lock remains held across the transcript replacement.
 	if err := os.Rename(tmpPath, tm.filePath); err != nil {
 		_ = os.Remove(tmpPath)
-		// Best effort: reopen the original (still intact) for appending.
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
+		} else {
+			tm.persistFailed = true
 		}
-		return fmt.Errorf("failed to replace session file: %w", err)
+		return fmt.Errorf("replace session file: %w", err)
 	}
+
 	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
+		tm.persistFailed = true
 		return fmt.Errorf("failed to reopen session file after header rewrite: %w", err)
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
+	if err := syncSessionDir(filepath.Dir(tm.filePath)); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("sync session directory after rewrite: %w", err)
+	}
 	return nil
 }
 
 // OpenTreeSession opens an existing JSONL session file.
+//
+// The session file is locked for exclusive use before anything is read, so
+// two processes cannot load the same transcript and then append to it
+// concurrently. Reopening finishes with a repair pass: tool calls left
+// unanswered by a stopped process get synthetic results, so the session is
+// resumable (see repair.go).
 func OpenTreeSession(path string) (*TreeManager, error) {
+	// Claim the file before parsing. The handle opened for the lock is
+	// separate from the append handle opened below, and both outlive this
+	// function: Close releases the lock.
+	release, err := acquireSessionLock(path)
+	if err != nil {
+		return nil, err
+	}
+	tm, err := openTreeSessionLocked(path)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	tm.lockRelease = release
+	return tm, nil
+}
+
+// openTreeSessionLocked is the body of OpenTreeSession, called with the
+// session file already locked.
+func openTreeSessionLocked(path string) (*TreeManager, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
@@ -411,6 +516,7 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		childIndex: make(map[string][]string),
 		labels:     make(map[string]string),
 		filePath:   path,
+		cleanPath:  filepath.Clean(path),
 	}
 
 	// Split lines straight out of the file buffer. The previous
@@ -419,7 +525,15 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	// large share of the open time. json.Unmarshal copies what it keeps
 	// (including json.RawMessage), so entries do not pin this buffer.
 	lineNum := 0
+	// tornOffset records where a torn final line starts, so the fragment can
+	// be cut at exactly that byte. Truncating to the last newline is not
+	// enough: a malformed line that ends with a newline (a torn fragment an
+	// older write appended onto, or any complete but corrupt final entry)
+	// would otherwise survive the trim and become a middle line — a state
+	// the parser rejects — on the next append.
+	tornOffset := int64(-1)
 	for rest := data; len(rest) > 0; {
+		lineStart := int64(len(data) - len(rest))
 		var line []byte
 		line, rest, _ = bytes.Cut(rest, []byte{'\n'})
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -429,6 +543,31 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 
 		entry, err := UnmarshalEntry(line)
 		if err != nil {
+			// A line written by a newer kit version is complete, valid JSON:
+			// it is a forward-compatibility case, never a torn write, and it
+			// must not be dropped.
+			if errors.Is(err, ErrUnknownEntryType) {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			if len(rest) == 0 {
+				// A torn final write: the process died mid-append, so the
+				// last line is a JSON prefix. Everything before it is a
+				// complete transcript; drop the fragment instead of failing
+				// the whole session. A malformed line that is NOT the last
+				// one is real corruption and stays an error.
+				if lineNum == 1 {
+					// The header itself did not survive; without it the file
+					// has no session ID, cwd or version, and appends would
+					// build a transcript with no head line. Keep the failure
+					// loud: the header is one line, cheap to recover by
+					// starting a fresh session and forking nothing.
+					return nil, fmt.Errorf("line 1: session header is torn (%w); the file cannot be opened", err)
+				}
+				tornOffset = lineStart
+				log.Warn("session: dropping a torn final line left by a stopped process",
+					"path", path, "line", lineNum, "error", err)
+				continue
+			}
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 
@@ -452,6 +591,18 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	// Validate tree integrity and log diagnostics
 	tm.LogTreeDiagnostics()
 
+	if tornOffset >= 0 {
+		// The dropped fragment must not resurface on the next append, and a
+		// repair entry appended later must not grow a JSON prefix into a
+		// corrupt transcript. Failing the open is deliberate: appending to a
+		// file that still holds the fragment would corrupt the session on
+		// the next open, which is exactly the state this repair exists to
+		// prevent.
+		if err := os.Truncate(path, tornOffset); err != nil {
+			return nil, fmt.Errorf("failed to trim torn final line: %w", err)
+		}
+	}
+
 	// Open file for appending.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -459,6 +610,16 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
+
+	// Close the crash window: a step written as two appends (assistant tool
+	// calls, then their results) may have stopped in between. Without this
+	// the session opens holding tool calls with no results, which providers
+	// reject. The repair appends through the handle opened above, so the
+	// synthetic results are persisted with the rest of the session.
+	if _, err := tm.repairInterruptedToolCalls(); err != nil {
+		_ = tm.Close()
+		return nil, fmt.Errorf("repair interrupted session: %w", err)
+	}
 
 	return tm, nil
 }
@@ -523,6 +684,163 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 // AppendLLMMessage converts an LLM message and appends it.
 func (tm *TreeManager) AppendLLMMessage(msg fantasy.Message) (string, error) {
 	return tm.AppendMessage(message.FromLLMMessage(msg))
+}
+
+// AppendStep persists one agent step — the group of messages a single model
+// request produced — with one buffered write, one flush, and one fsync.
+//
+// A tool-calling step produces an assistant message carrying tool calls and
+// a tool-role message carrying the matching results. Persisting them as one
+// unit closes the crash window that would otherwise leave storage with a
+// tool call and no result (providers reject that transcript, which makes the
+// session unresumable). Kit calls this instead of looping over
+// [TreeManager.AppendMessage] whenever the messages belong together; see
+// also repairInterruptedToolCalls, which covers steps written by older
+// versions that persisted per message.
+//
+// Either every message is appended or none is: serialization happens for all
+// messages before the first byte is written, and a failure anywhere in the
+// write, flush, or sync is rolled back — the file is truncated to its
+// pre-append offset and the buffered tail discarded, while the indices and
+// the leaf pointer are only advanced after the whole step reached storage.
+// If the rollback itself fails, the manager refuses all further appends: the
+// file and the in-memory tree can no longer be kept in agreement, and silent
+// divergence would fork the transcript.
+//
+// ctx is accepted for signature compatibility with the durable-backend
+// contract and is not used for cancellation: a finished step must survive
+// the turn that produced it, even when the turn was cancelled (see the
+// Cancellation section on kit's StepAppender).
+func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) ([]string, error) {
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	_ = ctx // steps survive their turn; cancellation must not drop them
+
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if tm.persistFailed {
+		return nil, fmt.Errorf("session file could not be rolled back after an earlier failed write; appends are refused")
+	}
+
+	// Validate the chain the step will extend once, before any work.
+	if err := tm.validateParentChainLocked(tm.leafID, ""); err != nil {
+		return nil, fmt.Errorf("parent chain validation failed: %w", err)
+	}
+
+	// Phase 1 — build and serialize every entry. Nothing is written and no
+	// index changes until every message has converted cleanly, so a bad
+	// message cannot leave a half-written step behind.
+	entries := make([]*MessageEntry, len(msgs))
+	lines := make([][]byte, len(msgs))
+	parent := tm.leafID
+	for i, msg := range msgs {
+		entry, err := NewMessageEntry(parent, message.FromLLMMessage(msg))
+		if err != nil {
+			return nil, err
+		}
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal step message %d: %w", i, err)
+		}
+		entries[i] = entry
+		lines[i] = line
+		parent = entry.ID
+	}
+
+	if tm.writer == nil {
+		if tm.filePath != "" {
+			// A persisted session lost its file handle (closed, or a failed
+			// rewrite that could not relock): the memory-only path would
+			// silently drop the step from the transcript.
+			return nil, fmt.Errorf("session file is not open; refusing to append to %q", tm.filePath)
+		}
+		// In-memory session: index updates are the whole persistence.
+		ids := make([]string, len(entries))
+		for i, entry := range entries {
+			tm.addEntryToIndex(entry)
+			ids[i] = entry.ID
+		}
+		tm.leafID = entries[len(entries)-1].ID
+		return ids, nil
+	}
+
+	// Phases 2-4 — serialize against every other manager of the same file,
+	// so no other handle can append (or roll back) between this step's seek
+	// and its commit-or-rollback. The mutex is a leaf lock: nothing inside
+	// these brackets takes another lock or calls into another manager.
+	if pathMu := tm.appendPathMu(); pathMu != nil {
+		pathMu.Lock()
+		defer pathMu.Unlock()
+	}
+
+	// Phase 2 — record where the step starts, then write the serialized
+	// lines. The rollback point is the file's END, not this handle's offset:
+	// the per-file append mutex keeps every other handle out until the step
+	// is committed or rolled back, so the end cannot move underneath it.
+	// The buffer is empty here: every other append path flushes before
+	// returning, and a failed step resets the writer (see rollback).
+	startOffset, err := tm.file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to record the append position: %w", err)
+	}
+	for i, line := range lines {
+		if _, err := tm.writer.Write(line); err != nil {
+			return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to write step message %d: %w", i, err))
+		}
+		if err := tm.writer.WriteByte('\n'); err != nil {
+			return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to write step message %d: %w", i, err))
+		}
+	}
+
+	// Phase 3 — flush and fsync, so both lines of a tool-calling step reach
+	// storage together.
+	if err := tm.flushLocked(); err != nil {
+		return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to flush step: %w", err))
+	}
+	syncErr := tm.file.Sync()
+	if tm.syncHook != nil {
+		syncErr = tm.syncHook()
+	}
+	if syncErr != nil {
+		return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to sync step: %w", syncErr))
+	}
+
+	// Phase 4 — the step is on stable storage; now the in-memory view.
+	ids := make([]string, len(entries))
+	for i, entry := range entries {
+		tm.addEntryToIndex(entry)
+		ids[i] = entry.ID
+	}
+	tm.leafID = entries[len(entries)-1].ID
+	return ids, nil
+}
+
+// rollbackStep undoes a partially persisted step: the file is cut back to
+// startOffset and the writer is reset, which discards whatever the buffer
+// still holds and clears its error state. The in-memory tree needs no
+// repair — indices and leaf only advance after a step is fully persisted.
+// If the file cannot be cut back, the manager is marked unusable: future
+// appends would build on a file whose contents cannot be matched to the
+// tree. Returns the original error, wrapped, for the caller to pass on.
+func (tm *TreeManager) rollbackStep(startOffset int64, cause error) error {
+	tm.writer.Reset(tm.file)
+	if err := tm.file.Truncate(startOffset); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("%w (rollback failed: %v; the session refuses further appends)", cause, err)
+	}
+	// Truncate does not reset the offset on newly created handles, which
+	// do not use O_APPEND. Reset it to prevent a hole on the next write.
+	if _, err := tm.file.Seek(startOffset, io.SeekStart); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("%w (rollback seek failed: %v)", cause, err)
+	}
+	if err := tm.file.Sync(); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("%w (rollback sync failed: %v)", cause, err)
+	}
+	return cause
 }
 
 // AppendModelChange records a model/provider change.
@@ -1070,19 +1388,32 @@ func (tm *TreeManager) flushLocked() error {
 	return nil
 }
 
-// Close flushes any buffered writes and closes the underlying file handle.
+// Close flushes any buffered writes, closes the underlying file handle, and
+// releases the session file lock.
 func (tm *TreeManager) Close() error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	if tm.file != nil {
 		// Flush buffered data before closing.
+		var flushErr error
 		if tm.writer != nil {
-			_ = tm.writer.Flush()
+			flushErr = tm.writer.Flush()
 			tm.writer = nil
 		}
-		err := tm.file.Close()
+		// Push what is in the page cache to storage: after Close returns, a
+		// power cut must not take the session's tail with it.
+		syncErr := tm.file.Sync()
+		err := errors.Join(flushErr, syncErr, tm.file.Close())
 		tm.file = nil
+		if tm.lockRelease != nil {
+			tm.lockRelease()
+			tm.lockRelease = nil
+		}
 		return err
+	}
+	if tm.lockRelease != nil {
+		tm.lockRelease()
+		tm.lockRelease = nil
 	}
 	return nil
 }
@@ -1160,9 +1491,34 @@ func (tm *TreeManager) addEntryToIndex(entry any) {
 
 // appendAndPersist adds an entry to indices and writes it to the JSONL file.
 func (tm *TreeManager) appendAndPersist(entry any) error {
+	if tm.persistFailed {
+		return fmt.Errorf("session file could not be rolled back after an earlier failed write; appends are refused")
+	}
+	if tm.filePath != "" && tm.file == nil {
+		// A persisted session lost its file handle (closed, or a failed
+		// rewrite that could not relock). Writing memory-only would drop the
+		// entry from the transcript the next open reads, so refuse instead.
+		return fmt.Errorf("session file is not open; refusing to append to %q", tm.filePath)
+	}
+	// Serialize against other managers of the same file (same leaf-lock rule
+	// as AppendStep: syscalls only inside the mutex).
+	if pathMu := tm.appendPathMu(); pathMu != nil {
+		pathMu.Lock()
+		defer pathMu.Unlock()
+	}
 	tm.addEntryToIndex(entry)
 	if tm.file != nil {
-		return tm.writeEntry(entry)
+		// Newly created handles do not use O_APPEND. Another manager can
+		// have extended the file since this handle's last write.
+		if _, err := tm.file.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("seek session end: %w", err)
+		}
+		if err := tm.writeEntry(entry); err != nil {
+			return err
+		}
+		// Flush before releasing the shared append lock. A later rollback
+		// must not truncate bytes that another writer still has buffered.
+		return tm.flushLocked()
 	}
 	return nil
 }
