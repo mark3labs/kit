@@ -1308,24 +1308,23 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	var accountID string
 	var isCodexOAuth bool
 
-	if apiKey == "" {
-		// Check stored credentials first
-		cm, err := auth.NewCredentialManager()
-		if err == nil {
-			if creds, err := cm.GetOpenAICredentials(); err == nil && creds != nil {
-				if creds.Type == "oauth" && creds.AccessToken != "" {
-					// For OAuth, get a valid access token (may refresh if needed)
-					token, err := cm.GetValidOpenAIAccessToken()
-					if err == nil && token != "" {
-						apiKey = token
-						accountID = creds.AccountID
-						isCodexOAuth = true
-						source = "stored Codex OAuth credentials"
-					}
-				} else if creds.Type == "api_key" && creds.APIKey != "" {
-					apiKey = creds.APIKey
-					source = "stored API key"
+	// Valid stored OAuth credentials take priority over all API keys, including
+	// keys supplied through config or command-line flags.
+	cm, err := auth.NewCredentialManager()
+	if err == nil {
+		if creds, err := cm.GetOpenAICredentials(); err == nil && creds != nil {
+			if creds.Type == "oauth" && creds.AccessToken != "" {
+				// Get a valid access token, refreshing it if needed.
+				token, err := cm.GetValidOpenAIAccessToken()
+				if err == nil && token != "" {
+					apiKey = token
+					accountID = creds.AccountID
+					isCodexOAuth = true
+					source = "stored Codex OAuth credentials"
 				}
+			} else if apiKey == "" && creds.Type == "api_key" && creds.APIKey != "" {
+				apiKey = creds.APIKey
+				source = "stored API key"
 			}
 		}
 	}
@@ -1346,7 +1345,7 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	if os.Getenv("DEBUG") != "" || os.Getenv("KIT_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "Using OpenAI API key from: %s\n", source)
+		fmt.Fprintf(os.Stderr, "Using OpenAI credentials from: %s\n", source)
 	}
 
 	// For Codex OAuth, use the ChatGPT backend API with custom headers

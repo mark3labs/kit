@@ -3,7 +3,10 @@ package models
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 
@@ -34,6 +37,73 @@ func TestResolveAPIKeyPrecedence(t *testing.T) {
 	}
 	if got := resolveAPIKey("", "", []string{"GROQ_API_KEY"}); got != "from-env" {
 		t.Errorf("empty provider skips store: got %q", got)
+	}
+}
+
+func TestOpenAICredentialPrecedence(t *testing.T) {
+	cases := []struct {
+		name      string
+		configKey string
+		envKey    string
+		stored    *auth.OpenAICredentials
+		wantToken string
+		wantOAuth bool
+	}{
+		{"oauth beats config and environment", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true},
+		{"oauth beats environment", "", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true},
+		{"config beats stored API key", "config-key", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "config-key", false},
+		{"stored API key beats environment", "", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "stored-key", false},
+		{"environment fallback", "", "env-key", nil, "env-key", false},
+		{"empty OAuth falls back to config", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth"}, "config-key", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("OPENAI_API_KEY", tc.envKey)
+			if tc.stored != nil {
+				cm, err := auth.NewCredentialManager()
+				if err != nil {
+					t.Fatal(err)
+				}
+				tc.stored.ExpiresAt = time.Now().Add(time.Hour).UnixMilli()
+				if err := cm.SetOpenAIOAuthCredentials(tc.stored); err != nil {
+					t.Fatal(err)
+				}
+			}
+			headers := make(chan http.Header, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				headers <- r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"test","object":"response","status":"completed","output":[]}`))
+			}))
+			defer server.Close()
+			result, err := createOpenAIProvider(context.Background(), &ProviderConfig{
+				ProviderAPIKey: tc.configKey,
+				ProviderURL:    server.URL,
+			}, "gpt-5")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.SkipMaxOutputTokens != tc.wantOAuth {
+				t.Fatalf("OAuth route = %v, want %v", result.SkipMaxOutputTokens, tc.wantOAuth)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := result.Model.Generate(ctx, fantasy.Call{}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+			select {
+			case got := <-headers:
+				if got.Get("Authorization") != "Bearer "+tc.wantToken {
+					t.Errorf("wrong Authorization header: got %q", got.Get("Authorization"))
+				}
+				if tc.wantOAuth && got.Get("ChatGPT-Account-ID") != "account-id" {
+					t.Errorf("wrong OAuth account header: got %q", got.Get("ChatGPT-Account-ID"))
+				}
+			default:
+				t.Fatal("no request received")
+			}
+		})
 	}
 }
 
