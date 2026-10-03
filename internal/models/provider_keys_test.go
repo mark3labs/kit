@@ -2,7 +2,9 @@ package models
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -57,6 +59,8 @@ func TestOpenAICredentialPrecedence(t *testing.T) {
 		{"empty OAuth falls back to config", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth"}, "config-key", false, ""},
 		{"trusted explicit endpoint uses OAuth", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true, "https://chatgpt.com/backend-api/codex"},
 		{"custom HTTPS uses config key", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "config-key", false, "https://example.com/v1"},
+		{"custom endpoint config beats stored API key", "config-key", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "config-key", false, "https://example.com/v1"},
+		{"custom endpoint stored API key beats environment", "", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "stored-key", false, "https://example.com/v1"},
 		{"custom endpoint uses environment", "", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "env-key", false, "https://example.com/v1"},
 		{"plaintext ChatGPT uses config key", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "config-key", false, "http://chatgpt.com/backend-api/codex"},
 	}
@@ -110,6 +114,87 @@ func TestOpenAICredentialPrecedence(t *testing.T) {
 				}
 			default:
 				t.Fatal("no request received")
+			}
+		})
+	}
+}
+
+func TestOpenAIProviderCredentialRefresh(t *testing.T) {
+	cases := []struct {
+		name      string
+		endpoint  string
+		configKey string
+		oldToken  string
+		wantOAuth bool
+		wantToken string
+	}{
+		{"default destination refreshes", "", "config-key", "expired-token", true, ""},
+		{"trusted destination refreshes empty token", "https://chatgpt.com/backend-api/codex", "config-key", "", true, ""},
+		{"custom endpoint keeps config key", "https://example.com/v1", "config-key", "expired-token", false, "config-key"},
+		{"custom endpoint uses environment", "https://example.com/v1", "", "expired-token", false, "env-key"},
+		{"plaintext destination does not refresh", "http://chatgpt.com/backend-api/codex", "", "expired-token", false, "env-key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("OPENAI_API_KEY", "env-key")
+			cm, err := auth.NewCredentialManager()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cm.SetOpenAIOAuthCredentials(&auth.OpenAICredentials{
+				Type: "oauth", AccessToken: tc.oldToken, AccountID: "old-account",
+				RefreshToken: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			refreshed := "header." + base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"new-account"}}`)) + ".signature"
+			wantToken := tc.wantToken
+			if tc.wantOAuth {
+				wantToken = refreshed
+			}
+			refreshes, requests := 0, 0
+			mockDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() == "https://auth.openai.com/oauth/token" {
+					refreshes++
+					if !tc.wantOAuth {
+						t.Error("custom endpoint caused an OAuth refresh")
+					}
+					return jsonTestResponse(r, fmt.Sprintf(`{"access_token":%q,"refresh_token":"new-refresh","expires_in":3600}`, refreshed)), nil
+				}
+				requests++
+				if r.Header.Get("Authorization") != "Bearer "+wantToken {
+					t.Errorf("wrong Authorization header: %q", r.Header.Get("Authorization"))
+				}
+				wantAccount := ""
+				if tc.wantOAuth {
+					wantAccount = "new-account"
+				}
+				if r.Header.Get("ChatGPT-Account-ID") != wantAccount {
+					t.Errorf("wrong account header: %q", r.Header.Get("ChatGPT-Account-ID"))
+				}
+				return jsonTestResponse(r, `{"id":"test","object":"response","status":"completed","output":[]}`), nil
+			})
+			result, err := createOpenAIProvider(context.Background(), &ProviderConfig{
+				ProviderAPIKey: tc.configKey, ProviderURL: tc.endpoint,
+			}, "gpt-5")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantRefreshes := 0
+			if tc.wantOAuth {
+				wantRefreshes = 1
+			}
+			if refreshes != wantRefreshes || result.SkipMaxOutputTokens != tc.wantOAuth {
+				t.Fatalf("provider selection: refreshes = %d, OAuth = %v", refreshes, result.SkipMaxOutputTokens)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := result.Model.Generate(ctx, fantasy.Call{}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+			if refreshes != wantRefreshes || requests != 1 {
+				t.Fatalf("refreshes = %d, requests = %d", refreshes, requests)
 			}
 		})
 	}

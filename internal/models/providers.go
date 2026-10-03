@@ -1311,16 +1311,19 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	// Stored OAuth credentials take priority only for the trusted Codex endpoint.
 	cm, err := auth.NewCredentialManager()
 	if err == nil {
-		if creds, err := cm.GetOpenAICredentials(); err == nil && creds != nil {
-			if creds.Type == "oauth" && creds.AccessToken != "" &&
-				(config.ProviderURL == "" || isCodexDestination(config.ProviderURL)) {
-				// Get a valid access token, refreshing it if needed.
-				token, err := cm.GetValidOpenAIAccessToken()
-				if err == nil && token != "" {
-					apiKey = token
-					isCodexOAuth = true
-					source = "stored Codex OAuth credentials"
-				}
+		trustedDestination := config.ProviderURL == "" || isCodexDestination(config.ProviderURL)
+		var creds *auth.OpenAICredentials
+		if trustedDestination {
+			creds, err = cm.GetValidOpenAICredentials()
+		} else if apiKey == "" {
+			// Custom endpoints can use stored API keys, but must not refresh OAuth.
+			creds, err = cm.GetOpenAICredentials()
+		}
+		if err == nil && creds != nil {
+			if trustedDestination && creds.Type == "oauth" && creds.AccessToken != "" {
+				apiKey = creds.AccessToken
+				isCodexOAuth = true
+				source = "stored Codex OAuth credentials"
 			} else if apiKey == "" && creds.Type == "api_key" && creds.APIKey != "" {
 				apiKey = creds.APIKey
 				source = "stored API key"
