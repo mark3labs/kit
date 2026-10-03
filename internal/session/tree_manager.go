@@ -444,6 +444,8 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
+		} else {
+			tm.persistFailed = true
 		}
 		return fmt.Errorf("failed to close session file for header rewrite: %w", err)
 	}
@@ -456,12 +458,15 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
+		} else {
+			tm.persistFailed = true
 		}
 		return fmt.Errorf("replace session file: %w", err)
 	}
 
 	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
+		tm.persistFailed = true
 		return fmt.Errorf("failed to reopen session file after header rewrite: %w", err)
 	}
 	tm.file = f
