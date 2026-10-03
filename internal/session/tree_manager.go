@@ -325,9 +325,12 @@ func cloneEntry(old Entry, newID, parentID string) Entry {
 // For persisted sessions the header rewrite is atomic: the updated header
 // plus all existing entries are written to a temp file which then replaces
 // the original via rename, so a partial write can never corrupt the session.
-// Sessions are typically freshly created when this is called, so the entry
-// list is small (usually empty). For in-memory sessions the header is
-// updated in memory only.
+// The session file lock is held for the whole rewrite except the rename
+// itself (see below), and every error path either re-claims it or reports
+// losing it, so the session never keeps appending unlocked. Sessions are
+// typically freshly created when this is called, so the entry list is small
+// (usually empty). For in-memory sessions the header is updated in memory
+// only.
 func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagentTask string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -342,11 +345,15 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return nil // in-memory session: header updated in place
 	}
 
-	// The file lock stays held for the whole rewrite. Dropping it early
-	// would leave the session open but unlocked on every error path below
-	// (flush, temp write, close, rename), and a second process could then
-	// interleave appends. The lock is only moved — never dropped — at the
-	// inode swap itself, via replaceSessionLock.
+	// The file lock stays held for everything up to the rename. The rename
+	// itself is the one step that cannot hold it: on Windows, MoveFileEx
+	// fails with a sharing violation while any handle is open on the source
+	// or the replaced target (os.OpenFile handles never carry
+	// FILE_SHARE_DELETE), so both the lock handle and the append handle must
+	// be closed first. The lock is therefore dropped only here and
+	// re-claimed before any append handle is opened again — on every error
+	// path below the session either keeps its lock or reports that it lost
+	// it and refuses to continue appending.
 
 	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
@@ -411,33 +418,42 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	}
 	tm.file = nil
 	tm.writer = nil
+
+	// From here the session is unlocked. No append handle exists and none is
+	// opened until the lock is back, so the session itself cannot write into
+	// the window; the re-claims below fail loudly if another process took
+	// the lock in the meantime.
+	if tm.lockRelease != nil {
+		tm.lockRelease()
+		tm.lockRelease = nil
+	}
+
 	if err := os.Rename(tmpPath, tm.filePath); err != nil {
 		_ = os.Remove(tmpPath)
-		// Best effort: reopen the original (still intact) for appending. The
-		// rename failed, so the inode the lock is held on still backs the
-		// path: the lock needs no action here.
+		// Best effort: reopen the original (still intact) for appending.
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
 		}
+		// The original inode still backs the path, so it can be locked again.
+		// Without it the session must not keep appending.
+		if release, lockErr := acquireSessionLock(tm.filePath); lockErr == nil {
+			tm.lockRelease = release
+		} else {
+			return fmt.Errorf("failed to replace session file: %w (and the session file lock could not be re-claimed: %v; the session must not continue appending)", err, lockErr)
+		}
 		return fmt.Errorf("failed to replace session file: %w", err)
 	}
 
-	// The path now points at the rewritten file, whose inode the lock table
-	// does not guard yet. Move the lock onto the new inode before anything
-	// else can open the path. Managers sharing the lock (reentrant in-process
-	// opens) are protected too: the swap happens inside the shared entry.
-	if tm.lockRelease != nil {
-		if err := replaceSessionLock(tm.filePath); err != nil {
-			// The old reference guards an inode that no longer backs the
-			// path; drop it rather than leave a ghost in the table. Without
-			// a lock on the new inode the session must not continue, so the
-			// append handle below is never opened.
-			tm.lockRelease()
-			tm.lockRelease = nil
-			return fmt.Errorf("session file lock could not be moved to the rewritten file: %w", err)
-		}
+	// The path now points at the rewritten file. Re-claim the lock before
+	// anything can append to it. A same-process opener that joined during
+	// the window already re-created the table entry; joining that entry is
+	// exactly right, because its lock guards the inode the path now has.
+	release, err := acquireSessionLock(tm.filePath)
+	if err != nil {
+		return fmt.Errorf("session file lock could not be re-claimed after the header rewrite (%v); the session must not continue appending", err)
 	}
+	tm.lockRelease = release
 
 	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

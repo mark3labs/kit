@@ -93,42 +93,6 @@ func releaseSessionLock(clean string) {
 	_ = e.file.Close()
 }
 
-// replaceSessionLock moves the lock from the handle it is held on to the
-// file now at path, keeping the reference count. SetParentLink needs this:
-// its header rewrite renames a fresh file over the session path, so the
-// lock's inode stops backing the path and every manager sharing the entry
-// must end up guarded by a lock on the new one instead.
-//
-// The caller must already hold a reference for clean. The old handle stays
-// locked until the new one is secured, so the window without any lock on
-// the path is one syscall wide.
-func replaceSessionLock(clean string) error {
-	lockTable.Lock()
-	defer lockTable.Unlock()
-	e, ok := lockTable.entries[clean]
-	if !ok {
-		return fmt.Errorf("session file lock was already released")
-	}
-
-	f, err := os.OpenFile(clean, os.O_RDWR, 0o644)
-	if err != nil {
-		return fmt.Errorf("failed to reopen session file for its lock: %w", err)
-	}
-	if err := lockFileExclusive(f); err != nil {
-		_ = f.Close()
-		if isLockBusy(err) {
-			return fmt.Errorf("session file is already open in another process: %s", clean)
-		}
-		return fmt.Errorf("failed to lock session file: %w", err)
-	}
-
-	old := e.file
-	e.file = f
-	unlockFile(old)
-	_ = old.Close()
-	return nil
-}
-
 // releaseOnce wraps a single release so double Close calls are harmless.
 func releaseOnce(clean string) func() {
 	var once bool
