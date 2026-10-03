@@ -3612,3 +3612,7 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 }
 
 // Conversion helpers are defined in adapter.go.
+
+// IsOAuth reports whether the active model uses a subscription OAuth credential.
+// It is false for API keys and providers without an active credential.
+func (m *Kit) IsOAuth() bool { return m.agent.IsOAuth() }

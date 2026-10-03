@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/viper"
 	"golang.org/x/term"
 
 	"github.com/mark3labs/kit/internal/app"
@@ -257,7 +256,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		// Fire OnModelChange event to extensions.
 		kitInstance.Extensions().EmitModelChange(modelString, previousModel, "extension")
 		// Update usage tracker with new model info for correct token counting.
-		ui.UpdateUsageTrackerForModel(usageTracker, modelString, viper.GetString("provider-api-key"))
+		ui.UpdateUsageTrackerForModel(usageTracker, modelString, kitInstance.IsOAuth())
 		return nil
 	}
 

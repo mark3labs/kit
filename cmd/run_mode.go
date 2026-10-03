@@ -271,7 +271,7 @@ func newRunApp(k *kit.Kit, cli *ui.CLI, mcpConfig *config.Config, modelName stri
 	if cli != nil {
 		usageTracker = cli.GetUsageTracker()
 	} else {
-		usageTracker = ui.CreateUsageTracker(viper.GetString("model"), viper.GetString("provider-api-key"))
+		usageTracker = ui.CreateUsageTracker(viper.GetString("model"), k.IsOAuth())
 	}
 	if usageTracker != nil {
 		appOpts.UsageTracker = usageTracker
@@ -537,7 +537,7 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			// NotifyModelChanged calls prog.Send() which deadlocks. The UI layer
 			// updates m.providerName and m.modelName directly after setModel returns.
 			// Update usage tracker with new model info for correct token counting.
-			ui.UpdateUsageTrackerForModel(usageTracker, modelString, viper.GetString("provider-api-key"))
+			ui.UpdateUsageTrackerForModel(usageTracker, modelString, k.IsOAuth())
 			return nil
 		},
 		// saveProviderAPIKey backs the /connect command. Keys go to the

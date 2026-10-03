@@ -128,11 +128,11 @@ func DisplayDebugConfig(cli *ui.CLI, k *kit.Kit, mcpConfig *config.Config, provi
 func SetupCLIForNonInteractive(k *kit.Kit) (*ui.CLI, error) {
 	agentAdapter := &kitUIAdapter{kit: k}
 	return ui.SetupCLI(&ui.CLISetupOptions{
-		Agent:          agentAdapter,
-		ModelString:    viper.GetString("model"),
-		Debug:          viper.GetBool("debug"),
-		Quiet:          suppressChrome(),
-		ShowDebug:      false,
-		ProviderAPIKey: viper.GetString("provider-api-key"),
+		Agent:       agentAdapter,
+		ModelString: viper.GetString("model"),
+		Debug:       viper.GetBool("debug"),
+		Quiet:       suppressChrome(),
+		ShowDebug:   false,
+		IsOAuth:     k.IsOAuth(),
 	})
 }

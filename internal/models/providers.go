@@ -228,6 +228,8 @@ type ProviderConfig struct {
 
 // ProviderResult contains the result of provider creation.
 type ProviderResult struct {
+	// IsOAuth reports whether the selected credential uses subscription OAuth.
+	IsOAuth bool
 	// Model is the created fantasy LanguageModel
 	Model fantasy.LanguageModel
 	// Message contains optional feedback for the user
@@ -1259,7 +1261,7 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	// Build provider options for extended thinking (reasoning budget).
 	providerOpts := buildAnthropicProviderOptions(config, modelName)
 
-	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true}, nil
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true, IsOAuth: source == auth.CredentialSourceOAuth}, nil
 }
 
 // createVertexAnthropicProvider creates an Anthropic provider that routes
@@ -1453,7 +1455,7 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 		providerOpts = buildOpenAIProviderOptions(config, modelName)
 	}
 
-	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts, IsOAuth: true}, nil
 }
 
 // copilotUsesResponsesAPI selects the OpenAI Responses API for Copilot models
@@ -1512,6 +1514,7 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 		Model:               model,
 		ProviderOptions:     providerOpts,
 		SkipMaxOutputTokens: true,
+		IsOAuth:             true,
 	}, nil
 }
 

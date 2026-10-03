@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 
-	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/models"
 )
 
@@ -21,12 +20,12 @@ type AgentInterface interface {
 // and set up a CLI instance, including display preferences, model information,
 // and debugging settings.
 type CLISetupOptions struct {
-	Agent          AgentInterface
-	ModelString    string
-	Debug          bool
-	Quiet          bool
-	ShowDebug      bool   // Whether to show debug config
-	ProviderAPIKey string // For OAuth detection
+	Agent       AgentInterface
+	ModelString string
+	Debug       bool
+	Quiet       bool
+	ShowDebug   bool // Whether to show debug config
+	IsOAuth     bool // Credential state from the active provider
 }
 
 // parseModelName extracts provider and model name from model string
@@ -39,22 +38,21 @@ func parseModelName(modelString string) (provider, model string) {
 }
 
 // CreateUsageTracker creates a UsageTracker for the given model string and
-// provider API key. It returns nil when usage tracking is unavailable (e.g.
+// active credential state. It returns nil when usage tracking is unavailable (e.g.
 // ollama or unrecognised models). This is used by the interactive TUI path
 // which doesn't go through SetupCLI.
-func CreateUsageTracker(modelString, providerAPIKey string) *UsageTracker {
+func CreateUsageTracker(modelString string, isOAuth bool) *UsageTracker {
 	modelInfo, provider := lookupTrackableModel(modelString)
 	if modelInfo == nil {
 		return nil
 	}
-	isOAuth := provider == "anthropic" && auth.IsAnthropicOAuth(providerAPIKey)
 	return NewUsageTracker(modelInfo, provider, 80, isOAuth)
 }
 
 // UpdateUsageTrackerForModel refreshes an existing tracker after a model
 // switch so token counting and cost reporting use the new model's metadata.
 // No-op for a nil tracker or untrackable models (unknown/ollama).
-func UpdateUsageTrackerForModel(t *UsageTracker, modelString, providerAPIKey string) {
+func UpdateUsageTrackerForModel(t *UsageTracker, modelString string, isOAuth bool) {
 	if t == nil {
 		return
 	}
@@ -62,7 +60,6 @@ func UpdateUsageTrackerForModel(t *UsageTracker, modelString, providerAPIKey str
 	if modelInfo == nil {
 		return
 	}
-	isOAuth := provider == "anthropic" && auth.IsAnthropicOAuth(providerAPIKey)
 	t.UpdateModelInfo(modelInfo, provider, isOAuth)
 }
 
@@ -99,7 +96,7 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 	}
 
 	// Set up usage tracking for supported providers
-	if usageTracker := CreateUsageTracker(opts.ModelString, opts.ProviderAPIKey); usageTracker != nil {
+	if usageTracker := CreateUsageTracker(opts.ModelString, opts.IsOAuth); usageTracker != nil {
 		cli.SetUsageTracker(usageTracker)
 	}
 

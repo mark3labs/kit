@@ -185,6 +185,9 @@ func TestOpenAIProviderCredentialRefresh(t *testing.T) {
 			if tc.wantOAuth {
 				wantRefreshes = 1
 			}
+			if result.IsOAuth != tc.wantOAuth {
+				t.Fatalf("IsOAuth = %v, want %v", result.IsOAuth, tc.wantOAuth)
+			}
 			if refreshes != wantRefreshes || result.SkipMaxOutputTokens != tc.wantOAuth {
 				t.Fatalf("provider selection: refreshes = %d, OAuth = %v", refreshes, result.SkipMaxOutputTokens)
 			}

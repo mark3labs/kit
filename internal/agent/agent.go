@@ -350,6 +350,7 @@ type Agent struct {
 	// agent when MCP tools arrive asynchronously or on SetModel.
 	providerOptions     fantasy.ProviderOptions
 	skipMaxOutputTokens bool
+	providerOAuth       bool
 	modelConfig         *models.ProviderConfig
 
 	// anthropicCaching is true when the active provider uses Anthropic-style
@@ -537,6 +538,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		currentModel:        currentModel,
 		providerOptions:     providerResult.ProviderOptions,
 		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
+		providerOAuth:       providerResult.IsOAuth,
 		modelConfig:         agentConfig.ModelConfig,
 		anthropicCaching:    providerResult.MessageCacheControl,
 		providerErr:         providerErr,
@@ -1825,6 +1827,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.providerCloser = providerResult.Closer
 	a.providerOptions = providerResult.ProviderOptions
 	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
+	a.providerOAuth = providerResult.IsOAuth
 	a.anthropicCaching = providerResult.MessageCacheControl
 	a.modelConfig = config
 	a.providerErr = nil
@@ -1927,3 +1930,6 @@ func (a *Agent) Close() error {
 	}
 	return toolErr
 }
+
+// IsOAuth reports whether the active provider uses subscription OAuth.
+func (a *Agent) IsOAuth() bool { return a.providerOAuth }
