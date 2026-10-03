@@ -43,13 +43,19 @@ type lockEntry struct {
 func acquireSessionLock(path string) (release func(), err error) {
 	clean := filepath.Clean(path)
 
+	// One table for the whole lookup-open-lock-register sequence. Both lock
+	// calls are non-blocking, so holding the mutex across them risks no
+	// deadlock, and it closes the race where two in-process openers each
+	// miss the table and the second's own handle then conflicts with the
+	// first's (flock and LockFileEx conflicts are per handle, not per
+	// process) — which would report a false "another process" error.
 	lockTable.Lock()
+	defer lockTable.Unlock()
+
 	if e, ok := lockTable.entries[clean]; ok {
 		e.refs++
-		lockTable.Unlock()
 		return releaseOnce(clean), nil
 	}
-	lockTable.Unlock()
 
 	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
 	if err != nil {
@@ -66,20 +72,7 @@ func acquireSessionLock(path string) (release func(), err error) {
 		return func() {}, nil
 	}
 
-	lockTable.Lock()
-	// A second opener may have raced us into the table while the flock was
-	// in flight. Fold onto their entry and drop the duplicate handle; only
-	// the first handle ever needs the lock.
-	if e, ok := lockTable.entries[clean]; ok {
-		e.refs++
-		lockTable.Unlock()
-		unlockFile(f)
-		_ = f.Close()
-		return releaseOnce(clean), nil
-	}
 	lockTable.entries[clean] = &lockEntry{file: f, refs: 1}
-	lockTable.Unlock()
-
 	return releaseOnce(clean), nil
 }
 
@@ -98,6 +91,42 @@ func releaseSessionLock(clean string) {
 	delete(lockTable.entries, clean)
 	unlockFile(e.file)
 	_ = e.file.Close()
+}
+
+// replaceSessionLock moves the lock from the handle it is held on to the
+// file now at path, keeping the reference count. SetParentLink needs this:
+// its header rewrite renames a fresh file over the session path, so the
+// lock's inode stops backing the path and every manager sharing the entry
+// must end up guarded by a lock on the new one instead.
+//
+// The caller must already hold a reference for clean. The old handle stays
+// locked until the new one is secured, so the window without any lock on
+// the path is one syscall wide.
+func replaceSessionLock(clean string) error {
+	lockTable.Lock()
+	defer lockTable.Unlock()
+	e, ok := lockTable.entries[clean]
+	if !ok {
+		return fmt.Errorf("session file lock was already released")
+	}
+
+	f, err := os.OpenFile(clean, os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to reopen session file for its lock: %w", err)
+	}
+	if err := lockFileExclusive(f); err != nil {
+		_ = f.Close()
+		if isLockBusy(err) {
+			return fmt.Errorf("session file is already open in another process: %s", clean)
+		}
+		return fmt.Errorf("failed to lock session file: %w", err)
+	}
+
+	old := e.file
+	e.file = f
+	unlockFile(old)
+	_ = old.Close()
+	return nil
 }
 
 // releaseOnce wraps a single release so double Close calls are harmless.

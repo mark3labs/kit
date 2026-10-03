@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/fantasy"
@@ -598,6 +600,183 @@ func TestOpenRejectsUnknownEntryType(t *testing.T) {
 func filepathJoin(t *testing.T, name string) string {
 	t.Helper()
 	return fmt.Sprintf("%s/%s", t.TempDir(), name)
+}
+
+// TestOpenToleratesTornFinalLineWithNewline covers the torn final line that
+// ends with a newline: a fragment an older append landed on top of, or any
+// complete but corrupt final entry. The trim must cut at the line's start
+// offset, not after the last newline (which would keep the bad line and
+// make the session unopenable after the next append).
+func TestOpenToleratesTornFinalLineWithNewline(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	path := tm.GetFilePath()
+	if _, err := tm.AppendMessage(newTestMessage("complete")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Corrupt final line, properly newline-terminated.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
+	}
+	if _, err := f.WriteString(`{"broken":}` + "\n"); err != nil {
+		t.Fatalf("write bad line: %v", err)
+	}
+	_ = f.Close()
+
+	reopened, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("OpenTreeSession with newline-terminated torn line: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "broken") {
+		t.Errorf("corrupt line survived the trim: %q", data)
+	}
+
+	// The regression this guards against: appending after the trim, then
+	// reopening, must not turn the fragment into a middle line.
+	if _, err := reopened.AppendMessage(newTestMessage("after")); err != nil {
+		t.Fatalf("AppendMessage after trim: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	again, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("reopen after append: %v", err)
+	}
+	defer func() { _ = again.Close() }()
+	msgs, _, _ := again.BuildContext()
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
+	}
+}
+
+// TestSessionLockConcurrentOpensNoFalseConflict hammers the race between the
+// lock table lookup and registering the entry. Conflicts are per handle, so
+// two in-process openers that both miss the table must serialize on the
+// table rather than fail with a false "another process" error.
+func TestSessionLockConcurrentOpensNoFalseConflict(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	path := tm.GetFilePath()
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	const openers = 8
+	const rounds = 25
+	var mu sync.Mutex
+	var failures []error
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range openers {
+		wg.Go(func() {
+			<-start
+			for range rounds {
+				opened, err := OpenTreeSession(path)
+				if err != nil {
+					mu.Lock()
+					failures = append(failures, err)
+					mu.Unlock()
+					continue
+				}
+				if err := opened.Close(); err != nil {
+					mu.Lock()
+					failures = append(failures, err)
+					mu.Unlock()
+				}
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	if len(failures) != 0 {
+		t.Fatalf("%d of %d concurrent opens failed, first: %v", len(failures), openers*rounds, failures[0])
+	}
+
+	// Every open closed again, so the file must be free for a fresh open.
+	final, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("final open: %v", err)
+	}
+	if err := final.Close(); err != nil {
+		t.Fatalf("final close: %v", err)
+	}
+}
+
+// TestSetParentLinkErrorKeepsLock checks the rewrite's error paths: the
+// session must stay locked and appendable when the rewrite fails, instead of
+// running on with the lock already dropped.
+func TestSetParentLinkErrorKeepsLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission bits do not block file creation on Windows")
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	cwd := t.TempDir()
+	tm, err := CreateTreeSession(cwd)
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	path := tm.GetFilePath()
+	defer func() { _ = tm.Close() }()
+
+	// The header rewrite creates its temp file in the session directory; a
+	// read-only directory fails that create, which used to return with the
+	// lock already released.
+	sessionDir := filepathDir(path)
+	if err := os.Chmod(sessionDir, 0o500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	defer func() { _ = os.Chmod(sessionDir, 0o755) }()
+
+	if err := tm.SetParentLink("/parent/s.jsonl", "parent-id", "task"); err == nil {
+		t.Fatalf("SetParentLink succeeded on a read-only directory, want error")
+	}
+
+	// The lock must still be held: another "process" cannot take it.
+	other, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = other.Close() }()
+	if err := lockFileExclusive(other); err == nil {
+		t.Errorf("session lock was dropped by the failed rewrite; another process could now interleave appends")
+		return
+	}
+	unlockFile(other)
+
+	// The session keeps working.
+	if _, err := tm.AppendMessage(newTestMessage("still alive")); err != nil {
+		t.Errorf("AppendMessage after failed rewrite: %v", err)
+	}
+}
+
+// filepathDir is filepath.Dir without importing path/filepath for one call.
+func filepathDir(p string) string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '/' || p[i] == '\\' {
+			return p[:i]
+		}
+	}
+	return "."
 }
 
 // textOfFantasy concatenates the text parts of a fantasy message.

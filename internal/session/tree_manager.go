@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -343,13 +342,11 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return nil // in-memory session: header updated in place
 	}
 
-	// Drop the file lock for the duration of the rewrite. The rewrite
-	// replaces the file at filePath with a rename, which would leave a lock
-	// held on the old inode guarding a path that now points elsewhere.
-	if tm.lockRelease != nil {
-		tm.lockRelease()
-		tm.lockRelease = nil
-	}
+	// The file lock stays held for the whole rewrite. Dropping it early
+	// would leave the session open but unlocked on every error path below
+	// (flush, temp write, close, rename), and a second process could then
+	// interleave appends. The lock is only moved — never dropped — at the
+	// inode swap itself, via replaceSessionLock.
 
 	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
@@ -398,45 +395,56 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return fmt.Errorf("failed to write temp session file: %w", rewriteErr)
 	}
 
-	// Close the current handle before the rename (required on Windows), then
-	// swap in the rewritten file and reopen for appending. The original file
-	// stays intact on disk until the rename succeeds.
+	// Close the current handle before the rename (required on Windows). The
+	// lock handle is separate and unaffected. A close failure leaves the
+	// original file and its lock intact; the append handle may be in an
+	// unknown state, so reopen it best effort before reporting.
 	if err := tm.file.Close(); err != nil {
 		_ = os.Remove(tmpPath)
+		tm.file = nil
+		tm.writer = nil
+		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
+			tm.file = f
+			tm.writer = bufio.NewWriter(f)
+		}
 		return fmt.Errorf("failed to close session file for header rewrite: %w", err)
 	}
 	tm.file = nil
 	tm.writer = nil
 	if err := os.Rename(tmpPath, tm.filePath); err != nil {
 		_ = os.Remove(tmpPath)
-		// Best effort: reopen the original (still intact) for appending.
+		// Best effort: reopen the original (still intact) for appending. The
+		// rename failed, so the inode the lock is held on still backs the
+		// path: the lock needs no action here.
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
-			// The rename failed, so the original inode still backs the path
-			// and can be locked again. Without this the session would run
-			// on unlocked: another process could then interleave appends.
-			if release, lockErr := acquireSessionLock(tm.filePath); lockErr == nil {
-				tm.lockRelease = release
-			}
 		}
 		return fmt.Errorf("failed to replace session file: %w", err)
 	}
+
+	// The path now points at the rewritten file, whose inode the lock table
+	// does not guard yet. Move the lock onto the new inode before anything
+	// else can open the path. Managers sharing the lock (reentrant in-process
+	// opens) are protected too: the swap happens inside the shared entry.
+	if tm.lockRelease != nil {
+		if err := replaceSessionLock(tm.filePath); err != nil {
+			// The old reference guards an inode that no longer backs the
+			// path; drop it rather than leave a ghost in the table. Without
+			// a lock on the new inode the session must not continue, so the
+			// append handle below is never opened.
+			tm.lockRelease()
+			tm.lockRelease = nil
+			return fmt.Errorf("session file lock could not be moved to the rewritten file: %w", err)
+		}
+	}
+
 	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to reopen session file after header rewrite: %w", err)
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
-
-	// Re-claim the lock on the file the path now points to. The unlocked
-	// window spans only this rewrite, which runs on freshly created
-	// sessions, so contention here is a theoretical case.
-	release, err := acquireSessionLock(tm.filePath)
-	if err != nil {
-		return fmt.Errorf("failed to re-lock session file after header rewrite: %w", err)
-	}
-	tm.lockRelease = release
 	return nil
 }
 
@@ -486,8 +494,15 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 	// large share of the open time. json.Unmarshal copies what it keeps
 	// (including json.RawMessage), so entries do not pin this buffer.
 	lineNum := 0
-	tornTail := false
+	// tornOffset records where a torn final line starts, so the fragment can
+	// be cut at exactly that byte. Truncating to the last newline is not
+	// enough: a malformed line that ends with a newline (a torn fragment an
+	// older write appended onto, or any complete but corrupt final entry)
+	// would otherwise survive the trim and become a middle line — a state
+	// the parser rejects — on the next append.
+	tornOffset := int64(-1)
 	for rest := data; len(rest) > 0; {
+		lineStart := int64(len(data) - len(rest))
 		var line []byte
 		line, rest, _ = bytes.Cut(rest, []byte{'\n'})
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -517,7 +532,7 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 					// starting a fresh session and forking nothing.
 					return nil, fmt.Errorf("line 1: session header is torn (%w); the file cannot be opened", err)
 				}
-				tornTail = true
+				tornOffset = lineStart
 				log.Warn("session: dropping a torn final line left by a stopped process",
 					"path", path, "line", lineNum, "error", err)
 				continue
@@ -545,12 +560,15 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 	// Validate tree integrity and log diagnostics
 	tm.LogTreeDiagnostics()
 
-	if tornTail {
+	if tornOffset >= 0 {
 		// The dropped fragment must not resurface on the next append, and a
 		// repair entry appended later must not grow a JSON prefix into a
-		// corrupt transcript. Trim before anything appends again.
-		if err := truncateTornTail(path); err != nil {
-			log.Warn("session: could not trim the torn final line", "path", path, "error", err)
+		// corrupt transcript. Failing the open is deliberate: appending to a
+		// file that still holds the fragment would corrupt the session on
+		// the next open, which is exactly the state this repair exists to
+		// prevent.
+		if err := os.Truncate(path, tornOffset); err != nil {
+			return nil, fmt.Errorf("failed to trim torn final line: %w", err)
 		}
 	}
 
@@ -572,30 +590,6 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 	}
 
 	return tm, nil
-}
-
-// truncateTornTail removes the final, incomplete line from a session file so
-// later appends do not grow a JSON fragment into a corrupt transcript. The
-// file is opened read-only first to find the offset of the last newline;
-// everything after it is cut.
-func truncateTornTail(path string) error {
-	f, err := os.OpenFile(path, os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return err
-	}
-	idx := bytes.LastIndexByte(data, '\n')
-	if idx < 0 {
-		// Only the header line was being written when the process died;
-		// keep nothing after its newline (there is none).
-		idx = -1
-	}
-	return f.Truncate(int64(idx + 1))
 }
 
 // ContinueRecent finds the most recently modified session for the given cwd,

@@ -431,10 +431,12 @@ The built-in JSONL tree manager implements `StepAppender`: it commits each
 step with one buffered write, one flush, and one fsync, so both halves of a
 tool-calling step reach storage together. Two more guards back it up:
 
-- **Session file lock.** A file-backed session holds an advisory exclusive
-  lock for its lifetime (reentrant within the process), so a second kit
-  process that opens the same transcript fails with "already open in another
-  process" instead of interleaving appends.
+- **Session file lock.** A file-backed session holds an exclusive lock for
+  its lifetime (reentrant within the process): `flock` on Unix, and on
+  Windows a byte-range lock on one byte far beyond the file's data, because
+  Windows range locks are mandatory and must not overlap data any handle
+  reads or writes. A second kit process that opens the same transcript fails
+  with "already open in another process" instead of interleaving appends.
 - **Repair on open.** A transcript whose tail holds tool calls with no
   results — the state a process can still leave behind between two appends —
   is repaired on open: one synthetic error result per unanswered call is
