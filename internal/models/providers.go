@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -1305,20 +1306,18 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	apiKey := config.ProviderAPIKey
 	source := "command-line flag"
-	var accountID string
 	var isCodexOAuth bool
 
-	// Valid stored OAuth credentials take priority over all API keys, including
-	// keys supplied through config or command-line flags.
+	// Stored OAuth credentials take priority only for the trusted Codex endpoint.
 	cm, err := auth.NewCredentialManager()
 	if err == nil {
 		if creds, err := cm.GetOpenAICredentials(); err == nil && creds != nil {
-			if creds.Type == "oauth" && creds.AccessToken != "" {
+			if creds.Type == "oauth" && creds.AccessToken != "" &&
+				(config.ProviderURL == "" || isCodexDestination(config.ProviderURL)) {
 				// Get a valid access token, refreshing it if needed.
 				token, err := cm.GetValidOpenAIAccessToken()
 				if err == nil && token != "" {
 					apiKey = token
-					accountID = creds.AccountID
 					isCodexOAuth = true
 					source = "stored Codex OAuth credentials"
 				}
@@ -1350,7 +1349,7 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	// For Codex OAuth, use the ChatGPT backend API with custom headers
 	if isCodexOAuth {
-		return createOpenAICodexProvider(ctx, config, modelName, apiKey, accountID)
+		return createOpenAICodexProvider(ctx, config, modelName, apiKey)
 	}
 
 	// Regular OpenAI API key flow
@@ -1462,7 +1461,7 @@ func copilotUsesResponsesAPI(modelID string) bool {
 
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
 // Uses the chatgpt.com/backend-api/codex endpoint with special headers.
-func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
+func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token string) (*ProviderResult, error) {
 	// Check for spark models which are not accessible via OAuth
 	if detectCodexModelFamily(modelName) == "gpt-codex-spark" {
 		return nil, fmt.Errorf("gpt-codex-spark models are not accessible via ChatGPT OAuth. " +
@@ -1476,8 +1475,12 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 		baseURL = config.ProviderURL
 	}
 
-	// Build custom HTTP client with required headers
-	httpClient := createCodexHTTPClient(token, accountID, config.TLSSkipVerify)
+	if !isCodexDestination(baseURL) {
+		return nil, fmt.Errorf("untrusted Codex OAuth destination")
+	}
+
+	// Build custom HTTP client with required headers.
+	httpClient := createCodexHTTPClient(config.TLSSkipVerify)
 
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(token))
@@ -1545,7 +1548,7 @@ func detectCodexModelFamily(modelName string) string {
 }
 
 // createCodexHTTPClient creates an HTTP client with headers required for ChatGPT/Codex API
-func createCodexHTTPClient(token, accountID string, skipVerify bool) *http.Client {
+func createCodexHTTPClient(skipVerify bool) *http.Client {
 	var base http.RoundTripper
 	if skipVerify {
 		base = &http.Transport{
@@ -1559,9 +1562,7 @@ func createCodexHTTPClient(token, accountID string, skipVerify bool) *http.Clien
 
 	return &http.Client{
 		Transport: &codexTransport{
-			base:      base,
-			token:     token,
-			accountID: accountID,
+			base: base,
 		},
 		Timeout: 120 * time.Second,
 	}
@@ -1569,19 +1570,57 @@ func createCodexHTTPClient(token, accountID string, skipVerify bool) *http.Clien
 
 // codexTransport is a custom RoundTripper that adds ChatGPT/Codex specific headers
 type codexTransport struct {
-	base      http.RoundTripper
-	token     string
-	accountID string
+	base http.RoundTripper
+}
+
+// isCodexDestination restricts OAuth credentials to the ChatGPT Codex backend.
+func isCodexDestination(destination string) bool {
+	u, err := url.Parse(destination)
+	if err != nil || u.Scheme != "https" || u.User != nil ||
+		(u.Host != "chatgpt.com" && u.Host != "chatgpt.com:443") {
+		return false
+	}
+	p := strings.TrimSuffix(u.Path, "/")
+	return u.EscapedPath() == u.Path && path.Clean(p) == p &&
+		(p == "/backend-api/codex" || strings.HasPrefix(p, "/backend-api/codex/"))
 }
 
 func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Check every request, including redirects, before loading or sending credentials.
+	if !isCodexDestination(req.URL.String()) {
+		return nil, fmt.Errorf("untrusted Codex OAuth destination")
+	}
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return nil, fmt.Errorf("initialize Codex credential manager: %w", err)
+	}
+	creds, err := cm.GetOpenAICredentials()
+	if err != nil {
+		return nil, fmt.Errorf("load Codex credentials: %w", err)
+	}
+	if creds == nil || creds.Type != "oauth" {
+		return nil, fmt.Errorf("codex OAuth credentials not available")
+	}
+	token, err := cm.GetValidOpenAIAccessToken()
+	if err != nil {
+		return nil, fmt.Errorf("refresh Codex credentials: %w", err)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("codex OAuth access token is empty")
+	}
+	// Read the account ID again because a refresh can replace the credentials.
+	creds, err = cm.GetOpenAICredentials()
+	if err != nil {
+		return nil, fmt.Errorf("load refreshed Codex credentials: %w", err)
+	}
 	newReq := req.Clone(req.Context())
 
 	// Add required headers for ChatGPT/Codex API
 	// These headers mimic the official pi client to avoid Cloudflare blocking
-	newReq.Header.Set("Authorization", "Bearer "+t.token)
-	if t.accountID != "" {
-		newReq.Header.Set("chatgpt-account-id", t.accountID)
+	newReq.Header.Set("Authorization", "Bearer "+token)
+	newReq.Header.Del("chatgpt-account-id")
+	if creds != nil && creds.AccountID != "" {
+		newReq.Header.Set("chatgpt-account-id", creds.AccountID)
 	}
 	newReq.Header.Set("originator", "kit")
 	newReq.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")

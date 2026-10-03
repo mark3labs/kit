@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -48,13 +47,18 @@ func TestOpenAICredentialPrecedence(t *testing.T) {
 		stored    *auth.OpenAICredentials
 		wantToken string
 		wantOAuth bool
+		endpoint  string
 	}{
-		{"oauth beats config and environment", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true},
-		{"oauth beats environment", "", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true},
-		{"config beats stored API key", "config-key", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "config-key", false},
-		{"stored API key beats environment", "", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "stored-key", false},
-		{"environment fallback", "", "env-key", nil, "env-key", false},
-		{"empty OAuth falls back to config", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth"}, "config-key", false},
+		{"oauth beats config and environment", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true, ""},
+		{"oauth beats environment", "", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true, ""},
+		{"config beats stored API key", "config-key", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "config-key", false, ""},
+		{"stored API key beats environment", "", "env-key", &auth.OpenAICredentials{Type: "api_key", APIKey: "stored-key"}, "stored-key", false, ""},
+		{"environment fallback", "", "env-key", nil, "env-key", false, ""},
+		{"empty OAuth falls back to config", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth"}, "config-key", false, ""},
+		{"trusted explicit endpoint uses OAuth", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token", AccountID: "account-id"}, "oauth-token", true, "https://chatgpt.com/backend-api/codex"},
+		{"custom HTTPS uses config key", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "config-key", false, "https://example.com/v1"},
+		{"custom endpoint uses environment", "", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "env-key", false, "https://example.com/v1"},
+		{"plaintext ChatGPT uses config key", "config-key", "env-key", &auth.OpenAICredentials{Type: "oauth", AccessToken: "oauth-token"}, "config-key", false, "http://chatgpt.com/backend-api/codex"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,21 +69,22 @@ func TestOpenAICredentialPrecedence(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				tc.stored.ExpiresAt = time.Now().Add(time.Hour).UnixMilli()
+				tc.stored.ExpiresAt = time.Now().Add(time.Hour).Unix()
 				if err := cm.SetOpenAIOAuthCredentials(tc.stored); err != nil {
 					t.Fatal(err)
 				}
 			}
 			headers := make(chan http.Header, 1)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mockDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
 				headers <- r.Header.Clone()
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"id":"test","object":"response","status":"completed","output":[]}`))
-			}))
-			defer server.Close()
+				if tc.wantOAuth && !isCodexDestination(r.URL.String()) {
+					t.Errorf("unexpected OAuth destination: %s", r.URL)
+				}
+				return jsonTestResponse(r, `{"id":"test","object":"response","status":"completed","output":[]}`), nil
+			})
 			result, err := createOpenAIProvider(context.Background(), &ProviderConfig{
 				ProviderAPIKey: tc.configKey,
-				ProviderURL:    server.URL,
+				ProviderURL:    tc.endpoint,
 			}, "gpt-5")
 			if err != nil {
 				t.Fatal(err)
@@ -99,6 +104,9 @@ func TestOpenAICredentialPrecedence(t *testing.T) {
 				}
 				if tc.wantOAuth && got.Get("ChatGPT-Account-ID") != "account-id" {
 					t.Errorf("wrong OAuth account header: got %q", got.Get("ChatGPT-Account-ID"))
+				}
+				if !tc.wantOAuth && got.Get("ChatGPT-Account-ID") != "" {
+					t.Error("API-key request includes OAuth account header")
 				}
 			default:
 				t.Fatal("no request received")
