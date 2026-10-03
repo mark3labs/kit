@@ -1594,32 +1594,23 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize Codex credential manager: %w", err)
 	}
-	creds, err := cm.GetOpenAICredentials()
+	creds, err := cm.GetValidOpenAICredentials()
 	if err != nil {
-		return nil, fmt.Errorf("load Codex credentials: %w", err)
+		return nil, fmt.Errorf("load valid Codex credentials: %w", err)
 	}
-	if creds == nil || creds.Type != "oauth" {
+	if creds.Type != "oauth" {
 		return nil, fmt.Errorf("codex OAuth credentials not available")
 	}
-	token, err := cm.GetValidOpenAIAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("refresh Codex credentials: %w", err)
-	}
-	if token == "" {
+	if creds.AccessToken == "" {
 		return nil, fmt.Errorf("codex OAuth access token is empty")
-	}
-	// Read the account ID again because a refresh can replace the credentials.
-	creds, err = cm.GetOpenAICredentials()
-	if err != nil {
-		return nil, fmt.Errorf("load refreshed Codex credentials: %w", err)
 	}
 	newReq := req.Clone(req.Context())
 
 	// Add required headers for ChatGPT/Codex API
 	// These headers mimic the official pi client to avoid Cloudflare blocking
-	newReq.Header.Set("Authorization", "Bearer "+token)
+	newReq.Header.Set("Authorization", "Bearer "+creds.AccessToken)
 	newReq.Header.Del("chatgpt-account-id")
-	if creds != nil && creds.AccountID != "" {
+	if creds.AccountID != "" {
 		newReq.Header.Set("chatgpt-account-id", creds.AccountID)
 	}
 	newReq.Header.Set("originator", "kit")

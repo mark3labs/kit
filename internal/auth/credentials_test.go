@@ -1,8 +1,13 @@
 package auth
 
 import (
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -347,5 +352,122 @@ func TestRemoveCredentialsPreservesOtherProviders(t *testing.T) {
 	}
 	if !hasOpenAI {
 		t.Fatal("Expected OpenAI credentials to remain after removing Copilot credentials")
+	}
+}
+
+func TestGetValidOpenAICredentialsSnapshot(t *testing.T) {
+	for _, credType := range []string{"oauth", "api_key"} {
+		t.Run(credType, func(t *testing.T) {
+			cm := &CredentialManager{credentialsPath: filepath.Join(t.TempDir(), "credentials.json")}
+			original := &OpenAICredentials{
+				Type: credType, APIKey: "api-key", AccessToken: "token", AccountID: "account",
+				ExpiresAt: time.Now().Add(time.Hour).Unix(),
+			}
+			if err := cm.SetOpenAIOAuthCredentials(original); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := cm.GetValidOpenAICredentials()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *snapshot != *original {
+				t.Fatal("snapshot differs from stored credentials")
+			}
+			token, err := cm.GetValidOpenAIAccessToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := original.AccessToken
+			if credType == "api_key" {
+				want = original.APIKey
+			}
+			if token != want {
+				t.Fatal("access token helper returned the wrong credential field")
+			}
+			if err := cm.SetOpenAIOAuthCredentials(&OpenAICredentials{
+				Type: "oauth", AccessToken: "replacement-token", AccountID: "replacement-account",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if *snapshot != *original {
+				t.Fatal("credential replacement changed the snapshot")
+			}
+		})
+	}
+}
+
+func TestGetValidOpenAICredentialsErrors(t *testing.T) {
+	cm := &CredentialManager{credentialsPath: filepath.Join(t.TempDir(), "credentials.json")}
+	for _, creds := range []*OpenAICredentials{nil, {Type: "unknown"}} {
+		if err := cm.SaveCredentials(&CredentialStore{OpenAI: creds}); err != nil {
+			t.Fatal(err)
+		}
+		if snapshot, err := cm.GetValidOpenAICredentials(); err == nil || snapshot != nil {
+			t.Fatal("expected no snapshot and an error")
+		}
+		if _, err := cm.GetValidOpenAIAccessToken(); err == nil {
+			t.Fatal("expected access token helper error")
+		}
+	}
+}
+
+type openAICredentialTestTransport func(*http.Request) (*http.Response, error)
+
+func (f openAICredentialTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestGetValidOpenAICredentialsRefreshSnapshot(t *testing.T) {
+	cm := &CredentialManager{credentialsPath: filepath.Join(t.TempDir(), "credentials.json")}
+	if err := cm.SetOpenAIOAuthCredentials(&OpenAICredentials{
+		Type: "oauth", AccessToken: "expired-token", AccountID: "old-account",
+		RefreshToken: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	refreshedToken := "header." + base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"new-account"}}`)) + ".signature"
+	oldTransport := http.DefaultTransport
+	http.DefaultTransport = openAICredentialTestTransport(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://auth.openai.com/oauth/token" {
+			t.Fatalf("unexpected refresh destination: %s", req.URL)
+		}
+		if err := req.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if req.Form.Get("refresh_token") != "old-refresh" {
+			t.Fatal("wrong refresh token")
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header), Request: req,
+			Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"access_token":%q,"refresh_token":"new-refresh","expires_in":3600}`, refreshedToken))),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	snapshot, err := cm.GetValidOpenAICredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.AccessToken != refreshedToken || snapshot.AccountID != "new-account" || snapshot.RefreshToken != "new-refresh" || snapshot.NeedsRefresh() {
+		t.Fatal("snapshot does not contain the refreshed credentials")
+	}
+	stored, err := cm.GetOpenAICredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// JSON storage does not retain the monotonic part of CreatedAt.
+	if !stored.CreatedAt.Equal(snapshot.CreatedAt) {
+		t.Fatal("stored creation time differs from the refreshed snapshot")
+	}
+	stored.CreatedAt = snapshot.CreatedAt
+	if *stored != *snapshot {
+		t.Fatal("stored credentials differ from the refreshed snapshot")
+	}
+	if err := cm.SetOpenAIOAuthCredentials(&OpenAICredentials{
+		Type: "oauth", AccessToken: "login-token", AccountID: "login-account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.AccessToken != refreshedToken || snapshot.AccountID != "new-account" {
+		t.Fatal("login changed the refreshed snapshot")
 	}
 }

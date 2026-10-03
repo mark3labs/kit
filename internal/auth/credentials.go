@@ -506,18 +506,33 @@ func (cm *CredentialManager) SetOpenAIOAuthCredentials(creds *OpenAICredentials)
 // credentials, it simply returns the API key. Returns an error if no credentials are found,
 // if token refresh fails, or if the credential type is unknown.
 func (cm *CredentialManager) GetValidOpenAIAccessToken() (string, error) {
-	creds, err := cm.GetOpenAICredentials()
+	creds, err := cm.GetValidOpenAICredentials()
 	if err != nil {
 		return "", err
 	}
-
-	if creds == nil {
-		return "", fmt.Errorf("no credentials found")
-	}
-
-	// For API key auth, return the API key
 	if creds.Type == "api_key" {
 		return creds.APIKey, nil
+	}
+	return creds.AccessToken, nil
+}
+
+// GetValidOpenAICredentials returns one stored credential snapshot, refreshing
+// OAuth credentials when needed. The access token and account ID belong to the
+// same loaded or refreshed record. API key credentials are returned unchanged.
+// It returns an error for missing credentials, unknown types, or refresh failures.
+func (cm *CredentialManager) GetValidOpenAICredentials() (*OpenAICredentials, error) {
+	creds, err := cm.GetOpenAICredentials()
+	if err != nil {
+		return nil, err
+	}
+
+	if creds == nil {
+		return nil, fmt.Errorf("no credentials found")
+	}
+
+	// API keys do not need refresh
+	if creds.Type == "api_key" {
+		return creds, nil
 	}
 
 	// For OAuth, check if token needs refresh
@@ -527,21 +542,21 @@ func (cm *CredentialManager) GetValidOpenAIAccessToken() (string, error) {
 			client := NewOpenAIOAuthClient()
 			newCreds, err := client.RefreshToken(creds.RefreshToken)
 			if err != nil {
-				return "", fmt.Errorf("failed to refresh token: %w", err)
+				return nil, fmt.Errorf("failed to refresh token: %w", err)
 			}
 
 			// Update stored credentials
 			if err := cm.SetOpenAIOAuthCredentials(newCreds); err != nil {
-				return "", fmt.Errorf("failed to save refreshed token: %w", err)
+				return nil, fmt.Errorf("failed to save refreshed token: %w", err)
 			}
 
-			return newCreds.AccessToken, nil
+			return newCreds, nil
 		}
 
-		return creds.AccessToken, nil
+		return creds, nil
 	}
 
-	return "", fmt.Errorf("unknown credential type: %s", creds.Type)
+	return nil, fmt.Errorf("unknown credential type: %s", creds.Type)
 }
 
 // GetCredentialsPath returns the absolute path to the credentials JSON file.
