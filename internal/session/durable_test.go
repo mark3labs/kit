@@ -225,6 +225,24 @@ func TestAppendStepFailureReportsError(t *testing.T) {
 	if _, err := tm.AppendMessage(newTestMessage("nope")); err == nil {
 		t.Errorf("AppendMessage on a broken file handle succeeded, want error")
 	}
+
+	// The transcript must be intact after a fresh open: only the message
+	// that was persisted before the failed step is there, with no torn
+	// fragment or half-step at the tail. Close reports the already-broken
+	// handle, which this test closed on purpose, so the error is ignored.
+	_ = tm.Close()
+	reopened, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("reopen after failed step: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	msgs, _, _ := reopened.BuildContext()
+	if len(msgs) != 1 || textOfFantasy(t, msgs[0]) != "before" {
+		t.Fatalf("context after failed step = %v, want just the \"before\" message", msgs)
+	}
+	if got := countLines(t, path); got != 2 {
+		t.Errorf("lines after reopen = %d, want 2 (header + one message)", got)
+	}
 }
 
 func TestAppendAfterCloseRefusedForPersistedSession(t *testing.T) {

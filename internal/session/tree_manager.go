@@ -761,9 +761,13 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 	}
 
 	// Phase 2 — record where the step starts, then write the serialized
-	// lines. The buffer is empty here: every other append path flushes
-	// before returning, and a failed step resets the writer (see rollback).
-	startOffset, err := tm.file.Seek(0, io.SeekCurrent)
+	// lines. The rollback point is the file's END, not this handle's offset:
+	// another manager sharing the file (reentrant in-process open) can
+	// append through its own handle, which leaves this handle's offset
+	// stale, and truncating to a stale offset would cut away its entries.
+	// The buffer is empty here: every other append path flushes before
+	// returning, and a failed step resets the writer (see rollback).
+	startOffset, err := tm.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to record the append position: %w", err)
 	}
