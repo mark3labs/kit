@@ -3,8 +3,11 @@ package session
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/message"
 )
@@ -70,6 +74,12 @@ type TreeManager struct {
 	// buffer and are flushed to disk at explicit sync points (after each
 	// public Append* call, in Close, etc.) to reduce syscall overhead.
 	writer *bufio.Writer
+
+	// lockRelease drops the process-level exclusive lock on filePath. It is
+	// nil for in-memory sessions and after Close. The lock makes "one
+	// process owns one session file" true: a second kit process that tries
+	// to open the same transcript fails instead of interleaving appends.
+	lockRelease func()
 
 	// llmCache holds the decoded LLM messages of each MessageEntry. It has
 	// its own mutex because it is filled lazily by readers holding only
@@ -128,6 +138,15 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		_ = f.Close()
 		return nil, fmt.Errorf("failed to flush session header: %w", err)
 	}
+
+	// Claim the file before handing the session out, so a parallel run
+	// cannot open it while this one is still empty.
+	release, err := acquireSessionLock(filePath)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	tm.lockRelease = release
 
 	return tm, nil
 }
@@ -324,6 +343,14 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return nil // in-memory session: header updated in place
 	}
 
+	// Drop the file lock for the duration of the rewrite. The rewrite
+	// replaces the file at filePath with a rename, which would leave a lock
+	// held on the old inode guarding a path that now points elsewhere.
+	if tm.lockRelease != nil {
+		tm.lockRelease()
+		tm.lockRelease = nil
+	}
+
 	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
 		return fmt.Errorf("failed to flush session before header rewrite: %w", err)
@@ -386,6 +413,12 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
+			// The rename failed, so the original inode still backs the path
+			// and can be locked again. Without this the session would run
+			// on unlocked: another process could then interleave appends.
+			if release, lockErr := acquireSessionLock(tm.filePath); lockErr == nil {
+				tm.lockRelease = release
+			}
 		}
 		return fmt.Errorf("failed to replace session file: %w", err)
 	}
@@ -395,11 +428,45 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
+
+	// Re-claim the lock on the file the path now points to. The unlocked
+	// window spans only this rewrite, which runs on freshly created
+	// sessions, so contention here is a theoretical case.
+	release, err := acquireSessionLock(tm.filePath)
+	if err != nil {
+		return fmt.Errorf("failed to re-lock session file after header rewrite: %w", err)
+	}
+	tm.lockRelease = release
 	return nil
 }
 
 // OpenTreeSession opens an existing JSONL session file.
+//
+// The session file is locked for exclusive use before anything is read, so
+// two processes cannot load the same transcript and then append to it
+// concurrently. Reopening finishes with a repair pass: tool calls left
+// unanswered by a stopped process get synthetic results, so the session is
+// resumable (see repair.go).
 func OpenTreeSession(path string) (*TreeManager, error) {
+	// Claim the file before parsing. The handle opened for the lock is
+	// separate from the append handle opened below, and both outlive this
+	// function: Close releases the lock.
+	release, err := acquireSessionLock(path)
+	if err != nil {
+		return nil, err
+	}
+	tm, err := openTreeSessionLocked(path)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	tm.lockRelease = release
+	return tm, nil
+}
+
+// openTreeSessionLocked is the body of OpenTreeSession, called with the
+// session file already locked.
+func openTreeSessionLocked(path string) (*TreeManager, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
@@ -419,6 +486,7 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	// large share of the open time. json.Unmarshal copies what it keeps
 	// (including json.RawMessage), so entries do not pin this buffer.
 	lineNum := 0
+	tornTail := false
 	for rest := data; len(rest) > 0; {
 		var line []byte
 		line, rest, _ = bytes.Cut(rest, []byte{'\n'})
@@ -429,6 +497,31 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 
 		entry, err := UnmarshalEntry(line)
 		if err != nil {
+			// A line written by a newer kit version is complete, valid JSON:
+			// it is a forward-compatibility case, never a torn write, and it
+			// must not be dropped.
+			if errors.Is(err, ErrUnknownEntryType) {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			if len(rest) == 0 {
+				// A torn final write: the process died mid-append, so the
+				// last line is a JSON prefix. Everything before it is a
+				// complete transcript; drop the fragment instead of failing
+				// the whole session. A malformed line that is NOT the last
+				// one is real corruption and stays an error.
+				if lineNum == 1 {
+					// The header itself did not survive; without it the file
+					// has no session ID, cwd or version, and appends would
+					// build a transcript with no head line. Keep the failure
+					// loud: the header is one line, cheap to recover by
+					// starting a fresh session and forking nothing.
+					return nil, fmt.Errorf("line 1: session header is torn (%w); the file cannot be opened", err)
+				}
+				tornTail = true
+				log.Warn("session: dropping a torn final line left by a stopped process",
+					"path", path, "line", lineNum, "error", err)
+				continue
+			}
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 
@@ -452,6 +545,15 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	// Validate tree integrity and log diagnostics
 	tm.LogTreeDiagnostics()
 
+	if tornTail {
+		// The dropped fragment must not resurface on the next append, and a
+		// repair entry appended later must not grow a JSON prefix into a
+		// corrupt transcript. Trim before anything appends again.
+		if err := truncateTornTail(path); err != nil {
+			log.Warn("session: could not trim the torn final line", "path", path, "error", err)
+		}
+	}
+
 	// Open file for appending.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -460,7 +562,40 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
 
+	// Close the crash window: a step written as two appends (assistant tool
+	// calls, then their results) may have stopped in between. Without this
+	// the session opens holding tool calls with no results, which providers
+	// reject. The repair appends through the handle opened above, so the
+	// synthetic results are persisted with the rest of the session.
+	if _, err := tm.repairInterruptedToolCalls(); err != nil {
+		log.Warn("session: could not repair interrupted tool calls", "path", path, "error", err)
+	}
+
 	return tm, nil
+}
+
+// truncateTornTail removes the final, incomplete line from a session file so
+// later appends do not grow a JSON fragment into a corrupt transcript. The
+// file is opened read-only first to find the offset of the last newline;
+// everything after it is cut.
+func truncateTornTail(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	idx := bytes.LastIndexByte(data, '\n')
+	if idx < 0 {
+		// Only the header line was being written when the process died;
+		// keep nothing after its newline (there is none).
+		idx = -1
+	}
+	return f.Truncate(int64(idx + 1))
 }
 
 // ContinueRecent finds the most recently modified session for the given cwd,
@@ -523,6 +658,99 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 // AppendLLMMessage converts an LLM message and appends it.
 func (tm *TreeManager) AppendLLMMessage(msg fantasy.Message) (string, error) {
 	return tm.AppendMessage(message.FromLLMMessage(msg))
+}
+
+// AppendStep persists one agent step — the group of messages a single model
+// request produced — with one buffered write, one flush, and one fsync.
+//
+// A tool-calling step produces an assistant message carrying tool calls and
+// a tool-role message carrying the matching results. Persisting them as one
+// unit closes the crash window that would otherwise leave storage with a
+// tool call and no result (providers reject that transcript, which makes the
+// session unresumable). Kit calls this instead of looping over
+// [TreeManager.AppendMessage] whenever the messages belong together; see
+// also repairInterruptedToolCalls, which covers steps written by older
+// versions that persisted per message.
+//
+// Either every message is appended or none is: serialization happens for all
+// messages before the first byte is written, so a failure to convert one
+// message leaves storage and indices untouched. A failure during the write
+// or flush itself is reported, though the indices may already carry the
+// entries (the in-memory view treats the step as done; the file recovers on
+// reopen through the torn-line handling).
+//
+// ctx is accepted for signature compatibility with the durable-backend
+// contract and is not used for cancellation: a finished step must survive
+// the turn that produced it, even when the turn was cancelled (see the
+// Cancellation section on kit's StepAppender).
+func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) ([]string, error) {
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	_ = ctx // steps survive their turn; cancellation must not drop them
+
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	// Validate the chain the step will extend once, before any work.
+	if err := tm.validateParentChainLocked(tm.leafID, ""); err != nil {
+		return nil, fmt.Errorf("parent chain validation failed: %w", err)
+	}
+
+	// Phase 1 — build and serialize every entry. Nothing is written and no
+	// index changes until every message has converted cleanly, so a bad
+	// message cannot leave a half-written step behind.
+	entries := make([]*MessageEntry, len(msgs))
+	lines := make([][]byte, len(msgs))
+	parent := tm.leafID
+	for i, msg := range msgs {
+		entry, err := NewMessageEntry(parent, message.FromLLMMessage(msg))
+		if err != nil {
+			return nil, err
+		}
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal step message %d: %w", i, err)
+		}
+		entries[i] = entry
+		lines[i] = line
+		parent = entry.ID
+	}
+
+	if tm.writer == nil {
+		// In-memory session: index updates are the whole persistence.
+		ids := make([]string, len(entries))
+		for i, entry := range entries {
+			tm.addEntryToIndex(entry)
+			ids[i] = entry.ID
+		}
+		tm.leafID = entries[len(entries)-1].ID
+		return ids, nil
+	}
+
+	// Phase 2 — write the serialized lines and commit the indices.
+	ids := make([]string, len(entries))
+	for i, entry := range entries {
+		if _, err := tm.writer.Write(lines[i]); err != nil {
+			return nil, fmt.Errorf("failed to write step message %d: %w", i, err)
+		}
+		if err := tm.writer.WriteByte('\n'); err != nil {
+			return nil, fmt.Errorf("failed to write step message %d: %w", i, err)
+		}
+		tm.addEntryToIndex(entry)
+		ids[i] = entry.ID
+	}
+	tm.leafID = entries[len(entries)-1].ID
+
+	// Phase 3 — flush and fsync, so both lines of a tool-calling step reach
+	// storage together.
+	if err := tm.flushLocked(); err != nil {
+		return nil, fmt.Errorf("failed to flush step: %w", err)
+	}
+	if err := tm.file.Sync(); err != nil {
+		return nil, fmt.Errorf("failed to sync step: %w", err)
+	}
+	return ids, nil
 }
 
 // AppendModelChange records a model/provider change.
@@ -1070,7 +1298,8 @@ func (tm *TreeManager) flushLocked() error {
 	return nil
 }
 
-// Close flushes any buffered writes and closes the underlying file handle.
+// Close flushes any buffered writes, closes the underlying file handle, and
+// releases the session file lock.
 func (tm *TreeManager) Close() error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -1080,9 +1309,20 @@ func (tm *TreeManager) Close() error {
 			_ = tm.writer.Flush()
 			tm.writer = nil
 		}
+		// Push what is in the page cache to storage: after Close returns, a
+		// power cut must not take the session's tail with it.
+		_ = tm.file.Sync()
 		err := tm.file.Close()
 		tm.file = nil
+		if tm.lockRelease != nil {
+			tm.lockRelease()
+			tm.lockRelease = nil
+		}
 		return err
+	}
+	if tm.lockRelease != nil {
+		tm.lockRelease()
+		tm.lockRelease = nil
 	}
 	return nil
 }

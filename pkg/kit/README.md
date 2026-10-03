@@ -427,6 +427,21 @@ adding it to an existing implementation is not a breaking change. Return one
 entry ID per input message, in order, and never report a partial write as
 success.
 
+The built-in JSONL tree manager implements `StepAppender`: it commits each
+step with one buffered write, one flush, and one fsync, so both halves of a
+tool-calling step reach storage together. Two more guards back it up:
+
+- **Session file lock.** A file-backed session holds an advisory exclusive
+  lock for its lifetime (reentrant within the process), so a second kit
+  process that opens the same transcript fails with "already open in another
+  process" instead of interleaving appends.
+- **Repair on open.** A transcript whose tail holds tool calls with no
+  results — the state a process can still leave behind between two appends —
+  is repaired on open: one synthetic error result per unanswered call is
+  appended, and a torn final line (a JSON prefix left by a write that never
+  finished) is dropped and trimmed. The session opens resumable instead of
+  failing or feeding providers a conversation they reject.
+
 ### Suspending a Turn (human-in-the-loop)
 
 A tool can stop the agent loop and hand a typed value back to the caller by

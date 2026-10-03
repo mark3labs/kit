@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -24,6 +25,15 @@ func NewTreeManagerAdapter(tm *TreeManager) SessionManager {
 func (a *treeManagerAdapter) AppendMessage(msg LLMMessage) (string, error) {
 	// LLMMessage is a type alias, so no conversion needed.
 	return a.inner.AppendLLMMessage(msg)
+}
+
+// AppendStep forwards the atomic step contract to the inner tree manager,
+// which commits the whole step (one buffered write, one flush, one fsync).
+// Without this method the type-assertion in Kit's appendMessages would fall
+// back to per-message appends and lose the atomicity the default backend
+// now provides.
+func (a *treeManagerAdapter) AppendStep(ctx context.Context, msgs []LLMMessage) ([]string, error) {
+	return a.inner.AppendStep(ctx, msgs)
 }
 
 // GetMessages implements SessionManager.
