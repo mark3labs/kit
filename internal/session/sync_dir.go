@@ -1,7 +1,9 @@
 package session
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -17,4 +19,24 @@ func syncSessionDir(path string) error {
 	}
 	defer func() { _ = dir.Close() }()
 	return dir.Sync()
+}
+
+// createSessionDirs persists each newly created directory in its parent.
+func createSessionDirs(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return fmt.Errorf("missing filesystem root: %s", path)
+	}
+	if err := createSessionDirs(parent); err != nil {
+		return err
+	}
+	if err := os.Mkdir(path, 0o755); err != nil && !os.IsExist(err) {
+		return err
+	}
+	return syncSessionDir(parent)
 }

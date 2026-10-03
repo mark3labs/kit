@@ -109,7 +109,7 @@ type TreeManager struct {
 // location for the given working directory.
 func CreateTreeSession(cwd string) (*TreeManager, error) {
 	sessionDir := DefaultSessionDir(cwd)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+	if err := createSessionDirs(sessionDir); err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
 
@@ -383,15 +383,8 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return nil // in-memory session: header updated in place
 	}
 
-	// The file lock stays held for everything up to the rename. The rename
-	// itself is the one step that cannot hold it: on Windows, MoveFileEx
-	// fails with a sharing violation while any handle is open on the source
-	// or the replaced target (os.OpenFile handles never carry
-	// FILE_SHARE_DELETE), so both the lock handle and the append handle must
-	// be closed first. The lock is therefore dropped only here and
-	// re-claimed before any append handle is opened again — on every error
-	// path below the session either keeps its lock or reports that it lost
-	// it and refuses to continue appending.
+	// A stable sidecar lock protects ownership through the rename on all
+	// platforms. Only transcript handles must close for Windows replacement.
 
 	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
@@ -457,44 +450,15 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	tm.file = nil
 	tm.writer = nil
 
-	// From here the session is unlocked. No append handle exists and none is
-	// opened until the lock is back, so the session itself cannot write into
-	// the window; the re-claims below fail loudly if another process took
-	// the lock in the meantime.
-	if tm.lockRelease != nil {
-		tm.lockRelease()
-		tm.lockRelease = nil
-	}
-
+	// The sidecar lock remains held across the transcript replacement.
 	if err := os.Rename(tmpPath, tm.filePath); err != nil {
 		_ = os.Remove(tmpPath)
-		// The original inode still backs the path, so it can be locked again.
-		// Reclaim the lock BEFORE any append handle is reopened: if the lock
-		// is gone, the session must not continue appending, and it must not
-		// keep a live handle that invites exactly that.
-		release, lockErr := acquireSessionLockForRewrite(tm.filePath, true)
-		if lockErr != nil {
-			tm.persistFailed = true
-			return fmt.Errorf("failed to replace session file: %w (and the session file lock could not be re-claimed: %v; the session refuses further appends)", err, lockErr)
-		}
-		tm.lockRelease = release
 		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
 			tm.file = f
 			tm.writer = bufio.NewWriter(f)
 		}
-		return fmt.Errorf("failed to replace session file: %w", err)
+		return fmt.Errorf("replace session file: %w", err)
 	}
-
-	// The path now points at the rewritten file. Re-claim the lock before
-	// anything can append to it. A same-process opener that joined during
-	// the window already re-created the table entry; joining that entry is
-	// exactly right, because its lock guards the inode the path now has.
-	release, err := acquireSessionLockForRewrite(tm.filePath, true)
-	if err != nil {
-		tm.persistFailed = true
-		return fmt.Errorf("session file lock could not be re-claimed after the header rewrite (%v); the session refuses further appends", err)
-	}
-	tm.lockRelease = release
 
 	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -1425,14 +1389,15 @@ func (tm *TreeManager) Close() error {
 	defer tm.mu.Unlock()
 	if tm.file != nil {
 		// Flush buffered data before closing.
+		var flushErr error
 		if tm.writer != nil {
-			_ = tm.writer.Flush()
+			flushErr = tm.writer.Flush()
 			tm.writer = nil
 		}
 		// Push what is in the page cache to storage: after Close returns, a
 		// power cut must not take the session's tail with it.
-		_ = tm.file.Sync()
-		err := tm.file.Close()
+		syncErr := tm.file.Sync()
+		err := errors.Join(flushErr, syncErr, tm.file.Close())
 		tm.file = nil
 		if tm.lockRelease != nil {
 			tm.lockRelease()

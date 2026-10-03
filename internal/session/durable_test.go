@@ -617,7 +617,7 @@ func TestSessionLockBlocksOtherProcess(t *testing.T) {
 	}
 
 	// Simulate another process holding the lock on the file.
-	other, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	other, err := os.OpenFile(path+".lock", os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -937,7 +937,7 @@ func TestSetParentLinkErrorKeepsLock(t *testing.T) {
 	}
 
 	// The lock must still be held: another "process" cannot take it.
-	other, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	other, err := os.OpenFile(path+".lock", os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
