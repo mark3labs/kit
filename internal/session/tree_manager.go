@@ -87,6 +87,15 @@ type TreeManager struct {
 	// to persist rather than silently fork the transcript.
 	persistFailed bool
 
+	// cleanPath is filepath.Clean(filePath), the lock table's key. It is
+	// empty for in-memory sessions.
+	cleanPath string
+
+	// syncHook, when set, replaces file.Sync in AppendStep. Test-only: it
+	// lets a test fail the step after the bytes reached the file, which is
+	// the case the rollback path exists for.
+	syncHook func() error
+
 	// llmCache holds the decoded LLM messages of each MessageEntry. It has
 	// its own mutex because it is filled lazily by readers holding only
 	// mu.RLock. See llmMessagesLocked.
@@ -126,6 +135,7 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		childIndex: make(map[string][]string),
 		labels:     make(map[string]string),
 		filePath:   filePath,
+		cleanPath:  filepath.Clean(filePath),
 	}
 
 	// Create the file and write the header.
@@ -512,6 +522,7 @@ func openTreeSessionLocked(path string) (*TreeManager, error) {
 		childIndex: make(map[string][]string),
 		labels:     make(map[string]string),
 		filePath:   path,
+		cleanPath:  filepath.Clean(path),
 	}
 
 	// Split lines straight out of the file buffer. The previous
@@ -760,11 +771,19 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 		return ids, nil
 	}
 
+	// Phases 2-4 — serialize against every other manager of the same file,
+	// so no other handle can append (or roll back) between this step's seek
+	// and its commit-or-rollback. The mutex is a leaf lock: nothing inside
+	// these brackets takes another lock or calls into another manager.
+	if pathMu := tm.appendPathMu(); pathMu != nil {
+		pathMu.Lock()
+		defer pathMu.Unlock()
+	}
+
 	// Phase 2 — record where the step starts, then write the serialized
 	// lines. The rollback point is the file's END, not this handle's offset:
-	// another manager sharing the file (reentrant in-process open) can
-	// append through its own handle, which leaves this handle's offset
-	// stale, and truncating to a stale offset would cut away its entries.
+	// the per-file append mutex keeps every other handle out until the step
+	// is committed or rolled back, so the end cannot move underneath it.
 	// The buffer is empty here: every other append path flushes before
 	// returning, and a failed step resets the writer (see rollback).
 	startOffset, err := tm.file.Seek(0, io.SeekEnd)
@@ -785,8 +804,12 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 	if err := tm.flushLocked(); err != nil {
 		return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to flush step: %w", err))
 	}
-	if err := tm.file.Sync(); err != nil {
-		return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to sync step: %w", err))
+	syncErr := tm.file.Sync()
+	if tm.syncHook != nil {
+		syncErr = tm.syncHook()
+	}
+	if syncErr != nil {
+		return nil, tm.rollbackStep(startOffset, fmt.Errorf("failed to sync step: %w", syncErr))
 	}
 
 	// Phase 4 — the step is on stable storage; now the in-memory view.
@@ -811,6 +834,16 @@ func (tm *TreeManager) rollbackStep(startOffset int64, cause error) error {
 	if err := tm.file.Truncate(startOffset); err != nil {
 		tm.persistFailed = true
 		return fmt.Errorf("%w (rollback failed: %v; the session refuses further appends)", cause, err)
+	}
+	// Truncate does not reset the offset on newly created handles, which
+	// do not use O_APPEND. Reset it to prevent a hole on the next write.
+	if _, err := tm.file.Seek(startOffset, io.SeekStart); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("%w (rollback seek failed: %v)", cause, err)
+	}
+	if err := tm.file.Sync(); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("%w (rollback sync failed: %v)", cause, err)
 	}
 	return cause
 }
@@ -1471,9 +1504,25 @@ func (tm *TreeManager) appendAndPersist(entry any) error {
 		// entry from the transcript the next open reads, so refuse instead.
 		return fmt.Errorf("session file is not open; refusing to append to %q", tm.filePath)
 	}
+	// Serialize against other managers of the same file (same leaf-lock rule
+	// as AppendStep: syscalls only inside the mutex).
+	if pathMu := tm.appendPathMu(); pathMu != nil {
+		pathMu.Lock()
+		defer pathMu.Unlock()
+	}
 	tm.addEntryToIndex(entry)
 	if tm.file != nil {
-		return tm.writeEntry(entry)
+		// Newly created handles do not use O_APPEND. Another manager can
+		// have extended the file since this handle's last write.
+		if _, err := tm.file.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("seek session end: %w", err)
+		}
+		if err := tm.writeEntry(entry); err != nil {
+			return err
+		}
+		// Flush before releasing the shared append lock. A later rollback
+		// must not truncate bytes that another writer still has buffered.
+		return tm.flushLocked()
 	}
 	return nil
 }

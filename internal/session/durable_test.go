@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -243,6 +244,113 @@ func TestAppendStepFailureReportsError(t *testing.T) {
 	if got := countLines(t, path); got != 2 {
 		t.Errorf("lines after reopen = %d, want 2 (header + one message)", got)
 	}
+}
+
+// TestAppendStepRollsBackAfterWrite reaches the failure AFTER the step's
+// bytes reached the file (the sync fails), which is the path rollbackStep
+// exists for: the seek succeeds, the write and flush succeed, then the sync
+// failure must cut the file back and leave no trace of the step.
+func TestAppendStepRollsBackAfterWrite(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	path := tm.GetFilePath()
+	if _, err := tm.AppendMessage(newTestMessage("before")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	fileBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	leafBefore := tm.GetLeafID()
+	countBefore := tm.MessageCount()
+
+	tm.syncHook = func() error { return errors.New("sync failed") }
+	if _, err := tm.AppendStep(context.Background(), fantasyStepMessages("call-7")); err == nil {
+		t.Fatalf("AppendStep succeeded with a failing sync, want error")
+	}
+	tm.syncHook = nil
+
+	// The step is gone from memory AND from the file.
+	if got := tm.MessageCount(); got != countBefore {
+		t.Errorf("MessageCount = %d, want %d", got, countBefore)
+	}
+	if got := tm.GetLeafID(); got != leafBefore {
+		t.Errorf("leaf = %q, want %q", got, leafBefore)
+	}
+	fileAfter, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after rollback: %v", err)
+	}
+	if !bytes.Equal(fileBefore, fileAfter) {
+		t.Errorf("file did not roll back:\nbefore: %q\nafter:  %q", fileBefore, fileAfter)
+	}
+
+	// The writer survived the rollback (reset, not dead): the next append
+	// persists cleanly.
+	if _, err := tm.AppendMessage(newTestMessage("after")); err != nil {
+		t.Fatalf("AppendMessage after rollback: %v", err)
+	}
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	reopened, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("reopen after rollback: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	msgs, _, _ := reopened.BuildContext()
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2 (before + after)", len(msgs))
+	}
+}
+
+// TestAppendStepRollbackKeepsOtherManagersEntries pins the rollback point:
+// entries another manager committed before this step started (the file end
+// at seek time) must survive this step's failure.
+func TestAppendStepRollbackKeepsOtherManagersEntries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	first, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	path := first.GetFilePath()
+	if _, err := first.AppendMessage(newTestMessage("from first")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	second, err := OpenTreeSession(path) // reentrant in-process open
+	if err != nil {
+		t.Fatalf("OpenTreeSession (second manager): %v", err)
+	}
+	defer func() { _ = second.Close() }()
+	if _, err := second.AppendMessage(newTestMessage("from second")); err != nil {
+		t.Fatalf("second AppendMessage: %v", err)
+	}
+
+	first.syncHook = func() error { return errors.New("sync failed") }
+	if _, err := first.AppendStep(context.Background(), fantasyStepMessages("call-8")); err == nil {
+		t.Fatalf("AppendStep succeeded with a failing sync, want error")
+	}
+	first.syncHook = nil
+
+	// The second manager's committed entry must still be on disk after the
+	// rollback, and the file must still hold exactly the two messages.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "from second") {
+		t.Errorf("rollback cut away another manager's committed entry")
+	}
+	if got := countLines(t, path); got != 3 {
+		t.Errorf("lines = %d, want 3 (header + two messages)", got)
+	}
+	_ = first.Close()
 }
 
 func TestAppendAfterCloseRefusedForPersistedSession(t *testing.T) {

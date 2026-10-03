@@ -30,11 +30,19 @@ var lockTable = struct {
 	entries map[string]*lockEntry
 }{entries: make(map[string]*lockEntry)}
 
-// lockEntry is one held lock: the file handle it is held on and the number
-// of TreeManagers in this process that share it.
+// lockEntry is one held lock: the file handle it is held on, the number of
+// TreeManagers in this process that share it, and the append mutex those
+// managers serialize their file writes on.
 type lockEntry struct {
 	file *os.File
 	refs int
+	// appendMu serializes every append that writes the shared transcript
+	// file: seek-to-end, buffered writes, flush, sync, and — critically —
+	// any rollback truncate, which would otherwise cut away an entry
+	// another manager committed in the meantime. It is a leaf lock: hold it
+	// across file syscalls only, never call back into another manager's
+	// append methods from inside it.
+	appendMu sync.Mutex
 }
 
 // acquireSessionLock takes the exclusive lock for an existing file, or
@@ -103,4 +111,20 @@ func releaseOnce(clean string) func() {
 		once = true
 		releaseSessionLock(clean)
 	}
+}
+
+// appendPathMu returns the per-file append mutex shared by every manager of
+// the same session file, or nil when this session has no table entry (an
+// in-memory session, or a file that could not be locked). Callers that get
+// nil skip the serialization, which keeps the previous behavior.
+func (tm *TreeManager) appendPathMu() *sync.Mutex {
+	if tm.cleanPath == "" {
+		return nil
+	}
+	lockTable.Lock()
+	defer lockTable.Unlock()
+	if e, ok := lockTable.entries[tm.cleanPath]; ok {
+		return &e.appendMu
+	}
+	return nil
 }
