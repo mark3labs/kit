@@ -186,16 +186,75 @@ func TestAppendStepFailureReportsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTreeSession: %v", err)
 	}
-	defer func() { _ = tm.Close() }()
+	path := tm.GetFilePath()
+	if _, err := tm.AppendMessage(newTestMessage("before")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	leafBefore := tm.GetLeafID()
+	countBefore := tm.MessageCount()
+	fileBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 
-	// Kill the underlying handle so the buffered writes fail. The step must
-	// come back as an error, not as a silently dropped half-step.
+	// Kill the underlying handle so every write fails. The step must come
+	// back as an error AND leave no divergence between memory and disk: no
+	// index entry, no leaf movement, no partial line in the file.
 	if err := tm.file.Close(); err != nil {
 		t.Fatalf("closing file handle: %v", err)
 	}
-	_, err = tm.AppendStep(context.Background(), fantasyStepMessages("call-3"))
-	if err == nil {
+	if _, err := tm.AppendStep(context.Background(), fantasyStepMessages("call-3")); err == nil {
 		t.Fatalf("AppendStep succeeded on a closed file, want error")
+	}
+	if got := tm.MessageCount(); got != countBefore {
+		t.Errorf("MessageCount = %d, want %d (indices must not advance on a failed step)", got, countBefore)
+	}
+	if got := tm.GetLeafID(); got != leafBefore {
+		t.Errorf("leaf = %q, want %q", got, leafBefore)
+	}
+	fileAfter, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after failure: %v", err)
+	}
+	if !bytes.Equal(fileBefore, fileAfter) {
+		t.Errorf("file changed on a failed step:\nbefore: %q\nafter:  %q", fileBefore, fileAfter)
+	}
+
+	// And the refusal persists: further appends on this broken handle must
+	// error, not silently degrade to memory-only.
+	if _, err := tm.AppendMessage(newTestMessage("nope")); err == nil {
+		t.Errorf("AppendMessage on a broken file handle succeeded, want error")
+	}
+}
+
+func TestAppendAfterCloseRefusedForPersistedSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// A closed session with a file path is not an in-memory session: a
+	// memory-only append would vanish from the transcript the next open
+	// reads. It must be refused, not silently swallowed.
+	if _, err := tm.AppendMessage(newTestMessage("after close")); err == nil {
+		t.Fatalf("AppendMessage after Close succeeded, want error")
+	}
+	if _, err := tm.AppendStep(context.Background(), fantasyStepMessages("call-9")); err == nil {
+		t.Fatalf("AppendStep after Close succeeded, want error")
+	}
+
+	// In-memory sessions keep their memory-only behavior.
+	mem := InMemoryTreeSession(t.TempDir())
+	if _, err := mem.AppendStep(context.Background(), fantasyStepMessages("call-1")); err != nil {
+		t.Fatalf("AppendStep on in-memory session: %v", err)
+	}
+	if mem.MessageCount() != 2 {
+		t.Errorf("in-memory step MessageCount = %d, want 2", mem.MessageCount())
 	}
 }
 
