@@ -27,8 +27,9 @@ import (
 // lockTable holds the per-process reference counts for session file locks.
 var lockTable = struct {
 	sync.Mutex
-	entries map[string]*lockEntry
-}{entries: make(map[string]*lockEntry)}
+	entries   map[string]*lockEntry
+	rewriting map[string]bool
+}{entries: make(map[string]*lockEntry), rewriting: make(map[string]bool)}
 
 // lockEntry is one held lock: the file handle it is held on, the number of
 // TreeManagers in this process that share it, and the append mutex those
@@ -49,6 +50,10 @@ type lockEntry struct {
 // returns an error when another process holds it. The returned release func
 // drops one reference and is safe to call more than once (extras are no-ops).
 func acquireSessionLock(path string) (release func(), err error) {
+	return acquireSessionLockForRewrite(path, false)
+}
+
+func acquireSessionLockForRewrite(path string, rewriting bool) (func(), error) {
 	clean := filepath.Clean(path)
 
 	// One table for the whole lookup-open-lock-register sequence. Both lock
@@ -60,6 +65,9 @@ func acquireSessionLock(path string) (release func(), err error) {
 	lockTable.Lock()
 	defer lockTable.Unlock()
 
+	if lockTable.rewriting[clean] && !rewriting {
+		return nil, fmt.Errorf("session header rewrite is in progress: %s", path)
+	}
 	if e, ok := lockTable.entries[clean]; ok {
 		e.refs++
 		return releaseOnce(clean), nil
@@ -127,4 +135,21 @@ func (tm *TreeManager) appendPathMu() *sync.Mutex {
 		return &e.appendMu
 	}
 	return nil
+}
+
+// reserveRewrite rejects shared ownership and blocks new in-process opens
+// until the rewrite has restored its file lock.
+func (tm *TreeManager) reserveRewrite() (func(), error) {
+	lockTable.Lock()
+	defer lockTable.Unlock()
+	e, ok := lockTable.entries[tm.cleanPath]
+	if !ok || e.refs != 1 || lockTable.rewriting[tm.cleanPath] {
+		return nil, fmt.Errorf("header rewrite requires exclusive session ownership")
+	}
+	lockTable.rewriting[tm.cleanPath] = true
+	return func() {
+		lockTable.Lock()
+		delete(lockTable.rewriting, tm.cleanPath)
+		lockTable.Unlock()
+	}, nil
 }

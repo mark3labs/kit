@@ -975,3 +975,36 @@ func textOfFantasy(t *testing.T, msg fantasy.Message) string {
 	}
 	return b.String()
 }
+
+func TestHeaderRewriteRejectsSharedOwnership(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	first, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close() }()
+	second, err := OpenTreeSession(first.GetFilePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(first.GetFilePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SetParentLink("parent", "id", "task"); err == nil {
+		t.Fatal("shared rewrite must fail")
+	}
+	after, err := os.ReadFile(first.GetFilePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("rejected rewrite changed file")
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SetParentLink("parent", "id", "task"); err != nil {
+		t.Fatal(err)
+	}
+}

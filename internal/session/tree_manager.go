@@ -155,6 +155,15 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		return nil, fmt.Errorf("failed to flush session header: %w", err)
 	}
 
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("sync new session file: %w", err)
+	}
+	if err := syncSessionDir(sessionDir); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("sync new session directory: %w", err)
+	}
+
 	// Claim the file before handing the session out, so a parallel run
 	// cannot open it while this one is still empty.
 	release, err := acquireSessionLock(filePath)
@@ -352,6 +361,18 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
+	if tm.filePath != "" {
+		done, err := tm.reserveRewrite()
+		if err != nil {
+			return err
+		}
+		defer done()
+		if pathMu := tm.appendPathMu(); pathMu != nil {
+			pathMu.Lock()
+			defer pathMu.Unlock()
+		}
+	}
+
 	tm.header.ParentSession = parentSessionPath
 	tm.header.ParentSessionID = parentSessionID
 	if subagentTask != "" {
@@ -451,7 +472,7 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		// Reclaim the lock BEFORE any append handle is reopened: if the lock
 		// is gone, the session must not continue appending, and it must not
 		// keep a live handle that invites exactly that.
-		release, lockErr := acquireSessionLock(tm.filePath)
+		release, lockErr := acquireSessionLockForRewrite(tm.filePath, true)
 		if lockErr != nil {
 			tm.persistFailed = true
 			return fmt.Errorf("failed to replace session file: %w (and the session file lock could not be re-claimed: %v; the session refuses further appends)", err, lockErr)
@@ -468,7 +489,7 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	// anything can append to it. A same-process opener that joined during
 	// the window already re-created the table entry; joining that entry is
 	// exactly right, because its lock guards the inode the path now has.
-	release, err := acquireSessionLock(tm.filePath)
+	release, err := acquireSessionLockForRewrite(tm.filePath, true)
 	if err != nil {
 		tm.persistFailed = true
 		return fmt.Errorf("session file lock could not be re-claimed after the header rewrite (%v); the session refuses further appends", err)
@@ -481,6 +502,10 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
+	if err := syncSessionDir(filepath.Dir(tm.filePath)); err != nil {
+		tm.persistFailed = true
+		return fmt.Errorf("sync session directory after rewrite: %w", err)
+	}
 	return nil
 }
 
