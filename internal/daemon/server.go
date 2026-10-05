@@ -64,7 +64,7 @@ func Serve(ctx context.Context) error {
 	sweepStaleTempFiles(table.sessionIDs())
 
 	// The local socket is bound first and closed only on shutdown. The
-	// lock above guarantees no other daemon owns this socket.
+	// listenLocal also checks for daemons with a different state directory.
 	sockPath, err := LocalSocketPath()
 	if err != nil {
 		return err
@@ -75,6 +75,9 @@ func Serve(ctx context.Context) error {
 	} else {
 		defer func() { _ = ln.Close() }()
 		defer func() { _ = os.Remove(sockPath) }()
+		if err := rt.setSocketPath(sockPath); err != nil {
+			return fmt.Errorf("daemon: record local socket: %w", err)
+		}
 		go serveLocal(ctx, ln, table)
 		fmt.Printf("  Local socket: %s\n", sockPath)
 	}

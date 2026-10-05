@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -177,23 +178,41 @@ func serveLocalConn(ctx context.Context, conn net.Conn, table *sessionTable) {
 // The context bounds the dial: a socket that exists but is not being
 // accepted on would otherwise block past the caller's deadline.
 func DialLocal(ctx context.Context) (net.Conn, error) {
+	// Only use state from a live daemon. A crash can leave an old path
+	// behind, and a new daemon can bind a different path after restart.
+	status := ReadStatus()
+	if status.Running && status.State != nil && status.State.SocketPath != "" {
+		return dialLocalPath(ctx, status.State.SocketPath)
+	}
 	path, err := LocalSocketPath()
 	if err != nil {
 		return nil, err
 	}
+	conn, err := dialLocalPath(ctx, path)
+	if !errors.Is(err, ErrNoLocalDaemon) {
+		return conn, err
+	}
+	// Older daemons did not record their socket. Also check the cache
+	// socket so clients with XDG_RUNTIME_DIR can reach those daemons.
+	dir, err := daemonRuntimeDir()
+	if err != nil {
+		return nil, err
+	}
+	fallback := filepath.Join(dir, socketFileName)
+	if fallback != path {
+		return dialLocalPath(ctx, fallback)
+	}
+	return nil, ErrNoLocalDaemon
+}
+
+func dialLocalPath(ctx context.Context, path string) (net.Conn, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		// A missing socket and a socket nobody is listening on are the
-		// same situation to a caller: no daemon to talk to.
-		// Match by value: net.Dial wraps ECONNREFUSED in *net.OpError, so
-		// errors.Is identifies it exactly. A substring match on the
-		// message breaks if the wrapping text changes, and RunLocal would
-		// then fail instead of starting a daemon.
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 			return nil, ErrNoLocalDaemon
 		}
-		return nil, fmt.Errorf("daemon: connect to local daemon: %w", err)
+		return nil, fmt.Errorf("daemon: connect to local daemon at %s: %w", path, err)
 	}
 	return conn, nil
 }
@@ -231,24 +250,39 @@ func StartLocalDaemon(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve kit binary: %w", err)
 	}
-	cmd := exec.Command(exe, "daemon")
+	return startLocalDaemonCommand(ctx, exec.Command(exe, "daemon"))
+}
+
+func startLocalDaemonCommand(ctx context.Context, cmd *exec.Cmd) error {
+	// Use a file, not a pipe: the detached daemon must not depend on a
+	// reader in this client after startup or after the client exits.
+	stderr, err := os.CreateTemp("", "kit-daemon-start-*")
+	if err != nil {
+		return fmt.Errorf("create daemon startup log: %w", err)
+	}
+	defer func() { _ = os.Remove(stderr.Name()) }()
+	defer func() { _ = stderr.Close() }()
 	cmd.Dir = homeDir()
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stderr = stderr
 	cmd.SysProcAttr = detachedProcAttr()
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
-	// Do not wait for the child: it is meant to outlive us. Reaping is
-	// left to init once this process exits.
-	go func() { _ = cmd.Wait() }()
-
-	return waitForLocalDaemon(ctx, 5*time.Second)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return waitForLocalDaemonStartup(ctx, 5*time.Second, exited, stderr.Name())
 }
 
 // waitForLocalDaemon polls the socket until a daemon answers.
 func waitForLocalDaemon(ctx context.Context, timeout time.Duration) error {
+	return waitForLocalDaemonStartup(ctx, timeout, nil, "")
+}
+
+func waitForLocalDaemonStartup(ctx context.Context, timeout time.Duration, exited <-chan error, stderrPath string) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	deadline := time.Now().Add(timeout)
 	for {
 		conn, err := DialLocal(ctx)
@@ -260,8 +294,32 @@ func waitForLocalDaemon(ctx context.Context, timeout time.Duration) error {
 			return fmt.Errorf("daemon did not come up within %s: %w", timeout, err)
 		}
 		select {
+		case exitErr := <-exited:
+			// A competing client may have started the winning daemon.
+			if conn, err := DialLocal(ctx); err == nil {
+				_ = conn.Close()
+				return nil
+			}
+			// The winner can hold the lock before it has bound its socket.
+			// Give that process the rest of the startup window.
+			if ReadStatus().Running {
+				if err := waitForLocalDaemon(ctx, time.Until(deadline)); err == nil {
+					return nil
+				}
+			}
+			if exitErr == nil {
+				exitErr = errors.New("daemon exited before its socket was ready")
+			}
+			output, readErr := os.ReadFile(stderrPath)
+			if readErr != nil {
+				return fmt.Errorf("start daemon: %w (read startup log: %v)", exitErr, readErr)
+			}
+			if detail := strings.TrimSpace(string(output)); detail != "" {
+				return fmt.Errorf("start daemon: %w: %s", exitErr, detail)
+			}
+			return fmt.Errorf("start daemon: %w", exitErr)
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("waiting for daemon socket: %w", ctx.Err())
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

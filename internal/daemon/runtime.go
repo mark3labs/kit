@@ -27,6 +27,7 @@ const (
 type daemonState struct {
 	PID            int       `json:"pid"`
 	Endpoint       string    `json:"endpoint,omitempty"`
+	SocketPath     string    `json:"socket_path,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
 	SessionsActive int       `json:"sessions_active"`
 	// SessionsHosted counts the sessions that would survive this daemon
@@ -109,6 +110,14 @@ func newDaemonRuntime(lock *daemonLock) *daemonRuntime {
 			Protocol:  ProtocolVersion,
 		},
 	}
+}
+
+// setSocketPath records the bound socket before local clients are accepted.
+func (r *daemonRuntime) setSocketPath(path string) error {
+	r.mu.Lock()
+	r.state.SocketPath = path
+	r.mu.Unlock()
+	return r.persist()
 }
 
 // setEndpoint records the endpoint id once the tunnel is online.

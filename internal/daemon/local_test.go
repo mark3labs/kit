@@ -3,11 +3,15 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The local socket and the single-instance lock are addressed by two
@@ -115,5 +119,152 @@ func TestSocketIsLiveReportsADeadSocketAsDead(t *testing.T) {
 	}
 	if socketIsLive(regular) {
 		t.Log("a regular file probed as live; listenLocal will refuse rather than unlink it")
+	}
+}
+
+func TestDialLocalRecordedSocket(t *testing.T) {
+	for _, daemonRuntimeDir := range []string{"", "runtime-a"} {
+		t.Run(daemonRuntimeDir, func(t *testing.T) {
+			base := t.TempDir()
+			t.Setenv("XDG_CACHE_HOME", base)
+			t.Setenv("XDG_RUNTIME_DIR", "")
+			if daemonRuntimeDir != "" {
+				t.Setenv("XDG_RUNTIME_DIR", filepath.Join(base, daemonRuntimeDir))
+			}
+			lock, err := acquireDaemonLock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.release()
+			path, err := LocalSocketPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ln, err := listenLocal(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := ln.Close(); err != nil {
+					t.Errorf("close listener: %v", err)
+				}
+			}()
+			rt := newDaemonRuntime(lock)
+			if err := rt.setSocketPath(path); err != nil {
+				t.Fatal(err)
+			}
+			if st := ReadStatus(); st.State == nil || st.State.SocketPath != path {
+				t.Fatalf("socket path not persisted: %+v", st)
+			}
+			t.Setenv("XDG_RUNTIME_DIR", filepath.Join(base, "runtime-b"))
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			conn, err := DialLocal(ctx)
+			if err != nil {
+				t.Fatalf("dial with different environment: %v", err)
+			}
+			if err := conn.Close(); err != nil {
+				t.Errorf("close connection: %v", err)
+			}
+		})
+	}
+}
+
+func TestDialLocalLegacyCacheSocket(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", base)
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	path, err := LocalSocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := listenLocal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(base, "runtime"))
+	conn, err := DialLocal(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Errorf("close connection: %v", err)
+	}
+}
+
+func TestDialLocalIgnoresStoppedDaemonState(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	lock, err := acquireDaemonLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "old.sock")
+	ln, err := listenLocal(path)
+	if err != nil {
+		lock.release()
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+	rt := newDaemonRuntime(lock)
+	err = rt.setSocketPath(path)
+	lock.release()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := DialLocal(context.Background())
+	if conn != nil {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close connection: %v", err)
+		}
+	}
+	if !errors.Is(err, ErrNoLocalDaemon) {
+		t.Fatalf("error = %v, want no daemon", err)
+	}
+}
+
+func TestStartLocalDaemonReportsStartupError(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := startLocalDaemonCommand(ctx, exec.Command("sh", "-c", "echo 'daemon: another instance is already running' >&2; exit 1"))
+	if err == nil || !strings.Contains(err.Error(), "another instance is already running") {
+		t.Fatalf("error = %v, want child startup error", err)
+	}
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+		t.Fatalf("error does not wrap child exit: %v", err)
+	}
+}
+
+func TestWaitForLocalDaemonAcceptsCompetingDaemon(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	path, err := LocalSocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := listenLocal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+	exited := make(chan error, 1)
+	exited <- errors.New("another daemon won the lock")
+	if err := waitForLocalDaemonStartup(context.Background(), time.Second, exited, ""); err != nil {
+		t.Fatal(err)
 	}
 }
