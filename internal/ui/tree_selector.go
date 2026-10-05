@@ -420,6 +420,8 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 	// Role-based text color.
 	var textStyle lipgloss.Style
 	switch node.Node.Kind {
+	case app.EntryKindIncompleteOutput:
+		textStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	case app.EntryKindMessage:
 		switch node.Node.Role {
 		case "user":
@@ -457,6 +459,8 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 // build.
 func entryDisplayText(node app.TreeNodeView) string {
 	switch node.Kind {
+	case app.EntryKindIncompleteOutput:
+		return fmt.Sprintf("assistant (incomplete): %s", truncateRunes(collapseToLine(node.Text), 200))
 	case app.EntryKindMessage:
 		text := truncateRunes(collapseToLine(node.Text), 200)
 		if text == "" {

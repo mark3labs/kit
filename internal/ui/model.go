@@ -2850,6 +2850,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// and will be flushed before the next tool call. Ignore to avoid
 		// double-printing.
 
+	case app.RetryEvent:
+		// Only pre-output retries reach the UI. Keep completed steps and
+		// their messages; reset only the transient stream component.
+		if m.stream != nil {
+			m.stream.Reset()
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		m.layoutDirty = true
+
 	case app.ResponseCompleteEvent:
 		// This event fires for both streaming and non-streaming paths.
 		// In streaming mode, mark the StreamingMessageItem as complete.
@@ -2945,6 +2956,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+		if len(m.messages) > 0 {
+			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
+				item.MarkIncomplete()
+			}
+		}
 		m.finalizeStreamTurn()
 		m.printTurnReceipt(turnCancelled)
 		m.setAgentState(stateInput)
@@ -2957,6 +2973,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
+		}
+		if len(m.messages) > 0 {
+			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
+				item.MarkIncomplete()
+			}
 		}
 		m.finalizeStreamTurn()
 		if msg.Err != nil {

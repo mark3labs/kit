@@ -36,6 +36,11 @@ func (a *treeManagerAdapter) AppendStep(ctx context.Context, msgs []LLMMessage) 
 	return a.inner.AppendStep(ctx, msgs)
 }
 
+// AppendIncompleteOutput stores unfinished text outside model history.
+func (a *treeManagerAdapter) AppendIncompleteOutput(ctx context.Context, output IncompleteOutput) (string, error) {
+	return a.inner.AppendIncompleteOutput(ctx, output.AttemptID, output.Text)
+}
+
 // GetMessages implements SessionManager.
 func (a *treeManagerAdapter) GetMessages() []LLMMessage {
 	// LLMMessage is a type alias, so no conversion needed.
@@ -176,6 +181,10 @@ func (a *treeManagerAdapter) Close() error {
 // Helper: Convert internal entry types to BranchEntry
 func (a *treeManagerAdapter) convertEntry(entry any) *BranchEntry {
 	switch e := entry.(type) {
+	case *session.IncompleteOutputEntry:
+		return &BranchEntry{ID: e.ID, ParentID: e.ParentID, Type: EntryTypeIncompleteOutput,
+			Role: "assistant", Content: e.Text, Timestamp: e.Timestamp, AttemptID: e.AttemptID, Incomplete: e.Incomplete,
+			Children: a.inner.GetChildren(e.ID)}
 	case *session.MessageEntry:
 		msg, err := e.ToMessage()
 		if err != nil {

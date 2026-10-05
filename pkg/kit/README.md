@@ -723,3 +723,85 @@ All CLI environment variables work with the SDK:
 ## License
 
 Same as KIT CLI
+
+### Model request retries
+
+Kit retries transient model request failures, including rate limits and
+retryable provider or transport errors. Each model request has its own budget.
+The default policy permits four total attempts, with exponential backoff and
+jitter. The initial delay is one second, the maximum delay is 30 seconds, and
+retry scheduling is limited to two minutes. Use a context deadline to limit the
+duration of active requests.
+
+```go
+k, err := kit.NewAgent(ctx,
+    kit.WithModel("openai/gpt-4.1"),
+    kit.WithRetryPolicy(kit.RetryPolicy{
+        MaxAttempts:  3, // Includes the initial request.
+        InitialDelay: time.Second,
+        MaxDelay:     10 * time.Second,
+        MaxElapsed:   time.Minute,
+    }),
+)
+```
+
+You can also set `Options.RetryPolicy` when you use `kit.New`. Nil uses the
+built-in defaults. Zero or negative policy fields use their default values.
+Set `MaxAttempts: 1` to disable retries. Server `Retry-After` and
+`retry-after-ms` hints are respected. A server delay above `MaxDelay` stops
+retries instead of sending a request before the server permits it.
+
+`OnRetry` receives a `RetryEvent` before the scheduled wait. `Attempt` starts at
+1 for the first retry and resets for each model request. `Delay` is the scheduled
+wait. Cancellation can stop the wait, so an event does not guarantee that the
+next request will start. Extension retry events also include the delay.
+
+For safety, streaming retries are permitted only before **any stream part** is
+delivered, including text-start, reasoning, and tool-call parts. A failure after
+that point is returned without replay. The TUI resets transient stream state
+on a retry event and keeps completed messages. Retries do not repeat completed
+steps or tool execution. The underlying agent library's retries are disabled
+on these agent calls to prevent a second retry layer.
+
+### Partial results and session write errors
+
+`PromptResult` and the other turn-result methods can return both a non-nil
+result and an error. Check both values. `Incomplete` marks a failed turn.
+`PartialText` contains text from its unfinished step. `AttemptID` identifies
+that generation. `Messages` contains only normal history and completed steps;
+it does not contain `PartialText`. `Stream` still contains the observed events.
+The string-returning prompt methods keep their existing error behavior.
+
+```go
+result, err := host.PromptResult(ctx, "Explain the change.")
+if err != nil {
+    if result != nil && result.PartialText != "" {
+        fmt.Printf("Incomplete output (%s): %s\n", result.AttemptID, result.PartialText)
+    }
+    return err
+}
+fmt.Println(result.Response)
+```
+
+The default session backend saves unfinished text as an `incomplete_output`
+JSONL tree entry with `attempt_id`, `text`, and `incomplete: true`. This entry
+is available in the session tree, but `GetMessages` and `BuildContext` exclude
+it from model history. The UI keeps the text and marks it as incomplete, also
+when the session is loaded again. This records received text after an orderly
+error or cancellation; it does not save every token before a process crash.
+
+`SessionManager` has no new required methods. Custom backends can implement
+`IncompleteOutputAppender` to save these transcript records. Backends without
+this capability still return partial text through `TurnResult`.
+
+Session write errors now return to the caller. A failed prompt write prevents
+generation. A failed step write stops the turn and does not count as a confirmed
+write. Kit does not retry a failed write in the same turn. With the legacy
+per-message fallback, earlier successful writes remain confirmed; implement
+`StepAppender` for atomic storage of tool call/result pairs.
+
+Kit gives optional context-aware writes a detached five-second deadline and
+keeps the turn's context values. Backends must honor that deadline. Legacy
+`AppendMessage` has no context, and local filesystem calls cannot be interrupted
+safely; these writes remain synchronous. Kit does not start a background write
+that could change the session after the caller starts another turn.

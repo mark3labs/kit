@@ -232,6 +232,10 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 		// Create a copy of the entry with the new ID and remapped parent.
 		var newEntry any
 		switch e := entry.(type) {
+		case *IncompleteOutputEntry:
+			copy := *e
+			copy.Entry = cloneEntry(e.Entry, newID, prevNewID)
+			newEntry = &copy
 		case *MessageEntry:
 			newEntry = &MessageEntry{
 				Entry:    cloneEntry(e.Entry, newID, prevNewID),
@@ -732,7 +736,7 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 	// Phase 1 — build and serialize every entry. Nothing is written and no
 	// index changes until every message has converted cleanly, so a bad
 	// message cannot leave a half-written step behind.
-	entries := make([]*MessageEntry, len(msgs))
+	entries := make([]any, len(msgs))
 	lines := make([][]byte, len(msgs))
 	parent := tm.leafID
 	for i, msg := range msgs {
@@ -749,6 +753,37 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 		parent = entry.ID
 	}
 
+	return tm.commitEntriesLocked(entries, lines)
+}
+
+// AppendIncompleteOutput saves a transcript record without adding model history.
+func (tm *TreeManager) AppendIncompleteOutput(ctx context.Context, attemptID, text string) (string, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("persist incomplete output: %w", err)
+	}
+	if err := tm.validateParentChainLocked(tm.leafID, ""); err != nil {
+		return "", fmt.Errorf("validate incomplete output parent: %w", err)
+	}
+	entry := &IncompleteOutputEntry{Entry: NewEntry(EntryTypeIncompleteOutput, tm.leafID), AttemptID: attemptID, Text: text, Incomplete: true}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return "", fmt.Errorf("encode incomplete output: %w", err)
+	}
+	ids, err := tm.commitEntriesLocked([]any{entry}, [][]byte{line})
+	if err != nil {
+		return "", err
+	}
+	return ids[0], nil
+}
+
+// commitEntriesLocked commits serialized entries before changing the tree.
+func (tm *TreeManager) commitEntriesLocked(entries []any, lines [][]byte) ([]string, error) {
+	if tm.persistFailed {
+		return nil, fmt.Errorf("session file could not be rolled back; appends are refused")
+	}
+
 	if tm.writer == nil {
 		if tm.filePath != "" {
 			// A persisted session lost its file handle (closed, or a failed
@@ -760,9 +795,9 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 		ids := make([]string, len(entries))
 		for i, entry := range entries {
 			tm.addEntryToIndex(entry)
-			ids[i] = entry.ID
+			ids[i] = tm.EntryID(entry)
 		}
-		tm.leafID = entries[len(entries)-1].ID
+		tm.leafID = tm.EntryID(entries[len(entries)-1])
 		return ids, nil
 	}
 
@@ -811,9 +846,9 @@ func (tm *TreeManager) AppendStep(ctx context.Context, msgs []fantasy.Message) (
 	ids := make([]string, len(entries))
 	for i, entry := range entries {
 		tm.addEntryToIndex(entry)
-		ids[i] = entry.ID
+		ids[i] = tm.EntryID(entry)
 	}
-	tm.leafID = entries[len(entries)-1].ID
+	tm.leafID = tm.EntryID(entries[len(entries)-1])
 	return ids, nil
 }
 
@@ -1491,36 +1526,15 @@ func (tm *TreeManager) addEntryToIndex(entry any) {
 
 // appendAndPersist adds an entry to indices and writes it to the JSONL file.
 func (tm *TreeManager) appendAndPersist(entry any) error {
-	if tm.persistFailed {
-		return fmt.Errorf("session file could not be rolled back after an earlier failed write; appends are refused")
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("encode session entry: %w", err)
 	}
-	if tm.filePath != "" && tm.file == nil {
-		// A persisted session lost its file handle (closed, or a failed
-		// rewrite that could not relock). Writing memory-only would drop the
-		// entry from the transcript the next open reads, so refuse instead.
-		return fmt.Errorf("session file is not open; refusing to append to %q", tm.filePath)
-	}
-	// Serialize against other managers of the same file (same leaf-lock rule
-	// as AppendStep: syscalls only inside the mutex).
-	if pathMu := tm.appendPathMu(); pathMu != nil {
-		pathMu.Lock()
-		defer pathMu.Unlock()
-	}
-	tm.addEntryToIndex(entry)
-	if tm.file != nil {
-		// Newly created handles do not use O_APPEND. Another manager can
-		// have extended the file since this handle's last write.
-		if _, err := tm.file.Seek(0, io.SeekEnd); err != nil {
-			return fmt.Errorf("seek session end: %w", err)
-		}
-		if err := tm.writeEntry(entry); err != nil {
-			return err
-		}
-		// Flush before releasing the shared append lock. A later rollback
-		// must not truncate bytes that another writer still has buffered.
-		return tm.flushLocked()
-	}
-	return nil
+	// The caller controls the leaf pointer for metadata entries.
+	leaf := tm.leafID
+	_, err = tm.commitEntriesLocked([]any{entry}, [][]byte{line})
+	tm.leafID = leaf
+	return err
 }
 
 // writeEntry serializes an entry and appends it to the buffered writer.
@@ -1545,6 +1559,8 @@ func (tm *TreeManager) writeEntry(entry any) error {
 // EntryID extracts the ID from any entry type.
 func (tm *TreeManager) EntryID(entry any) string {
 	switch e := entry.(type) {
+	case *IncompleteOutputEntry:
+		return e.ID
 	case *MessageEntry:
 		return e.ID
 	case *ModelChangeEntry:
@@ -1567,6 +1583,8 @@ func (tm *TreeManager) EntryID(entry any) string {
 // entryParentID extracts the ParentID from any entry type.
 func (tm *TreeManager) entryParentID(entry any) string {
 	switch e := entry.(type) {
+	case *IncompleteOutputEntry:
+		return e.ParentID
 	case *MessageEntry:
 		return e.ParentID
 	case *ModelChangeEntry:

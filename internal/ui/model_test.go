@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mark3labs/kit/internal/app"
@@ -1421,5 +1422,23 @@ func TestScrollKeysWorkWhileAgentIsWorking(t *testing.T) {
 	}
 	if m.state != stateWorking {
 		t.Errorf("state = %v, want stateWorking", m.state)
+	}
+}
+
+func TestRetryResetsTransientStreamAndKeepsTurn(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, stream, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+	m.printAssistantMessage("completed step")
+	before := len(m.messages)
+	m = sendMsg(m, app.RetryEvent{Attempt: 1, Delay: time.Second})
+	if m.state != stateWorking {
+		t.Fatalf("retry changed state: %v", m.state)
+	}
+	if stream.resetCalled != 1 {
+		t.Fatalf("reset count = %d", stream.resetCalled)
+	}
+	if len(m.messages) != before {
+		t.Fatal("retry removed completed messages")
 	}
 }

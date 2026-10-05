@@ -239,6 +239,8 @@ func (m *Kit) branchEntryToTreeNode(entry *BranchEntry) *TreeNode {
 	}
 
 	switch entry.Type {
+	case EntryTypeIncompleteOutput:
+		return &TreeNode{ID: entry.ID, ParentID: entry.ParentID, Type: string(entry.Type), Role: "assistant", Content: entry.Content + "\n[Incomplete output]", Timestamp: entry.Timestamp.Format(time.RFC3339), Children: m.session.GetChildren(entry.ID)}
 	case EntryTypeMessage:
 		// Build content from RawParts
 		var content strings.Builder

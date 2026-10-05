@@ -1,6 +1,10 @@
 package app
 
-import kit "github.com/mark3labs/kit/pkg/kit"
+import (
+	"time"
+
+	kit "github.com/mark3labs/kit/pkg/kit"
+)
 
 // Event is the sealed union of all events the app layer emits toward a
 // display (the Bubble Tea TUI, the non-interactive CLI handler, or any future
@@ -453,3 +457,13 @@ func (NewSessionRequestEvent) isAppEvent()  {}
 func (ExtensionPrintEvent) isAppEvent()     {}
 func (PromptRequestEvent) isAppEvent()      {}
 func (OverlayRequestEvent) isAppEvent()     {}
+
+// RetryEvent reports a scheduled pre-output model retry. No delivered stream
+// content belongs to the failed attempt, so displays can reset transient state.
+type RetryEvent struct {
+	Attempt int
+	Error   error
+	Delay   time.Duration
+}
+
+func (RetryEvent) isAppEvent() {}

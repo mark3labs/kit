@@ -18,15 +18,16 @@ import (
 type EntryType string
 
 const (
-	EntryTypeSession       EntryType = "session"
-	EntryTypeMessage       EntryType = "message"
-	EntryTypeModelChange   EntryType = "model_change"
-	EntryTypeBranchSummary EntryType = "branch_summary"
-	EntryTypeLabel         EntryType = "label"
-	EntryTypeSessionInfo   EntryType = "session_info"
-	EntryTypeExtensionData EntryType = "extension_data"
-	EntryTypeCompaction    EntryType = "compaction"
-	EntryTypeSystemPrompt  EntryType = "system_prompt"
+	EntryTypeSession          EntryType = "session"
+	EntryTypeMessage          EntryType = "message"
+	EntryTypeIncompleteOutput EntryType = "incomplete_output"
+	EntryTypeModelChange      EntryType = "model_change"
+	EntryTypeBranchSummary    EntryType = "branch_summary"
+	EntryTypeLabel            EntryType = "label"
+	EntryTypeSessionInfo      EntryType = "session_info"
+	EntryTypeExtensionData    EntryType = "extension_data"
+	EntryTypeCompaction       EntryType = "compaction"
+	EntryTypeSystemPrompt     EntryType = "system_prompt"
 )
 
 // CurrentVersion is the session format version for JSONL tree sessions.
@@ -67,6 +68,14 @@ type MessageEntry struct {
 	Parts    json.RawMessage `json:"parts"` // type-tagged parts array
 	Model    string          `json:"model,omitempty"`
 	Provider string          `json:"provider,omitempty"`
+}
+
+// IncompleteOutputEntry stores unfinished text outside normal model history.
+type IncompleteOutputEntry struct {
+	Entry
+	AttemptID  string `json:"attempt_id"`
+	Text       string `json:"text"`
+	Incomplete bool   `json:"incomplete"`
 }
 
 // ModelChangeEntry records a provider/model switch in the session tree.
@@ -280,6 +289,12 @@ func UnmarshalEntry(data []byte) (any, error) {
 		}
 		return &h, nil
 
+	case EntryTypeIncompleteOutput:
+		var e IncompleteOutputEntry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("decode incomplete output: %w", err)
+		}
+		return &e, nil
 	case EntryTypeMessage:
 		var e MessageEntry
 		if err := json.Unmarshal(data, &e); err != nil {

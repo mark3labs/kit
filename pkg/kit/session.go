@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -131,15 +132,19 @@ type SessionManager interface {
 // BranchEntry represents a single node in the conversation tree.
 // This is a SDK-friendly struct (not the internal entry types).
 type BranchEntry struct {
-	ID        string
-	ParentID  string
-	Type      EntryType // "message", "branch_summary", "model_change", "compaction", "extension_data"
-	Role      string    // for messages: "user", "assistant", "system", "tool"
-	Content   string    // text content or summary
-	Model     string    // model used (for messages and model_change)
-	Provider  string    // provider used
-	Timestamp time.Time
-	Children  []string // child entry IDs (for tree display)
+	// AttemptID identifies generation for an incomplete output entry.
+	AttemptID string
+	// Incomplete marks transcript-only output excluded from model history.
+	Incomplete bool
+	ID         string
+	ParentID   string
+	Type       EntryType // "message", "branch_summary", "model_change", "compaction", "extension_data"
+	Role       string    // for messages: "user", "assistant", "system", "tool"
+	Content    string    // text content or summary
+	Model      string    // model used (for messages and model_change)
+	Provider   string    // provider used
+	Timestamp  time.Time
+	Children   []string // child entry IDs (for tree display)
 
 	// RawParts contains the full typed content parts for structured access.
 	// Only populated for message entries.
@@ -150,11 +155,12 @@ type BranchEntry struct {
 type EntryType string
 
 const (
-	EntryTypeMessage       EntryType = "message"
-	EntryTypeBranchSummary EntryType = "branch_summary"
-	EntryTypeModelChange   EntryType = "model_change"
-	EntryTypeCompaction    EntryType = "compaction"
-	EntryTypeExtensionData EntryType = "extension_data"
+	EntryTypeMessage          EntryType = "message"
+	EntryTypeIncompleteOutput EntryType = "incomplete_output"
+	EntryTypeBranchSummary    EntryType = "branch_summary"
+	EntryTypeModelChange      EntryType = "model_change"
+	EntryTypeCompaction       EntryType = "compaction"
+	EntryTypeExtensionData    EntryType = "extension_data"
 )
 
 // CompactionEntry represents a context compaction/summarization event.
@@ -210,48 +216,57 @@ type ExtensionDataEntry struct {
 //
 // # Cancellation
 //
-// ctx carries the cancellation and values of the turn that produced the step.
-// It may already be cancelled: Kit persists a completed step before it checks
-// for cancellation, precisely so that finished work survives an interrupted
-// turn. An implementation that aborts on ctx.Err() therefore discards exactly
-// the progress this callback exists to save, and the loss is silent because
-// Kit ignores the returned error.
+// Kit keeps turn values but detaches turn cancellation and sets a five-second
+// write deadline. A completed step can thus survive cancellation. Backends
+// should honor the supplied deadline and must report failures. Kit returns
+// these errors to the caller and counts only confirmed writes.
 //
-// Implementations that must not lose a completed step should keep the values
-// but drop the cancellation:
-//
-//	func (s *MySession) AppendStep(ctx context.Context, msgs []kit.LLMMessage) ([]string, error) {
-//	    ctx = context.WithoutCancel(ctx) // keep tracing spans, ignore cancellation
-//	    // ... commit atomically
-//	}
-//
-// Use ctx for tracing, request-scoped values, and a write deadline of your own
-// choosing rather than as a reason to skip the write.
+// Legacy AppendMessage has no context parameter. Kit calls it synchronously;
+// it does not start a background write that can outlive the turn unnoticed.
 type StepAppender interface {
 	AppendStep(ctx context.Context, msgs []LLMMessage) (entryIDs []string, err error)
 }
 
-// appendMessages persists a group of messages that belong together, using
-// [StepAppender] when the session manager provides it and falling back to
-// per-message appends when it does not.
-//
-// ctx is forwarded to [StepAppender.AppendStep] so durable implementations can
-// carry tracing values and pick their own write deadline. See the Cancellation
-// section on [StepAppender]: ctx may already be cancelled, and aborting the
-// write on that basis loses completed work.
-//
-// Errors are deliberately ignored, matching the historical behaviour of the
-// call sites this replaces: a persistence failure must not abort a turn that
-// has already produced model output.
-func appendMessages(ctx context.Context, sm SessionManager, msgs []LLMMessage) {
+// IncompleteOutput is unfinished assistant text, not model history.
+type IncompleteOutput struct {
+	AttemptID  string `json:"attempt_id"`
+	Text       string `json:"text"`
+	Incomplete bool   `json:"incomplete"`
+}
+
+// IncompleteOutputAppender is an optional transcript storage capability.
+// Records must not be returned by GetMessages or BuildContext.
+type IncompleteOutputAppender interface {
+	AppendIncompleteOutput(ctx context.Context, output IncompleteOutput) (string, error)
+}
+
+// persistenceContext preserves turn values but gives completed writes a bounded,
+// detached deadline. Backends must honor it; legacy AppendMessage has no context.
+func persistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+// appendMessages returns only confirmed writes and stops at the first error.
+func appendMessages(ctx context.Context, sm SessionManager, msgs []LLMMessage) (int, error) {
 	if sm == nil || len(msgs) == 0 {
-		return
+		return 0, nil
 	}
+	ctx, cancel := persistenceContext(ctx)
+	defer cancel()
 	if sa, ok := sm.(StepAppender); ok {
-		_, _ = sa.AppendStep(ctx, msgs)
-		return
+		ids, err := sa.AppendStep(ctx, msgs)
+		if err != nil {
+			return 0, fmt.Errorf("persist step: %w", err)
+		}
+		if len(ids) != len(msgs) {
+			return 0, fmt.Errorf("persist step: got %d entry IDs for %d messages", len(ids), len(msgs))
+		}
+		return len(ids), nil
 	}
-	for _, msg := range msgs {
-		_, _ = sm.AppendMessage(msg)
+	for i, msg := range msgs {
+		if _, err := sm.AppendMessage(msg); err != nil {
+			return i, fmt.Errorf("persist message %d: %w", i, err)
+		}
 	}
+	return len(msgs), nil
 }

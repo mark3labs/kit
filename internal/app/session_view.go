@@ -28,6 +28,8 @@ const (
 	EntryKindUnknown EntryKind = ""
 	// EntryKindMessage is a conversation message (user, assistant or tool).
 	EntryKindMessage EntryKind = "message"
+	// EntryKindIncompleteOutput is transcript-only unfinished assistant text.
+	EntryKindIncompleteOutput EntryKind = "incomplete_output"
 	// EntryKindModelChange records a provider/model switch.
 	EntryKindModelChange EntryKind = "model_change"
 	// EntryKindBranchSummary carries a summary of an abandoned branch.
@@ -168,6 +170,8 @@ func treeNodeView(tm *session.TreeManager, node *session.TreeNode) TreeNodeView 
 // full set of entry types for presentation purposes.
 func describeEntry(entry any) (kind EntryKind, role, text string) {
 	switch e := entry.(type) {
+	case *session.IncompleteOutputEntry:
+		return EntryKindIncompleteOutput, "assistant", e.Text + "\n[Incomplete output]"
 	case *session.MessageEntry:
 		return EntryKindMessage, e.Role, e.Text()
 	case *session.ModelChangeEntry:
@@ -190,7 +194,8 @@ func describeEntry(entry any) (kind EntryKind, role, text string) {
 }
 
 // SessionHistory returns the conversation messages on the session's current
-// branch, oldest first. Entries that are not messages, and messages that fail
+// branch, oldest first, including visibly marked incomplete output. Other
+// entries, and messages that fail
 // to decode, are skipped. Returns nil when no tree session is active.
 //
 // This is what the UI replays to rebuild the transcript after resuming or
@@ -206,6 +211,11 @@ func (a *App) SessionHistory() []message.Message {
 	}
 	out := make([]message.Message, 0, len(branch))
 	for _, entry := range branch {
+		if incomplete, ok := entry.(*session.IncompleteOutputEntry); ok {
+			out = append(out, message.Message{ID: incomplete.ID, Role: message.RoleAssistant, CreatedAt: incomplete.Timestamp,
+				Parts: []message.ContentPart{message.TextContent{Text: incomplete.Text + "\n\n[Incomplete output]"}}})
+			continue
+		}
 		me, ok := entry.(*session.MessageEntry)
 		if !ok {
 			continue

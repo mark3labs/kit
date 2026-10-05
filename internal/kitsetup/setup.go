@@ -104,6 +104,8 @@ type AgentSetupOptions struct {
 	// StreamingEnabled controls streaming. Only meaningful when ProviderConfig
 	// is also set.
 	StreamingEnabled bool
+	// RetryPolicy limits retries per model request. Nil uses defaults.
+	RetryPolicy *agent.RetryPolicy
 	// AuthHandler handles OAuth authorization for remote MCP servers.
 	// When set, remote transports are configured with OAuth support.
 	AuthHandler tools.MCPAuthHandler
@@ -288,6 +290,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		SystemPrompt:            systemPrompt,
 		MaxSteps:                maxSteps,
 		StreamingEnabled:        streamingEnabled,
+		RetryPolicy:             opts.RetryPolicy,
 		ShowSpinner:             opts.ShowSpinner,
 		Quiet:                   opts.Quiet,
 		SpinnerFunc:             opts.SpinnerFunc,

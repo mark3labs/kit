@@ -512,6 +512,7 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		Bare:                    opts.Bare,
 		MaxSteps:                rc.maxSteps,
 		StreamingEnabled:        rc.streaming,
+		RetryPolicy:             opts.RetryPolicy,
 		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig: mcpTaskOptions{
 			perServer:       opts.MCPTaskMode,

@@ -503,8 +503,11 @@ func (e ErrorEvent) EventType() EventType { return EventError }
 
 // RetryEvent fires when the LLM provider request is retried after a transient error.
 type RetryEvent struct {
+	// Attempt is the retry number, starting at 1 for each model request.
 	Attempt int
 	Error   error
+	// Delay is the scheduled wait before the next attempt.
+	Delay time.Duration
 }
 
 // EventType implements Event.

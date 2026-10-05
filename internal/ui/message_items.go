@@ -267,6 +267,7 @@ type StreamingMessageItem struct {
 	timestamp     time.Time
 	startTime     time.Time // When streaming started (for live duration counter)
 	modelName     string
+	incomplete    bool
 	streaming     bool          // true while actively streaming
 	finalDuration time.Duration // Frozen duration when complete
 	cachedRender  string
@@ -380,6 +381,10 @@ func (s *StreamingMessageItem) Render(width int) string {
 		s.renderCost = time.Since(start)
 	}
 
+	if s.incomplete {
+		rendered += "\n[Incomplete output]"
+	}
+
 	// Cache the full render. A streaming reasoning block needs its live
 	// duration label re-rendered every frame, so it is only cached once
 	// MarkComplete freezes the duration.
@@ -417,6 +422,14 @@ func (s *StreamingMessageItem) AppendChunk(chunk string) {
 	s.cachedRender = ""
 	s.cachedWidth = -1 // Invalidate cache (0 is a legitimate width from Height())
 	s.reasoningContentWidth = -1
+}
+
+// MarkIncomplete keeps the text and marks it as unfinished.
+func (s *StreamingMessageItem) MarkIncomplete() {
+	s.MarkComplete()
+	s.incomplete = true
+	s.cachedRender = ""
+	s.cachedWidth = -1
 }
 
 // MarkComplete marks the streaming message as complete and freezes the duration.

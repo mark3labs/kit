@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -281,5 +282,20 @@ func TestSetSessionName(t *testing.T) {
 	}
 	if snap.Name != "renamed" {
 		t.Errorf("Name = %q, want %q", snap.Name, "renamed")
+	}
+}
+
+func TestSessionHistoryIncludesIncompleteTranscriptOnly(t *testing.T) {
+	a, tm := newSessionApp(t)
+	appendUserMessage(t, tm, "go")
+	if _, err := tm.AppendIncompleteOutput(context.Background(), "attempt", "unfinished"); err != nil {
+		t.Fatal(err)
+	}
+	history := a.SessionHistory()
+	if len(history) != 2 || history[1].Content() != "unfinished\n\n[Incomplete output]" {
+		t.Fatalf("history=%v", history)
+	}
+	if len(tm.GetLLMMessages()) != 1 {
+		t.Fatal("UI transcript entered model history")
 	}
 }
