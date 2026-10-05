@@ -80,7 +80,10 @@ func retryableRequestError(err error) bool {
 		return errors.As(pe.Cause, &timeout) && timeout != context.DeadlineExceeded && timeout.Timeout()
 	}
 	if ne, ok := errors.AsType[net.Error](err); ok {
-		return ne != context.DeadlineExceeded
+		// Some providers return temporary DNS errors without wrapping them.
+		// Keep that legacy signal alongside timeout and transport classification.
+		//nolint:staticcheck // SA1019: needed for temporary, non-timeout DNS failures.
+		return ne != context.DeadlineExceeded && (ne.Timeout() || ne.Temporary() || fantasy.IsTransportError(err))
 	}
 	return !errors.Is(err, context.DeadlineExceeded) && fantasy.IsTransportError(err)
 }

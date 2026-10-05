@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -159,6 +162,11 @@ func TestRetryClassification(t *testing.T) {
 		{&fantasy.ProviderError{StatusCode: 403, TransientError: true}, false},
 		{fmt.Errorf("wrapped deadline: %w", context.DeadlineExceeded), false},
 		{requestTimeoutError{}, true},
+		{&net.DNSError{Err: "no such host", IsNotFound: true}, false},
+		{&net.DNSError{Err: "temporary failure", IsTemporary: true}, true},
+		{&url.Error{Op: "Post", URL: "https://example.com", Err: x509.UnknownAuthorityError{}}, false},
+		{&url.Error{Op: "Post", URL: "https://example.com", Err: requestTimeoutError{}}, true},
+		{&url.Error{Op: "Post", URL: "https://example.com", Err: errors.New("stream error: reset")}, true},
 		{context.Canceled, false}, {context.DeadlineExceeded, false}, {errors.New("validation"), false},
 	} {
 		if got := retryableRequestError(tc.err); got != tc.want {
