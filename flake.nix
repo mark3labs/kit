@@ -20,7 +20,7 @@
     # Keep the `# nix:kit-release-tag` marker on the url line:
     # scripts/bump-flake-release-pin.sh matches on it.
     kit-release = {
-      url = "github:mark3labs/kit/v0.120.0"; # nix:kit-release-tag
+      url = "github:mark3labs/kit/v0.121.0"; # nix:kit-release-tag
       flake = false;
     };
   };
@@ -42,7 +42,7 @@
       # It cannot be derived from the input: a `flake = false` input arrives in
       # the outputs as a bare store path, so the tag in the url is not visible
       # here.
-      version = "0.120.0"; # nix:kit-release-version
+      version = "0.121.0"; # nix:kit-release-version
 
       # The platforms goreleaser builds. Keep them in sync with .goreleaser.yaml.
       systems = [
