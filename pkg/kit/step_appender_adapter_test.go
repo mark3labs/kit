@@ -41,7 +41,7 @@ func TestTreeManagerAdapterAppendStepPersistsBothLines(t *testing.T) {
 	path := tm.GetFilePath()
 
 	sm := NewTreeManagerAdapter(tm)
-	appendMessages(context.Background(), sm, []LLMMessage{
+	_, err = appendMessages(context.Background(), sm, []LLMMessage{
 		{
 			Role: fantasy.MessageRoleAssistant,
 			Content: []fantasy.MessagePart{
@@ -58,6 +58,9 @@ func TestTreeManagerAdapterAppendStepPersistsBothLines(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatalf("append messages: %v", err)
+	}
 	if err := tm.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -105,7 +108,7 @@ func TestTreeManagerAdapterRecoversInterruptedTurn(t *testing.T) {
 	// persisted, the tool message was not. This is the per-message state
 	// older kit versions could leave behind between the two appends.
 	sm := NewTreeManagerAdapter(tm)
-	appendMessages(context.Background(), sm, []LLMMessage{
+	_, err = appendMessages(context.Background(), sm, []LLMMessage{
 		{
 			Role: fantasy.MessageRoleAssistant,
 			Content: []fantasy.MessagePart{
@@ -113,6 +116,9 @@ func TestTreeManagerAdapterRecoversInterruptedTurn(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatalf("append messages: %v", err)
+	}
 	if err := tm.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

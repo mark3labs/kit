@@ -29,6 +29,7 @@ type AgentCreationOptions struct {
 	MaxSteps int
 	// StreamingEnabled controls whether responses are streamed
 	StreamingEnabled bool
+	RetryPolicy      *RetryPolicy
 	// ShowSpinner indicates whether to show a spinner for Ollama models during loading
 	ShowSpinner bool // For Ollama models
 	// Quiet suppresses the spinner even if ShowSpinner is true
@@ -100,6 +101,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		SystemPrompt:            opts.SystemPrompt,
 		MaxSteps:                opts.MaxSteps,
 		StreamingEnabled:        opts.StreamingEnabled,
+		RetryPolicy:             opts.RetryPolicy,
 		DebugLogger:             opts.DebugLogger,
 		AllowMissingCredentials: opts.AllowMissingCredentials,
 		AuthHandler:             opts.AuthHandler,

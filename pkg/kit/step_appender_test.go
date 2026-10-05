@@ -59,12 +59,14 @@ type batchSessionManager struct {
 	stepCalls int
 	err       error
 	// gotCtx records the context handed to the most recent AppendStep call.
-	gotCtx context.Context
+	gotCtx     context.Context
+	contextErr error
 }
 
 func (b *batchSessionManager) AppendStep(ctx context.Context, msgs []LLMMessage) ([]string, error) {
 	b.stepCalls++
 	b.gotCtx = ctx
+	b.contextErr = ctx.Err()
 	if b.err != nil {
 		return nil, b.err
 	}
@@ -96,7 +98,9 @@ func TestAppendMessagesUsesStepAppender(t *testing.T) {
 	t.Parallel()
 
 	sm := &batchSessionManager{}
-	appendMessages(context.Background(), sm, toolStep())
+	if n, err := appendMessages(context.Background(), sm, toolStep()); err != nil || n != 2 {
+		t.Fatalf("append messages: confirmed=%d error=%v", n, err)
+	}
 
 	if sm.stepCalls != 1 {
 		t.Fatalf("AppendStep called %d times, want exactly 1", sm.stepCalls)
@@ -119,7 +123,9 @@ func TestAppendMessagesFallsBackToPerMessage(t *testing.T) {
 	t.Parallel()
 
 	sm := &stubSessionManager{}
-	appendMessages(context.Background(), sm, toolStep())
+	if n, err := appendMessages(context.Background(), sm, toolStep()); err != nil || n != 2 {
+		t.Fatalf("append messages: confirmed=%d error=%v", n, err)
+	}
 
 	if sm.appends != 2 {
 		t.Fatalf("AppendMessage called %d times, want 2", sm.appends)
@@ -129,14 +135,15 @@ func TestAppendMessagesFallsBackToPerMessage(t *testing.T) {
 	}
 }
 
-// TestAppendMessagesSwallowsStepAppenderError documents deliberate behaviour:
-// a persistence failure must not abort a turn that already produced output,
-// matching the historical per-message behaviour.
-func TestAppendMessagesSwallowsStepAppenderError(t *testing.T) {
+// Failed atomic writes must return an error without a per-message fallback.
+func TestAppendMessagesReportsStepAppenderError(t *testing.T) {
 	t.Parallel()
 
 	sm := &batchSessionManager{err: errors.New("disk full")}
-	appendMessages(context.Background(), sm, toolStep()) // must not panic
+	n, err := appendMessages(context.Background(), sm, toolStep())
+	if n != 0 || !errors.Is(err, sm.err) {
+		t.Fatalf("count=%d error=%v", n, err)
+	}
 
 	if sm.stepCalls != 1 {
 		t.Fatalf("AppendStep called %d times, want 1", sm.stepCalls)
@@ -152,14 +159,19 @@ func TestAppendMessagesIgnoresEmptyAndNil(t *testing.T) {
 
 	ctx := context.Background()
 	sm := &batchSessionManager{}
-	appendMessages(ctx, sm, nil)
-	appendMessages(ctx, sm, []LLMMessage{})
+	for _, msgs := range [][]LLMMessage{nil, {}} {
+		if n, err := appendMessages(ctx, sm, msgs); err != nil || n != 0 {
+			t.Fatalf("empty append: confirmed=%d error=%v", n, err)
+		}
+	}
 	if sm.stepCalls != 0 || sm.appends != 0 {
 		t.Fatalf("empty input caused %d step calls and %d appends, want none",
 			sm.stepCalls, sm.appends)
 	}
 
-	appendMessages(ctx, nil, toolStep()) // must not panic
+	if n, err := appendMessages(ctx, nil, toolStep()); err != nil || n != 0 {
+		t.Fatalf("nil session append: confirmed=%d error=%v", n, err)
+	}
 }
 
 // TestAppendMessagesForwardsContext proves the turn's context reaches a
@@ -172,7 +184,9 @@ func TestAppendMessagesForwardsContext(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxKey{}, "trace-42")
 
 	sm := &batchSessionManager{}
-	appendMessages(ctx, sm, toolStep())
+	if n, err := appendMessages(ctx, sm, toolStep()); err != nil || n != 2 {
+		t.Fatalf("append messages: confirmed=%d error=%v", n, err)
+	}
 
 	if sm.gotCtx == nil {
 		t.Fatal("AppendStep received a nil context")
@@ -196,20 +210,26 @@ func TestAppendMessagesStillWritesWhenContextCancelled(t *testing.T) {
 	cancel()
 
 	sm := &batchSessionManager{}
-	appendMessages(ctx, sm, toolStep())
+	if n, err := appendMessages(ctx, sm, toolStep()); err != nil || n != 2 {
+		t.Fatalf("append messages: confirmed=%d error=%v", n, err)
+	}
 
 	if sm.stepCalls != 1 {
 		t.Fatalf("AppendStep called %d times on a cancelled context, want 1: "+
 			"completed work must still be persisted", sm.stepCalls)
 	}
-	if sm.gotCtx == nil || sm.gotCtx.Err() == nil {
-		t.Fatal("the cancelled context must be passed through unchanged, " +
-			"so implementations can decide for themselves")
+	if sm.gotCtx == nil || sm.contextErr != nil {
+		t.Fatal("turn cancellation must be detached for completed writes")
+	}
+	if _, ok := sm.gotCtx.Deadline(); !ok {
+		t.Fatal("write deadline missing")
 	}
 
 	// The fallback path must behave the same way.
 	plain := &stubSessionManager{}
-	appendMessages(ctx, plain, toolStep())
+	if n, err := appendMessages(ctx, plain, toolStep()); err != nil || n != 2 {
+		t.Fatalf("append messages: confirmed=%d error=%v", n, err)
+	}
 	if plain.appends != 2 {
 		t.Fatalf("AppendMessage called %d times on a cancelled context, want 2", plain.appends)
 	}

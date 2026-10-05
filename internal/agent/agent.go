@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ type AgentConfig struct {
 	SystemPrompt     string
 	MaxSteps         int
 	StreamingEnabled bool
+	RetryPolicy      *RetryPolicy
 	DebugLogger      tools.DebugLogger
 
 	// AllowMissingCredentials lets NewAgent succeed when the configured
@@ -222,7 +224,11 @@ type StreamFinishHandler func(usage fantasy.Usage, finishReason string)
 type ErrorHandler func(err error)
 
 // RetryHandler is called when the LLM request is retried.
+// Attempt is the retry number, starting at 1 for each model request.
 type RetryHandler func(attempt int, err error)
+
+// RetryScheduledHandler reports a retry and its scheduled delay.
+type RetryScheduledHandler func(attempt int, err error, delay time.Duration)
 
 // PrepareStepUpdate carries per-step overrides returned by a
 // PrepareStepHandler. Nil fields leave the corresponding aspect of the step
@@ -258,11 +264,13 @@ type GenerateCallbacks struct {
 	OnReasoningComplete ReasoningCompleteHandler
 	OnToolOutput        ToolOutputHandler
 	OnStepMessages      StepMessagesHandler
-	OnStepUsage         StepUsageHandler
-	OnPasswordPrompt    PasswordPromptHandler
-	OnToolCallStart     ToolCallStartHandler
-	OnToolCallDelta     ToolCallDeltaHandler
-	OnToolCallEnd       ToolCallEndHandler
+	// OnStepMessagesChecked takes precedence and reports confirmed writes.
+	OnStepMessagesChecked func([]fantasy.Message) (int, error)
+	OnStepUsage           StepUsageHandler
+	OnPasswordPrompt      PasswordPromptHandler
+	OnToolCallStart       ToolCallStartHandler
+	OnToolCallDelta       ToolCallDeltaHandler
+	OnToolCallEnd         ToolCallEndHandler
 
 	// New callbacks for previously unwired Fantasy lifecycle events.
 	OnStepStart      StepStartHandler
@@ -275,6 +283,8 @@ type GenerateCallbacks struct {
 	OnStreamFinish   StreamFinishHandler
 	OnError          ErrorHandler
 	OnRetry          RetryHandler
+	// OnRetryScheduled reports the retry number (1 for the first retry) and wait.
+	OnRetryScheduled RetryScheduledHandler
 	OnPrepareStep    PrepareStepHandler
 }
 
@@ -297,7 +307,7 @@ func (cb GenerateCallbacks) HasAnyCallback() bool {
 		cb.OnStreamingResponse != nil ||
 		cb.OnReasoningDelta != nil ||
 		cb.OnReasoningComplete != nil ||
-		cb.OnStepMessages != nil ||
+		cb.OnStepMessages != nil || cb.OnStepMessagesChecked != nil ||
 		cb.OnStepUsage != nil ||
 		cb.OnToolCallStart != nil ||
 		cb.OnToolCallDelta != nil ||
@@ -312,6 +322,7 @@ func (cb GenerateCallbacks) HasAnyCallback() bool {
 		cb.OnStreamFinish != nil ||
 		cb.OnError != nil ||
 		cb.OnRetry != nil ||
+		cb.OnRetryScheduled != nil ||
 		cb.OnPrepareStep != nil
 }
 
@@ -331,6 +342,7 @@ var ErrNoMCPServers = errors.New("no MCP servers configured")
 type Agent struct {
 	toolManager      *tools.MCPToolManager
 	fantasyAgent     fantasy.Agent
+	retryPolicy      RetryPolicy
 	model            fantasy.LanguageModel
 	providerCloser   io.Closer // optional cleanup for providers like kronk
 	maxSteps         int
@@ -410,6 +422,12 @@ type GenerateWithLoopResult struct {
 	// generation. The caller should skip these when doing post-generation
 	// persistence to avoid duplicates.
 	PersistedMessageCount int
+	// PartialText is unfinished text, excluded from ConversationMessages.
+	PartialText string
+	AttemptID   string
+	Incomplete  bool
+	// PersistenceError reports a failed incremental write.
+	PersistenceError error
 }
 
 // NewAgent creates a new Agent with core tools and optional MCP tool integration.
@@ -513,7 +531,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	agentOpts := buildAgentOptions(agentConfig, providerResult, allTools)
 
 	// Create the agent
-	fantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
+	policy := normalizeRetryPolicy(agentConfig.RetryPolicy)
+	model := &retryModel{LanguageModel: providerResult.Model, policy: policy}
+	fantasyAgent := fantasy.NewAgent(model, agentOpts...)
 
 	// Determine provider type from model string
 	providerType := "default"
@@ -526,6 +546,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	a := &Agent{
 		fantasyAgent:        fantasyAgent,
 		model:               providerResult.Model,
+		retryPolicy:         policy,
 		providerCloser:      providerResult.Closer,
 		maxSteps:            agentConfig.MaxSteps,
 		systemPrompt:        agentConfig.SystemPrompt,
@@ -651,7 +672,7 @@ func (a *Agent) rebuildFantasyAgent() {
 		MaxSteps:     a.maxSteps,
 	}, providerResult, allTools)
 
-	a.fantasyAgent = fantasy.NewAgent(a.model, agentOpts...)
+	a.fantasyAgent = fantasy.NewAgent(&retryModel{LanguageModel: a.model, policy: a.retryPolicy}, agentOpts...)
 }
 
 // composeAllTools builds the full live tool set (core + MCP + extra tools)
@@ -816,6 +837,16 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 	cb GenerateCallbacks,
 ) (*GenerateWithLoopResult, error) {
 
+	// Notifications belong to this call, not to shared model state.
+	ctx = context.WithValue(ctx, retryContextKey{}, retryNotification(func(attempt int, err error, delay time.Duration) {
+		if cb.OnRetry != nil {
+			cb.OnRetry(attempt, err)
+		}
+		if cb.OnRetryScheduled != nil {
+			cb.OnRetryScheduled(attempt, err, delay)
+		}
+	}))
+
 	// Wait for background MCP tool loading to complete and rebuild the
 	// fantasy agent with the full tool set. This is a no-op when no MCP
 	// servers are configured or tools have already been integrated.
@@ -891,6 +922,30 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// input) were persisted incrementally via cb.OnStepMessages, so the
 	// caller can skip them during post-generation persistence.
 	var persistedCount int
+	var persistenceErr error
+	var unfinished strings.Builder
+	attemptID := rand.Text()
+	var completedUsage fantasy.Usage
+	writeStep := func(msgs []fantasy.Message) {
+		if persistenceErr != nil {
+			return
+		}
+		if cb.OnStepMessagesChecked != nil {
+			n, err := cb.OnStepMessagesChecked(msgs)
+			if n < 0 || n > len(msgs) {
+				n = 0
+				err = errors.Join(err, fmt.Errorf("invalid confirmed write count"))
+			}
+			if err == nil && n != len(msgs) {
+				err = fmt.Errorf("only %d of %d step messages were persisted", n, len(msgs))
+			}
+			persistedCount += n
+			persistenceErr = err
+		} else if cb.OnStepMessages != nil {
+			cb.OnStepMessages(msgs)
+			persistedCount += len(msgs)
+		}
+	}
 	// stepCounter tracks the current step number for StepStart/StepFinish events.
 	var stepCounter int
 
@@ -912,10 +967,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			pendingMedia = append(pendingMedia, msgs...)
 			return
 		}
-		if cb.OnStepMessages != nil {
-			cb.OnStepMessages(msgs)
-			persistedCount += len(msgs)
-		}
+		writeStep(msgs)
 	}
 	// flushPending persists the held messages. Call it only when the
 	// provider has accepted the request that carried them.
@@ -925,10 +977,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		}
 		held := pendingMedia
 		pendingMedia = nil
-		if cb.OnStepMessages != nil {
-			cb.OnStepMessages(held)
-			persistedCount += len(held)
-		}
+		writeStep(held)
 	}
 	// mediaRetries counts replays after a provider rejected a media tool
 	// result. It bounds the recovery loop below.
@@ -942,10 +991,12 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	}
 
 	// Use the streaming agent
+	zeroRetries := 0
 	streamCall := fantasy.AgentStreamCall{
-		Prompt:   prompt,
-		Files:    files,
-		Messages: history,
+		MaxRetries: &zeroRetries,
+		Prompt:     prompt,
+		Files:      files,
+		Messages:   history,
 
 		// Tool input streaming callbacks — fire during tool argument generation
 		OnToolInputStart: func(id, toolName string) error {
@@ -1034,6 +1085,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			unfinished.WriteString(text)
 			if cb.OnStreamingResponse != nil {
 				cb.OnStreamingResponse(text)
 			}
@@ -1095,6 +1147,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				return ctx.Err()
 			}
 			stepCounter = stepNumber
+			attemptID = rand.Text()
 			if cb.OnStepStart != nil {
 				cb.OnStepStart(stepNumber)
 			}
@@ -1154,6 +1207,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			// Accumulate messages from completed steps so they can be
 			// persisted even if a later step is cancelled.
 			completedStepMessages = append(completedStepMessages, step.Messages...)
+			unfinished.Reset()
+			completedUsage.InputTokens += step.Usage.InputTokens
+			completedUsage.OutputTokens += step.Usage.OutputTokens
+			completedUsage.CacheReadTokens += step.Usage.CacheReadTokens
+			completedUsage.CacheCreationTokens += step.Usage.CacheCreationTokens
 
 			// This step completed, so the provider accepted the request
 			// that carried any held media tool results. Persist them.
@@ -1162,6 +1220,9 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			// Persist step messages incrementally so progress is saved
 			// as it happens rather than only at the end of the turn.
 			persistStep(step.Messages)
+			if persistenceErr != nil {
+				return persistenceErr
+			}
 
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -1253,6 +1314,9 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				// a cancel, an error, and a session reload.
 				completedStepMessages = append(completedStepMessages, newMessages...)
 				persistStep(newMessages)
+				if persistenceErr != nil {
+					return stepCtx, result, persistenceErr
+				}
 
 				if onConsumed != nil {
 					onConsumed(len(steered))
@@ -1298,16 +1362,6 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		return stepCtx, result, nil
 	}
 
-	// Wire OnRetry callback if provided.
-	if cb.OnRetry != nil {
-		streamCall.OnRetry = func(err *fantasy.ProviderError, _ time.Duration) {
-			// Use the retry number from the error if available; Fantasy
-			// doesn't pass a counter directly, so we approximate with a
-			// counter incremented on each call.
-			cb.OnRetry(0, err)
-		}
-	}
-
 	result, err := a.fantasyAgent.Stream(ctx, streamCall)
 
 	// Recover from a provider that rejected a media tool result (for
@@ -1344,22 +1398,12 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	}
 
 	if err != nil {
-		// On cancellation (or any error), return a partial result
-		// containing messages from completed steps so the caller can
-		// persist tool calls and results that finished before the
-		// cancellation. The original input messages are included so
-		// the caller sees the full conversation up to the point of
-		// cancellation.
-		if len(completedStepMessages) > 0 {
-			partialMessages := make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
-			partialMessages = append(partialMessages, messages...)
-			partialMessages = append(partialMessages, completedStepMessages...)
-			return &GenerateWithLoopResult{
-				ConversationMessages:  partialMessages,
-				PersistedMessageCount: persistedCount,
-			}, err
-		}
-		return nil, err
+		partialMessages := append(append([]fantasy.Message(nil), messages...), completedStepMessages...)
+		return &GenerateWithLoopResult{
+			ConversationMessages: partialMessages, PersistedMessageCount: persistedCount,
+			PartialText: unfinished.String(), AttemptID: attemptID, Incomplete: true,
+			TotalUsage: completedUsage, PersistenceError: persistenceErr,
+		}, errors.Join(err, persistenceErr)
 	}
 
 	// Fire the response callback so callers (e.g. the TUI) can reset
@@ -1392,7 +1436,9 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		}
 	}
 	r.PersistedMessageCount = persistedCount
-	return r, nil
+	r.AttemptID = attemptID
+	r.PersistenceError = persistenceErr
+	return r, persistenceErr
 }
 
 // steerInjection is a steer message that PrepareStep injected into the
@@ -1436,10 +1482,12 @@ func (a *Agent) generateSimple(ctx context.Context, cb GenerateCallbacks, messag
 	prompt string, files []fantasy.FilePart, history []fantasy.Message,
 ) (*GenerateWithLoopResult, error) {
 	// Non-streaming path with no callbacks — use the simpler Generate call.
+	zeroRetries := 0
 	result, err := a.fantasyAgent.Generate(ctx, fantasy.AgentCall{
-		Prompt:   prompt,
-		Files:    files,
-		Messages: history,
+		MaxRetries: &zeroRetries,
+		Prompt:     prompt,
+		Files:      files,
+		Messages:   history,
 	})
 	if err != nil {
 		return nil, err

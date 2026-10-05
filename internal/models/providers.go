@@ -224,6 +224,10 @@ type ProviderConfig struct {
 	// registered with RegisterProviderFactory and over the built-in
 	// providers. May be nil.
 	ProviderFactories map[string]ProviderFactory
+
+	// StreamingHTTP sets connection, header, and body-idle limits for Codex
+	// and Copilot only. Its zero value uses defaults without a total deadline.
+	StreamingHTTP StreamingHTTPConfig
 }
 
 // ProviderResult contains the result of provider creation.
@@ -1432,7 +1436,7 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 		openai.WithName(copilotAliasProviderID),
 		openai.WithBaseURL(baseURL),
 		openai.WithAPIKey(token),
-		openai.WithHTTPClient(createCopilotHTTPClient(token, expiresAt, config.TLSSkipVerify)),
+		openai.WithHTTPClient(createCopilotHTTPClient(token, expiresAt, config.TLSSkipVerify, config.StreamingHTTP)),
 		openai.WithUseResponsesAPI(),
 		openai.WithResponsesAPIFunc(copilotUsesResponsesAPI),
 		openai.WithObjectMode(fantasy.ObjectModeTool),
@@ -1485,7 +1489,7 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	}
 
 	// Build custom HTTP client with required headers.
-	httpClient := createCodexHTTPClient(config.TLSSkipVerify)
+	httpClient := createCodexHTTPClient(config.TLSSkipVerify, config.StreamingHTTP)
 
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(token))
@@ -1554,23 +1558,13 @@ func detectCodexModelFamily(modelName string) string {
 }
 
 // createCodexHTTPClient creates an HTTP client with headers required for ChatGPT/Codex API
-func createCodexHTTPClient(skipVerify bool) *http.Client {
-	var base http.RoundTripper
-	if skipVerify {
-		base = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-	} else {
-		base = http.DefaultTransport
+func createCodexHTTPClient(skipVerify bool, configs ...StreamingHTTPConfig) *http.Client {
+	var config StreamingHTTPConfig
+	if len(configs) > 0 {
+		config = configs[0]
 	}
-
 	return &http.Client{
-		Transport: &codexTransport{
-			base: base,
-		},
-		Timeout: 120 * time.Second,
+		Transport: &codexTransport{base: newStreamingTransport(skipVerify, config)},
 	}
 }
 
@@ -1634,25 +1628,17 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // authorization and client metadata headers. The token and expiry are cached in
 // the transport so streaming requests do not hit credentials.json on every
 // RoundTrip; the credential manager is consulted only near expiry.
-func createCopilotHTTPClient(token string, expiresAt int64, skipVerify bool) *http.Client {
-	var base http.RoundTripper
-	if skipVerify {
-		base = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-	} else {
-		base = http.DefaultTransport
+func createCopilotHTTPClient(token string, expiresAt int64, skipVerify bool, configs ...StreamingHTTPConfig) *http.Client {
+	var config StreamingHTTPConfig
+	if len(configs) > 0 {
+		config = configs[0]
 	}
-
 	return &http.Client{
 		Transport: &copilotTransport{
-			base:      base,
+			base:      newStreamingTransport(skipVerify, config),
 			token:     token,
 			expiresAt: expiresAt,
 		},
-		Timeout: 120 * time.Second,
 	}
 }
 

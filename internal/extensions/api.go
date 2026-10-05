@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrAgentBusy is returned (wrapped) when an extension API call that requires
@@ -2855,8 +2856,10 @@ func (e ErrorEvent) Type() EventType { return Error }
 // RetryEvent fires when the LLM provider request is retried after a
 // transient error.
 type RetryEvent struct {
+	// Attempt is the retry number, starting at 1 for each model request.
 	Attempt int
 	Error   string
+	Delay   time.Duration
 }
 
 func (e RetryEvent) Type() EventType { return Retry }

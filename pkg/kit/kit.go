@@ -1223,6 +1223,9 @@ type Options struct {
 	// [WithStreaming] for the functional-options API.
 	Streaming *bool
 
+	// RetryPolicy limits retries per model request. Nil uses [DefaultRetryPolicy].
+	RetryPolicy *RetryPolicy
+
 	Quiet      bool   // Suppress debug output
 	Tools      []Tool // Custom tool set. If empty, AllTools() is used.
 	ExtraTools []Tool // Additional tools added alongside core/MCP/extension tools.
@@ -2015,6 +2018,12 @@ func loadExplicitSkills(paths []string) ([]*skills.Skill, error) {
 // statistics and the updated conversation. Use PromptResult() instead of
 // Prompt() when you need access to this data.
 type TurnResult struct {
+	// PartialText contains unfinished assistant text. It is not part of Messages.
+	PartialText string
+	// AttemptID identifies the generation that produced this result.
+	AttemptID string
+	// Incomplete is true when the turn failed before completion.
+	Incomplete bool
 	// Response is the assistant's final text response.
 	Response string
 
@@ -2780,8 +2789,8 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		// manager implementing [StepAppender] can commit the assistant
 		// message and its tool results atomically. Without that, a crash
 		// between the two writes orphans the tool call.
-		OnStepMessages: func(stepMessages []fantasy.Message) {
-			appendMessages(ctx, m.session, stepMessages)
+		OnStepMessagesChecked: func(stepMessages []fantasy.Message) (int, error) {
+			return appendMessages(ctx, m.session, stepMessages)
 		},
 		OnStepUsage: func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			if m.v.GetBool("debug") {
@@ -2878,8 +2887,8 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		OnError: func(err error) {
 			m.events.emit(ErrorEvent{Error: err})
 		},
-		OnRetry: func(attempt int, err error) {
-			m.events.emit(RetryEvent{Attempt: attempt, Error: err})
+		OnRetryScheduled: func(attempt int, err error, delay time.Duration) {
+			m.events.emit(RetryEvent{Attempt: attempt, Error: err, Delay: delay})
 		},
 		// PrepareStep hook — compose with steering (handled in agent layer)
 		// and then run SDK consumer hooks.
@@ -2913,20 +2922,27 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 // sentCount is the number of input messages sent to the LLM (the prefix of
 // result.ConversationMessages to skip). Safe to call with a nil result.
 //
-// ctx is forwarded to [StepAppender] implementations. It is often already
-// cancelled here, because this runs after a turn ends for any reason; see the
-// Cancellation section on [StepAppender].
-func (m *Kit) persistGenerationRemainder(ctx context.Context, result *agent.GenerateWithLoopResult, sentCount int) {
+// Writes retain ctx values but use a detached, bounded deadline so completed
+// work can survive turn cancellation. See the Cancellation section on [StepAppender].
+func (m *Kit) persistGenerationRemainder(ctx context.Context, result *agent.GenerateWithLoopResult, sentCount int) error {
 	if result == nil || len(result.ConversationMessages) <= sentCount {
-		return
+		return nil
 	}
 	newMessages := result.ConversationMessages[sentCount:]
 	if result.PersistedMessageCount >= len(newMessages) {
-		return
+		return nil
 	}
 	// The remainder can span a complete assistant + tool-result pair, so it is
 	// persisted as one group to keep [StepAppender] implementations atomic.
-	appendMessages(ctx, m.session, newMessages[result.PersistedMessageCount:])
+	// Do not retry a failed write within the same turn. A legacy backend may
+	// have committed an unconfirmed write; retrying it can duplicate history.
+	if result.PersistenceError != nil {
+		return result.PersistenceError
+	}
+	n, err := appendMessages(ctx, m.session, newMessages[result.PersistedMessageCount:])
+	result.PersistedMessageCount += n
+	result.PersistenceError = err
+	return err
 }
 
 // runTurn is the shared lifecycle for every prompt mode:
@@ -2990,7 +3006,11 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Persist pre-generation messages to session.
-	appendMessages(ctx, m.session, preMessages)
+	if _, err := appendMessages(ctx, m.session, preMessages); err != nil {
+		m.events.emit(TurnEndEvent{Error: err})
+		m.afterTurn.run(AfterTurnHook{Error: err})
+		return &TurnResult{SessionID: m.GetSessionID(), Messages: m.session.GetMessages(), Incomplete: true}, err
+	}
 
 	// Auto-compact if enabled and conversation is near the context limit.
 	if m.autoCompact && m.ShouldCompact() {
@@ -3026,14 +3046,15 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// safety net for token-estimate drift and huge mid-turn tool results
 	// that the proactive ShouldCompact() check cannot catch. A single-retry
 	// guard (no loop) prevents compact/overflow cycles.
-	if isContextOverflow(err) {
+	if isContextOverflow(err) && (result == nil || result.PartialText == "") {
 		// Persist completed-step messages from the failed attempt first so
 		// compaction and the rebuilt context include them — the replay then
 		// resumes from where the turn overflowed rather than restarting.
-		m.persistGenerationRemainder(ctx, result, sentCount)
-		result = nil
+		persistErr := m.persistGenerationRemainder(ctx, result, sentCount)
 
-		if retryMessages, retryErr := m.prepareOverflowRetry(ctx); retryErr != nil {
+		if persistErr != nil {
+			err = errors.Join(err, persistErr)
+		} else if retryMessages, retryErr := m.prepareOverflowRetry(ctx); retryErr != nil {
 			// Recovery impossible — wrap the original provider error with
 			// the recovery failure. ClassifyProviderError below still maps
 			// the chain to ErrContextOverflow, so the errors.Is contract
@@ -3051,26 +3072,41 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		}
 	}
 
+	err = errors.Join(err, m.persistGenerationRemainder(ctx, result, sentCount))
 	if err != nil {
-		// Persist any messages from completed steps that were NOT already
-		// persisted incrementally by the onStepMessages callback. The agent
-		// layer only includes fully-paired tool_use + tool_result messages
-		// in completedStepMessages, so there are no orphaned entries that
-		// would break subsequent API requests.
-		m.persistGenerationRemainder(ctx, result, sentCount)
+		partial := &TurnResult{SessionID: m.GetSessionID(), Incomplete: true, Stream: collector.drain()}
+		if result != nil {
+			partial.Messages = result.ConversationMessages
+			partial.PartialText = result.PartialText
+			partial.AttemptID = result.AttemptID
+			usage := result.TotalUsage
+			partial.TotalUsage = &usage
+			if result.FinalResponse != nil {
+				partial.Response = result.FinalResponse.Content.Text()
+			}
+			if result.PartialText != "" {
+				if appender, ok := m.session.(IncompleteOutputAppender); ok {
+					writeCtx, cancel := persistenceContext(ctx)
+					_, writeErr := appender.AppendIncompleteOutput(writeCtx, IncompleteOutput{AttemptID: result.AttemptID, Text: result.PartialText, Incomplete: true})
+					cancel()
+					if writeErr != nil {
+						err = errors.Join(err, fmt.Errorf("persist incomplete output: %w", writeErr))
+					}
+				}
+			}
+		} else {
+			partial.Messages = messages
+		}
+		if halted, toolName, value := holder.snapshot(); halted {
+			partial.HaltedByTool = toolName
+			partial.FinalValue = value
+		}
 		m.events.emit(TurnEndEvent{Error: err})
-		// Run AfterTurn hooks even on error.
 		m.afterTurn.run(AfterTurnHook{Error: err})
-		return nil, ClassifyProviderError(err)
+		return partial, ClassifyProviderError(err)
 	}
 
 	responseText := result.FinalResponse.Content.Text()
-
-	// Persist any new messages that were NOT already persisted incrementally
-	// by the onStepMessages callback during generation. This handles the
-	// non-streaming path (where onStepMessages is not called) and any edge
-	// cases where the final response messages weren't covered by step callbacks.
-	m.persistGenerationRemainder(ctx, result, sentCount)
 
 	// Store the API-reported token count so GetContextStats() matches the
 	// built-in status bar. The context window is filled by all token
@@ -3095,6 +3131,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// Build TurnResult with usage stats.
 	turnResult := &TurnResult{
 		Response:   responseText,
+		AttemptID:  result.AttemptID,
 		StopReason: stopReason,
 		SessionID:  m.GetSessionID(),
 		Messages:   result.ConversationMessages,
@@ -3422,7 +3459,9 @@ func (m *Kit) PromptResultWithOptions(ctx context.Context, msg string, opts Prom
 
 // PromptResult sends a message and returns the full turn result including
 // usage statistics and conversation messages. Use this instead of Prompt()
-// when you need more than just the response text.
+// when you need more than just the response text. On a generation or storage
+// error, it can return a non-nil incomplete result together with the error.
+// PartialText is excluded from Messages and future model history.
 //
 // PromptResult blocks until end-of-turn regardless of whether streaming is
 // enabled. When streaming is enabled, every delta observed during the turn is

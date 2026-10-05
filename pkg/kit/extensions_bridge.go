@@ -422,6 +422,7 @@ func (m *Kit) bridgeStepEvents(runner *extensions.Runner) {
 	bridgeObserve(m, runner, extensions.Retry, func(ev RetryEvent) extensions.Event {
 		return extensions.RetryEvent{
 			Attempt: ev.Attempt,
+			Delay:   ev.Delay,
 			Error:   ev.Error.Error(),
 		}
 	})
