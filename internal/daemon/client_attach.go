@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,6 +148,9 @@ type clientConn struct {
 	sink *frameSink
 
 	ctrlCh chan Frame
+
+	// terminal is owned by the session loop and its active input pump.
+	terminal TerminalInfo
 
 	// helloCh carries the daemon's hello to whoever asks for it, and
 	// helloOnce makes sure a second reply (a daemon that answers twice, a
@@ -749,9 +753,8 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 	// is a synchronous OSC query, so it has to finish before a connection's
 	// reader owns the fd and before a picker draws. The daemon has no other
 	// way to learn any of it — the PTY it owns reports no colour depth and
-	// answers no background query. Probed ONCE for the whole client: the
-	// terminal does not change under a reconnect, and asking again would
-	// mean querying a terminal whose input another reader may still hold.
+	// answers no background query. Later Ctrl-] r requests use the shared
+	// input pump instead. Reconnects keep the latest reported values.
 	localTerm := detectTerminalInfo()
 
 	stream := rw
@@ -767,6 +770,7 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 	for {
 		run, rerr := runClientSession(ctx, stream, opts, localTerm)
 		parting = run.parting
+		localTerm = run.terminal
 
 		// Anything that is not a lost connection is the client's real
 		// outcome: a detach, a finished session, a host switch, a failure
@@ -804,6 +808,7 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 // clientRun reports how one connection's worth of client work ended.
 // RunClient reads it to decide between reporting and reconnecting.
 type clientRun struct {
+	terminal TerminalInfo
 	// parting is the message to print once the alt screen is gone.
 	parting string
 	// current is the logical session the client was attached to, and the
@@ -870,6 +875,8 @@ func (r clientRun) survives() bool {
 // disturbing the screen.
 func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions, localTerm TerminalInfo) (run clientRun, err error) {
 	conn := newClientConn(rw)
+	conn.terminal = localTerm
+	run.terminal = localTerm
 	go conn.readLoop()
 	if serr := conn.readStdin(ctx); serr != nil {
 		// No reader was ever started, so the terminal is still free.
@@ -888,6 +895,7 @@ func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions,
 	defer func() {
 		run.stdinReleased = conn.stopStdin()
 		run.current = conn.current()
+		run.terminal = conn.terminal
 		if run.stdinReleased || err == nil || errors.Is(err, errSessionEnded) ||
 			errors.Is(err, errStreamClosed) {
 			// Either the hand-off worked, or nothing is going to run after
@@ -1173,7 +1181,16 @@ func runAttached(ctx context.Context, conn *clientConn, opts AttachOptions) (att
 	// keystroke.
 	_ = conn.write(FrameSessionRedraw, nil)
 
-	go runInputPump(conn, opts, finish, setOutcome)
+	pumpStop := make(chan struct{})
+	pumpDone := make(chan struct{})
+	go func() {
+		defer close(pumpDone)
+		runInputPumpUntil(conn, opts, finish, setOutcome, pumpStop)
+	}()
+	defer func() {
+		close(pumpStop)
+		<-pumpDone
+	}()
 
 	select {
 	case <-done:
@@ -1210,13 +1227,42 @@ func runAttached(ctx context.Context, conn *clientConn, opts AttachOptions) (att
 // pumpControl is what the input pump decides to do with a chord.
 type pumpControl struct {
 	stop    bool
+	refresh bool
 	outcome attachOutcome
 }
 
-// runInputPump reads the terminal, intercepts the client's chords, and
-// forwards everything else to the session.
-func runInputPump(conn *clientConn, opts AttachOptions, finish func(), setOutcome func(attachOutcome)) {
+// runInputPumpUntil reads the terminal, intercepts the client's chords, and
+// forwards everything else to the session until stopped.
+func runInputPumpUntil(conn *clientConn, opts AttachOptions, finish func(), setOutcome func(attachOutcome), stop <-chan struct{}) {
 	defer finish()
+
+	var probe backgroundReply
+	var probeTimer *time.Timer
+	var probeC <-chan time.Time
+	defer func() {
+		if probeTimer != nil {
+			probeTimer.Stop()
+		}
+	}()
+	sendTerminal := func() bool {
+		payload, err := EncodeTerminalInfo(conn.terminal)
+		return err == nil && conn.write(FrameTerminal, payload) == nil
+	}
+	refresh := func() bool {
+		if probeC != nil { // One outstanding OSC request at a time.
+			return true
+		}
+		info := detectTerminalEnvironment()
+		info.Background = conn.terminal.Background
+		conn.terminal = info
+		if _, err := io.WriteString(os.Stdout, "\x1b]11;?\x1b\\"); err != nil {
+			return sendTerminal()
+		}
+		probe = backgroundReply{active: true}
+		probeTimer = time.NewTimer(terminalRefreshTimeout)
+		probeC = probeTimer.C
+		return true
+	}
 
 	// Input comes from the connection's shared reader; see clientConn.
 	readCh := conn.stdinCh
@@ -1228,6 +1274,11 @@ func runInputPump(conn *clientConn, opts AttachOptions, finish func(), setOutcom
 	var leaderOf leaderKind
 	var idleTimer *time.Timer
 	var idleC <-chan time.Time
+	defer func() {
+		if idleTimer != nil {
+			idleTimer.Stop()
+		}
+	}()
 
 	armIdle := func() {
 		if scanner.PendingEscape() {
@@ -1244,11 +1295,26 @@ func runInputPump(conn *clientConn, opts AttachOptions, finish func(), setOutcom
 			idleC = nil
 		}
 	}
+	// Keep ordinary input in one frame per read. Byte-wise OSC parsing must
+	// not turn a large paste into one socket write for every byte.
+	var pendingData []byte
+	flushData := func() bool {
+		if len(pendingData) == 0 {
+			return true
+		}
+		err := conn.write(FrameData, pendingData)
+		pendingData = pendingData[:0]
+		return err == nil
+	}
 	forward := func(data []byte) bool {
-		return conn.write(FrameData, data) == nil
+		pendingData = append(pendingData, data...)
+		return true
 	}
 	handle := func(ev keyEvent) bool { // false = write error, give up
 		if ev.Paste {
+			if !flushData() {
+				return false
+			}
 			// Image paste: read the local clipboard and stream any image
 			// to the daemon. No image — forward the keystroke so the host
 			// keeps its normal Ctrl-V behavior.
@@ -1282,49 +1348,87 @@ func runInputPump(conn *clientConn, opts AttachOptions, finish func(), setOutcom
 			if !ok {
 				return
 			}
-			for _, ev := range scanner.Feed(chunk) {
-				if leaderBuf != nil {
-					// The kitty keyboard protocol delivers the leader's
-					// RELEASE before the chord suffix. Buffer it with the
-					// prefix so the chord stays armed; a suffix that is
-					// not ours is forwarded with the whole prefix run,
-					// byte-identical.
-					if ev.Leader || ev.LeaderRelease {
-						leaderBuf = append(leaderBuf, ev.Data...)
-						continue
-					}
-					ctrl, claimed := dispatchChord(conn, opts, leaderOf, ev)
-					if claimed {
-						leaderBuf = nil
-						leaderOf = leaderNone
-						if ctrl.stop {
-							setOutcome(ctrl.outcome)
-							return
-						}
-						continue
-					}
-					if !forward(leaderBuf) {
+			// Process bytes in order so a query started by a chord also
+			// covers a reply in the same read, without a second stdin reader.
+			for _, b := range chunk {
+				data, bg := probe.feed(b)
+				if bg != "" {
+					conn.terminal.Background = bg
+					probeTimer.Stop()
+					probeC = nil
+					if !flushData() || !sendTerminal() {
 						return
 					}
-					leaderBuf = nil
-					leaderOf = leaderNone
 				}
-				if ev.Leader {
-					leaderBuf = append([]byte(nil), ev.Data...)
-					leaderOf = ev.Kind
-					continue
-				}
-				if !handle(ev) {
-					return
+				for _, ev := range scanner.Feed(data) {
+					if leaderBuf != nil {
+						// The kitty keyboard protocol delivers the leader's
+						// RELEASE before the chord suffix. Buffer it with the
+						// prefix so the chord stays armed; a suffix that is
+						// not ours is forwarded with the whole prefix run,
+						// byte-identical.
+						if ev.Leader || ev.LeaderRelease {
+							leaderBuf = append(leaderBuf, ev.Data...)
+							continue
+						}
+						if !flushData() {
+							return
+						}
+						ctrl, claimed := dispatchChord(conn, opts, leaderOf, ev)
+						if claimed {
+							leaderBuf = nil
+							leaderOf = leaderNone
+							if ctrl.refresh && !refresh() {
+								return
+							}
+							if ctrl.stop {
+								setOutcome(ctrl.outcome)
+								return
+							}
+							continue
+						}
+						if !forward(leaderBuf) {
+							return
+						}
+						leaderBuf = nil
+						leaderOf = leaderNone
+					}
+					if ev.Leader {
+						leaderBuf = append([]byte(nil), ev.Data...)
+						leaderOf = ev.Kind
+						continue
+					}
+					if !handle(ev) {
+						return
+					}
 				}
 			}
+			if !flushData() {
+				return
+			}
 			armIdle()
+		case <-probeC:
+			probeC = nil
+			probe.active = false
+			// Return an incomplete or unrelated sequence byte-for-byte.
+			if len(probe.buf) > 0 && !forward(probe.buf) {
+				return
+			}
+			probe.buf = nil
+			if !flushData() || !sendTerminal() {
+				return
+			}
+		case <-stop:
+			return
 		case <-idleC:
 			idleC = nil
 			for _, ev := range scanner.FlushPendingEscape() {
 				if !handle(ev) {
 					return
 				}
+			}
+			if !flushData() {
+				return
 			}
 			armIdle()
 		case <-readErr:
@@ -1355,6 +1459,8 @@ func dispatchChord(conn *clientConn, opts AttachOptions, kind leaderKind, ev key
 		return pumpControl{}, false // the host owns every other Ctrl-X chord
 	}
 	switch ev.Data[0] {
+	case 'r':
+		return pumpControl{refresh: true}, true
 	case 's':
 		if opts.Pick == nil {
 			return pumpControl{}, true
@@ -1409,22 +1515,95 @@ const (
 // never sees them, and a child that cannot see the multiplexer draws
 // graphics the multiplexer throws away.
 func detectTerminalInfo() TerminalInfo {
-	mux := termgfx.LocalMultiplexer()
-	info := TerminalInfo{
-		Term:        os.Getenv("TERM"),
-		ColorTerm:   os.Getenv("COLORTERM"),
-		Background:  BackgroundUnknown,
-		Multiplexer: mux,
-	}
-	if info.ColorTerm == "" {
-		// Only probed when the variable is missing: Detect can read
-		// terminfo and run `tmux info`, which is wasted work otherwise.
-		info.ColorTerm = colorTermFor("", colorprofile.Detect(os.Stdout, os.Environ()), mux)
-	}
+	info := detectTerminalEnvironment()
 	if bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout); err == nil {
 		if hex := HexColor(bg); hex != "" {
 			info.Background = hex
 		}
 	}
 	return info
+}
+
+// detectTerminalEnvironment does not read stdin and is safe during the pump.
+func detectTerminalEnvironment() TerminalInfo {
+	mux := termgfx.LocalMultiplexer()
+	detected := colorprofile.Detect(os.Stdout, os.Environ())
+	profile := int(detected)
+	info := TerminalInfo{
+		ColorProfile: &profile,
+		Term:         os.Getenv("TERM"),
+		ColorTerm:    os.Getenv("COLORTERM"),
+		Background:   BackgroundUnknown,
+		Multiplexer:  mux,
+	}
+	if info.ColorTerm == "" {
+		// Detection also supplies the explicit profile for live updates.
+		info.ColorTerm = colorTermFor("", detected, mux)
+	}
+	// Match the truecolor support inferred for multiplexers such as zellij.
+	if mux == termgfx.MultiplexerZellij && detected >= colorprofile.ANSI256 && (info.ColorTerm == "truecolor" || info.ColorTerm == "24bit") {
+		profile = int(colorprofile.TrueColor)
+	}
+	return info
+}
+
+const terminalRefreshTimeout = 600 * time.Millisecond
+
+// backgroundReply buffers only a possible OSC 11 reply while a query is pending.
+// All other input, including unsolicited replies, remains session input.
+type backgroundReply struct {
+	active bool
+	buf    []byte
+}
+
+func (p *backgroundReply) feed(b byte) ([]byte, string) {
+	if !p.active {
+		return []byte{b}, ""
+	}
+	const prefix = "\x1b]11;"
+	if len(p.buf) == 0 && b != 0x1b {
+		return []byte{b}, ""
+	}
+	p.buf = append(p.buf, b)
+	if len(p.buf) <= len(prefix) && string(p.buf) != prefix[:len(p.buf)] {
+		data := p.buf
+		p.buf = nil
+		return data, ""
+	}
+	complete := b == 7 || (len(p.buf) >= 2 && string(p.buf[len(p.buf)-2:]) == "\x1b\\")
+	if !complete && len(p.buf) < 128 {
+		return nil, ""
+	}
+	data := p.buf
+	p.buf = nil
+	if complete && len(data) > len(prefix) {
+		payload := strings.TrimSuffix(strings.TrimSuffix(string(data[len(prefix):]), "\a"), "\x1b\\")
+		if bg := parseBackgroundRGB(payload); bg != "" {
+			p.active = false
+			return nil, bg
+		}
+	}
+	return data, ""
+}
+
+func parseBackgroundRGB(payload string) string {
+	if !strings.HasPrefix(payload, "rgb:") {
+		return ""
+	}
+	parts := strings.Split(payload[4:], "/")
+	if len(parts) != 3 {
+		return ""
+	}
+	var rgb [3]uint64
+	for i, part := range parts {
+		if len(part) < 1 || len(part) > 4 {
+			return ""
+		}
+		v, err := strconv.ParseUint(part, 16, 16)
+		if err != nil {
+			return ""
+		}
+		rgb[i] = v * 255 / ((1 << (4 * len(part))) - 1)
+	}
+	return fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
 }

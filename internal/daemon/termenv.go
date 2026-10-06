@@ -128,7 +128,7 @@ func childEnv(base []string, info TerminalInfo, own map[string]string) []string 
 		}
 		// A background left over from the daemon's own environment
 		// describes a terminal that is not this client's.
-		if k == RemoteBackgroundEnv {
+		if k == RemoteBackgroundEnv || k == RemoteTerminalFileEnv {
 			continue
 		}
 		// Likewise a multiplexer name: it came from whatever started the

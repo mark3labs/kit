@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -717,5 +718,180 @@ func TestChooseSessionStartsNewWhenNothingIsLiveAnywhere(t *testing.T) {
 	}
 	if choice.Cancel || choice.ID != 0 {
 		t.Fatalf("choice = %+v, want a new session on this daemon", choice)
+	}
+}
+
+func TestBackgroundReply(t *testing.T) {
+	for _, end := range []string{"\a", "\x1b\\"} {
+		t.Run(fmt.Sprintf("terminator_%q", end), func(t *testing.T) {
+			p := backgroundReply{active: true}
+			input := "x\x1b]10;rgb:ffff/0000/0000" + end + "\x1b]11;rgb:1234/ffff/0000" + end + "y\x1b]11;rgb:0000/0000/0000" + end
+			var forwarded []byte
+			var got string
+			for _, b := range []byte(input) {
+				data, bg := p.feed(b)
+				forwarded = append(forwarded, data...)
+				if bg != "" {
+					got = bg
+				}
+			}
+			want := "x\x1b]10;rgb:ffff/0000/0000" + end + "y\x1b]11;rgb:0000/0000/0000" + end
+			if string(forwarded) != want || got != "#12ff00" {
+				t.Fatalf("forwarded %q, background %q", forwarded, got)
+			}
+		})
+	}
+	for _, input := range []string{"hello\x1b[A", "\x1b]11;rgb:zz/00/00\a", "\x1b]11;?\a", "\x1b]11;" + strings.Repeat("x", 256) + "\a"} {
+		p := backgroundReply{active: true}
+		var got []byte
+		for _, b := range []byte(input) {
+			data, bg := p.feed(b)
+			if bg != "" {
+				t.Fatalf("invalid reply accepted: %q", input)
+			}
+			got = append(got, data...)
+		}
+		got = append(got, p.buf...)
+		if string(got) != input {
+			t.Fatalf("input changed: %q -> %q", input, got)
+		}
+	}
+}
+
+func TestClientTerminalRefreshPump(t *testing.T) {
+	for _, reply := range []bool{true, false} {
+		t.Run(fmt.Sprintf("reply_%t", reply), func(t *testing.T) {
+			t.Setenv("TERM", "xterm-256color")
+			t.Setenv("COLORTERM", "truecolor")
+			t.Setenv("TMUX", "")
+			t.Setenv("ZELLIJ", "1")
+			outR, outW, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := os.Stdout
+			os.Stdout = outW
+			defer func() { os.Stdout = old; _ = outW.Close(); _ = outR.Close() }()
+			client, server := net.Pipe()
+			defer func() { _ = client.Close() }()
+			defer func() { _ = server.Close() }()
+			conn := newClientConn(client)
+			conn.terminal.Background = "#112233"
+			frames := make(chan Frame, 16)
+			go func() {
+				defer close(frames)
+				for {
+					f, err := ReadFrame(server)
+					if err != nil {
+						return
+					}
+					frames <- f
+				}
+			}()
+			stop, done := make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(done)
+				runInputPumpUntil(conn, AttachOptions{}, func() {}, func(attachOutcome) {}, stop)
+			}()
+			defer func() { close(stop); <-done }()
+			conn.stdinCh <- []byte{leaderKey, 'r'}
+			query := make([]byte, len("\x1b]11;?\x1b\\"))
+			if _, err := io.ReadFull(outR, query); err != nil {
+				t.Fatal(err)
+			}
+			if string(query) != "\x1b]11;?\x1b\\" {
+				t.Fatalf("query %q", query)
+			}
+			if reply {
+				conn.stdinCh <- []byte("\x1b]11;rgb:ffff/")
+				conn.stdinCh <- []byte("0000/8080\x1b\\")
+			} else {
+				// Repeated refreshes must not start competing requests.
+				conn.stdinCh <- []byte{leaderKey, 'r'}
+			}
+			select {
+			case f := <-frames:
+				if f.Type != FrameTerminal {
+					t.Fatalf("frame type %v", f.Type)
+				}
+				info, err := DecodeTerminalInfo(f.Payload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := "#112233"
+				if reply {
+					want = "#ff0080"
+				}
+				if info.Background != want || info.Term != "xterm-256color" || info.ColorTerm != "truecolor" || info.Multiplexer != "zellij" || info.ColorProfile == nil {
+					t.Fatalf("terminal info: %+v", info)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("no terminal refresh")
+			}
+			// With no pending query, an OSC reply is ordinary session input.
+			input := "\x1b]11;rgb:0000/0000/0000\a"
+			conn.stdinCh <- []byte(input)
+			var got []byte
+			for len(got) < len(input) {
+				select {
+				case f := <-frames:
+					if f.Type != FrameData {
+						t.Fatalf("unexpected frame %v", f.Type)
+					}
+					got = append(got, f.Payload...)
+				case <-time.After(time.Second):
+					t.Fatal("input stalled")
+				}
+			}
+			if string(got) != input {
+				t.Fatalf("input changed to %q", got)
+			}
+		})
+	}
+}
+
+func TestRefreshChordOwnership(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+	conn := newClientConn(client)
+	ctrl, claimed := dispatchChord(conn, AttachOptions{}, leaderPrimary, keyEvent{Data: []byte("r")})
+	if !claimed || !ctrl.refresh || ctrl.stop {
+		t.Fatalf("primary refresh: %+v, claimed %t", ctrl, claimed)
+	}
+	ctrl, claimed = dispatchChord(conn, AttachOptions{}, leaderLegacy, keyEvent{Data: []byte("r")})
+	if claimed || ctrl.refresh {
+		t.Fatal("Ctrl-X r must remain session input")
+	}
+}
+
+func TestInputPumpBatchesOrdinaryInput(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+	conn := newClientConn(client)
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		runInputPumpUntil(conn, AttachOptions{}, func() {}, func(attachOutcome) {}, stop)
+	}()
+	defer func() { close(stop); <-done }()
+	input := strings.Repeat("large paste ", 1000)
+	conn.stdinCh <- []byte(input)
+	if err := server.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := ReadFrame(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != FrameData || string(frame.Payload) != input {
+		t.Fatalf("ordinary input split or changed: type %v, bytes %d", frame.Type, len(frame.Payload))
+	}
+	// An idle escape must also flush without a later input chunk.
+	conn.stdinCh <- []byte("\x1b")
+	frame, err = ReadFrame(server)
+	if err != nil || frame.Type != FrameData || string(frame.Payload) != "\x1b" {
+		t.Fatalf("idle escape = %+v, %v", frame, err)
 	}
 }

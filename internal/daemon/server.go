@@ -445,6 +445,13 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 			// connection so an attach that spawns a child can hand it on.
 			if info, derr := DecodeTerminalInfo(frame.Payload); derr == nil {
 				t.conns.setTerminal(frame.Session, info)
+				if sess := t.logicalFor(frame.Session); sess != nil {
+					if updater, supported := sess.io.(terminalUpdater); supported {
+						if err := updater.UpdateTerminal(info); err != nil {
+							log.Warn("daemon: live terminal update failed", "wire", frame.Session, "error", err)
+						}
+					}
+				}
 			} else {
 				log.Warn("bad terminal frame", "wire", frame.Session, "error", derr)
 			}
@@ -844,18 +851,22 @@ func (t *sessionTable) attachSession(ctx context.Context, wire uint32, payload [
 			clients: make(map[uint32]winSize),
 			modes:   newTermModes(),
 		}
-		t.sessions[logical] = s
-		t.wireMap[wire] = logical
-		s.attachClient(wire, winSize{})
+		// Reserve the id, but do not publish a session with an unset io.
+		// Other clients can list, attach, or send live terminal frames while
+		// spawnSession is running. The transport is immutable once published.
 		t.mu.Unlock()
 
 		sio, err := t.spawnSession(ctx, logical, t.conns.terminalFor(wire), t.conns.consumeSpec(wire))
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
-			t.retireSession(logical)
 			ok = 0
 		} else {
 			s.io = sio
+			t.mu.Lock()
+			t.sessions[logical] = s
+			t.wireMap[wire] = logical
+			s.attachClient(wire, winSize{})
+			t.mu.Unlock()
 			t.reportSessions()
 			t.syncSessionRegistry()
 			log.Info("session started", "session_id", logical, "wire", wire, "hosted", sio.Hosted())
@@ -884,6 +895,15 @@ func (t *sessionTable) attachSession(ctx context.Context, wire uint32, payload [
 		}
 		t.mu.Unlock()
 		if ok == 1 {
+			if updater, supported := sess.io.(terminalUpdater); supported {
+				info := t.conns.terminalFor(wire)
+				// A legacy client sent no terminal description. Keep the last one.
+				if info != (TerminalInfo{}) {
+					if err := updater.UpdateTerminal(info); err != nil {
+						log.Warn("daemon: terminal update failed", "session_id", logical, "error", err)
+					}
+				}
+			}
 			log.Info("client attached", "session_id", logical, "wire", wire)
 		}
 	}
@@ -1156,7 +1176,12 @@ func (t *sessionTable) spawnLocalSession(session uint64, info TerminalInfo, spec
 	// childEnv for why the PTY between them cannot answer for it. The
 	// spec's variables go underneath, where the daemon's own per-session
 	// values still override them.
-	cmd.Env = childEnv(specBase(os.Environ(), spec), info, t.sessionEnv(session, owner))
+	env := t.sessionEnv(session, owner)
+	capabilityPath := env[RemoteTerminalFileEnv]
+	if err := writeTerminalCapabilities(capabilityPath, info); err != nil {
+		return nil, err
+	}
+	cmd.Env = childEnv(specBase(os.Environ(), spec), info, env)
 
 	// Ask the kernel to kill this child if the daemon dies, so a crash
 	// cannot leave an unreachable session running (see recovery.go).
@@ -1164,9 +1189,10 @@ func (t *sessionTable) spawnLocalSession(session uint64, info TerminalInfo, spec
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
 	if err != nil {
+		_ = os.Remove(capabilityPath)
 		return nil, fmt.Errorf("start child: %w", err)
 	}
-	return &ptyIO{cmd: cmd, ptmx: ptmx}, nil
+	return &ptyIO{cmd: cmd, ptmx: ptmx, terminalPath: capabilityPath}, nil
 }
 
 // sessionEnv builds the per-session variables the daemon owns, whichever
@@ -1179,6 +1205,7 @@ func (t *sessionTable) sessionEnv(session uint64, owner string) map[string]strin
 	env := map[string]string{
 		clipboard.RemoteClipboardEnv: t.remoteClipboardPath(session),
 		sessionCwdEnv:                t.sessionCwdPath(session),
+		RemoteTerminalFileEnv:        filepath.Join(t.scratchDir(), fmt.Sprintf("%sterminal-%d", tempFilePrefix, session)),
 	}
 	if owner != "" {
 		env[sessionOwnerEnv] = owner

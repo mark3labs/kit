@@ -21,6 +21,7 @@ import (
 // Only a handful of frames travel on it:
 //
 //	daemon -> host   DATA      terminal input for the child
+//	                 TERMINAL  update capabilities and notify the child
 //	                 RESIZE    the size the attached clients agree on
 //	                 REDRAW    repaint, and replay what a new client missed
 //	                 RENAME    set the display name

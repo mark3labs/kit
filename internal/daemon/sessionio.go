@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -63,9 +64,10 @@ type sessionIO interface {
 
 // ptyIO is a session whose PTY master this daemon holds.
 type ptyIO struct {
-	cmd   *exec.Cmd
-	ptmx  *os.File
-	sizer ptySizer
+	cmd          *exec.Cmd
+	ptmx         *os.File
+	sizer        ptySizer
+	terminalPath string
 }
 
 func (p *ptyIO) Read(b []byte) (int, error)  { return p.ptmx.Read(b) }
@@ -108,6 +110,7 @@ func (p *ptyIO) Wait() {
 		return
 	}
 	_, _ = p.cmd.Process.Wait()
+	_ = os.Remove(p.terminalPath)
 }
 
 // Terminate closes the PTY and ends the child.
@@ -184,4 +187,17 @@ func setPTYSize(ptmx *os.File, ws winSize) error {
 		return nil
 	}
 	return pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
+}
+
+// UpdateTerminal updates the directly hosted child without changing PTY size.
+func (p *ptyIO) UpdateTerminal(info TerminalInfo) error {
+	if err := writeTerminalCapabilities(p.terminalPath, info); err != nil {
+		return err
+	}
+	if pid := p.PID(); pid > 0 {
+		if err := signalWindowChange(pid); err != nil {
+			return fmt.Errorf("daemon: notify terminal update: %w", err)
+		}
+	}
+	return nil
 }

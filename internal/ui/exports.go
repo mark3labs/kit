@@ -76,4 +76,5 @@ var (
 	// probe. See internal/ui/style.
 	SetTerminalCapabilities     = style.SetTerminalCapabilities
 	ResolveTerminalCapabilities = style.ResolveTerminalCapabilities
+	ColorProfile                = style.ColorProfile
 )

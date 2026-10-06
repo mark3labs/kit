@@ -16,3 +16,6 @@ func signalTerm(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
 
 // signalKill ends a process that ignored SIGTERM.
 func signalKill(pid int) error { return syscall.Kill(pid, syscall.SIGKILL) }
+
+// signalWindowChange asks the UI to reload capabilities on a size event.
+func signalWindowChange(pid int) error { return syscall.Kill(pid, syscall.SIGWINCH) }

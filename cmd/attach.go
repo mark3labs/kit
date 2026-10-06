@@ -93,6 +93,7 @@ Inside a session, Ctrl-] is the multiplexer prefix:
   Ctrl-] c    start a new session in the same directory
   Ctrl-] n/p  next / previous session
   Ctrl-] w    switch across hosts
+  Ctrl-] r    refresh client terminal capabilities
   Ctrl-] Ctrl-]  send a literal Ctrl-]`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
