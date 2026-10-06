@@ -52,3 +52,6 @@ func signalTerm(pid int) error {
 }
 
 func signalKill(pid int) error { return signalTerm(pid) }
+
+// Windows has no SIGWINCH; capabilities remain available in the file.
+func signalWindowChange(int) error { return nil }

@@ -602,6 +602,10 @@ type AppModelOptions struct {
 	// refreshes the terminal size on the extension context. May be nil.
 	EmitTerminalResize func(width, height int)
 
+	// ReadTerminalCapabilities applies remote terminal settings on the UI goroutine.
+	// Called on window-size events and /refresh. Nil selects local terminal queries.
+	ReadTerminalCapabilities func() error
+
 	// EmitTurnStateChange fires the OnTurnStateChange extension event when
 	// the UI enters or leaves the working state. May be nil.
 	EmitTurnStateChange func(state, previous string)
@@ -921,7 +925,8 @@ type AppModel struct {
 	emitThinkingLevelChange func(newLevel, previousLevel, source string)
 
 	// emitTerminalResize fires the OnTerminalResize extension event. May be nil.
-	emitTerminalResize func(width, height int)
+	emitTerminalResize       func(width, height int)
+	readTerminalCapabilities func() error
 
 	// emitTurnStateChange fires the OnTurnStateChange extension event. May be nil.
 	emitTurnStateChange func(state, previous string)
@@ -1212,6 +1217,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitModelChange = opts.EmitModelChange
 	m.emitThinkingLevelChange = opts.EmitThinkingLevelChange
 	m.emitTerminalResize = opts.EmitTerminalResize
+	m.readTerminalCapabilities = opts.ReadTerminalCapabilities
 	m.emitTurnStateChange = opts.EmitTurnStateChange
 	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
@@ -1604,8 +1610,35 @@ func tildeHome(path string) string {
 // nothing on the overwhelming majority of messages, when the clock is either
 // already running or not wanted.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle capabilities before modal sub-loops can consume the message.
+	var capabilityCmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		if m.readTerminalCapabilities != nil {
+			dark, profile := style.IsDarkBackground(), style.ColorProfile()
+			if err := m.readTerminalCapabilities(); err == nil && (dark != style.IsDarkBackground() || profile != style.ColorProfile()) {
+				m.refreshTheme()
+				capabilityCmd = terminalRepaintCmd()
+			}
+		}
+	case tea.BackgroundColorMsg:
+		if m.readTerminalCapabilities == nil {
+			style.SetTerminalCapabilities(msg.IsDark(), style.ColorProfile())
+			m.refreshTheme()
+			capabilityCmd = tea.ClearScreen
+		}
+	case tea.ColorProfileMsg:
+		if m.readTerminalCapabilities == nil && msg.Profile != style.ColorProfile() {
+			style.SetTerminalCapabilities(style.IsDarkBackground(), msg.Profile)
+			m.refreshTheme()
+			capabilityCmd = tea.ClearScreen
+		}
+	}
 	model, cmd := m.update(msg)
 	cmds := []tea.Cmd{cmd}
+	if capabilityCmd != nil {
+		cmds = append(cmds, capabilityCmd)
+	}
 	if gfx := m.flushGfxPlacement(); gfx != nil {
 		cmds = append(cmds, gfx)
 	}
@@ -4562,6 +4595,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleConnectCommand(args)
 	case "/theme":
 		return m.handleThemeCommand(args)
+	case "/refresh":
+		return m.handleRefreshCommand()
 	case "/thinking":
 		return m.handleThinkingCommand(args)
 	case "/kill-subagent":
@@ -6054,6 +6089,32 @@ func (m *AppModel) applyTheme(name string) {
 	}
 	m.refreshTheme()
 	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", name))
+}
+
+// terminalRepaintCmd updates Bubble Tea's renderer before a complete repaint.
+func terminalRepaintCmd() tea.Cmd {
+	profile := style.ColorProfile()
+	return tea.Sequence(func() tea.Msg { return tea.ColorProfileMsg{Profile: profile} }, tea.ClearScreen)
+}
+
+// handleRefreshCommand never reads stdin directly: Bubble Tea owns terminal replies.
+func (m *AppModel) handleRefreshCommand() tea.Cmd {
+	if m.readTerminalCapabilities != nil {
+		if err := m.readTerminalCapabilities(); err != nil {
+			m.printSystemMessage(fmt.Sprintf("Cannot read terminal capabilities: %v", err))
+		} else {
+			m.printSystemMessage("Terminal colors refreshed. To query the client terminal again, use Ctrl-] r.")
+		}
+	} else {
+		m.printSystemMessage("Terminal colors refreshed. Requested current terminal capabilities.")
+	}
+	// Also invalidate caches when the reported capabilities have not changed.
+	style.SetTerminalCapabilities(style.IsDarkBackground(), style.ColorProfile())
+	m.refreshTheme()
+	if m.readTerminalCapabilities != nil {
+		return terminalRepaintCmd()
+	}
+	return tea.Batch(terminalRepaintCmd(), tea.RequestBackgroundColor, tea.RequestCapability("RGB"), tea.RequestCapability("Tc"))
 }
 
 // refreshTheme repaints everything that holds theme-derived styling after the

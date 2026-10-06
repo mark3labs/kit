@@ -432,3 +432,15 @@ func sessionIDFromSocket(name string) (uint64, bool) {
 // hostedSessionsSupported reports whether this build can put sessions in
 // supervisor processes. It is the source of FeatureReattach.
 func hostedSessionsSupported() bool { return true }
+
+// UpdateTerminal sends capabilities, not terminal input, to the supervisor.
+func (h *hostIO) UpdateTerminal(info TerminalInfo) error {
+	payload, err := EncodeTerminalInfo(info)
+	if err != nil {
+		return fmt.Errorf("daemon: encode terminal update: %w", err)
+	}
+	if err := h.sink.write(Frame{Type: FrameTerminal, Payload: payload}); err != nil {
+		return fmt.Errorf("daemon: send terminal update: %w", err)
+	}
+	return nil
+}

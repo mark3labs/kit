@@ -213,6 +213,9 @@ func DecodeResize(payload []byte) (cols, rows int, err error) {
 type TerminalInfo struct {
 	Term      string `json:"term,omitempty"`
 	ColorTerm string `json:"colorterm,omitempty"`
+	// ColorProfile is the detected color depth, absent for older clients.
+	// Values match colorprofile.Profile (1 through 5).
+	ColorProfile *int `json:"color_profile,omitempty"`
 	// Background is the terminal background as "#rrggbb", or
 	// BackgroundUnknown when the terminal was asked and did not answer.
 	// The two are distinct on purpose: "asked, no answer" tells the child

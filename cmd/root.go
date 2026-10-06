@@ -316,23 +316,48 @@ func configToUiTheme(cfg config.Theme) ui.Theme {
 	}
 }
 
-// adoptSessionTerminalCapabilities takes the terminal background from the
-// environment the daemon prepared for a session's child.
-//
-// A session child's stdin and stdout are a PTY. A PTY answers no OSC
-// query, so probing it costs two timeouts and then reports the default,
-// and every adaptive colour in the UI is chosen from that default rather
-// than from the terminal the user is looking at. The client resolved the
-// real value before it handed its terminal over; this adopts it.
-//
-// Colour depth still comes from the environment, because the daemon has
-// already replaced TERM and COLORTERM there with the client's own.
+// readSessionTerminalCapabilities applies the latest daemon capability file.
+// Missing fields preserve the current values during live updates.
+func readSessionTerminalCapabilities() error {
+	info, err := daemon.ReadTerminalCapabilities(os.Getenv(daemon.RemoteTerminalFileEnv))
+	if err != nil {
+		return fmt.Errorf("read session terminal capabilities: %w", err)
+	}
+	dark, profile := ui.IsDarkBackground(), ui.ColorProfile()
+	if info.Background != "" {
+		dark = daemon.BackgroundIsDark(info.Background)
+	}
+	if info.ColorProfile != nil {
+		profile = colorprofile.Profile(*info.ColorProfile)
+	}
+	if dark != ui.IsDarkBackground() || profile != ui.ColorProfile() {
+		ui.SetTerminalCapabilities(dark, profile)
+	}
+	return nil
+}
+
+// adoptSessionTerminalCapabilities runs before theme resolution. Seed defaults
+// without querying the session PTY, then prefer the live file over legacy env.
 func adoptSessionTerminalCapabilities() {
+	path := os.Getenv(daemon.RemoteTerminalFileEnv)
 	bg := os.Getenv(daemon.RemoteBackgroundEnv)
-	if bg == "" {
+	if path == "" && bg == "" {
 		return
 	}
 	ui.SetTerminalCapabilities(daemon.BackgroundIsDark(bg), colorprofile.Env(os.Environ()))
+	if path != "" {
+		if err := readSessionTerminalCapabilities(); err != nil {
+			charmlog.Debug("Keep startup terminal capabilities", "error", err)
+		}
+	}
+}
+
+// sessionTerminalCapabilityReader keeps daemon types outside the UI package.
+func sessionTerminalCapabilityReader() func() error {
+	if os.Getenv(daemon.RemoteTerminalFileEnv) == "" {
+		return nil
+	}
+	return readSessionTerminalCapabilities
 }
 
 // kitBanner returns the KIT ASCII art title with KITT scanner lights.
@@ -347,14 +372,14 @@ func init() {
 	cobra.OnInitialize(preInitDispatch)
 	cobra.OnInitialize(InitConfig)
 
-	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
-
 	// Before any theme is resolved: inside a daemon session the terminal
 	// belongs to the client, not to this process, so its capabilities come
 	// from what the daemon was told rather than from a probe of the PTY on
 	// our own fds. Resolving a theme is what triggers that probe, so this
 	// has to come first.
 	adoptSessionTerminalCapabilities()
+
+	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
 
 	var theme config.Theme
 	err := config.FilepathOr("theme", &theme)
@@ -1419,6 +1444,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		EmitModelChange:          act.emitModelChange,
 		EmitThinkingLevelChange:  act.emitThinkingLevelChange,
 		EmitTerminalResize:       act.emitTerminalResize,
+		ReadTerminalCapabilities: sessionTerminalCapabilityReader(),
 		EmitTurnStateChange:      act.emitTurnStateChange,
 		ThinkingLevel:            snap.thinkingLevel,
 		IsReasoningModel:         snap.isReasoningModel,
@@ -1442,7 +1468,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 	// back to half-block thumbnails when the probe finds no support.
 	termgfx.Resolve()
 
-	program := tea.NewProgram(appModel)
+	program := tea.NewProgram(appModel, tea.WithColorProfile(ui.ColorProfile()))
 
 	// Register the program with the app layer so agent events are sent to the TUI.
 	appInstance.SetProgram(program)

@@ -204,6 +204,17 @@ func (h *sessionHost) start() error {
 
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = dir
+	// The host owns the file so updates survive daemon replacement.
+	if h.cfg.Env == nil {
+		h.cfg.Env = make(map[string]string)
+	}
+	if h.cfg.Env[RemoteTerminalFileEnv] == "" {
+		h.cfg.Env[RemoteTerminalFileEnv] = h.cfg.Socket + ".terminal.json"
+	}
+	path := h.cfg.Env[RemoteTerminalFileEnv]
+	if err := writeTerminalCapabilities(path, h.cfg.Terminal); err != nil {
+		return err
+	}
 	cmd.Env = childEnv(specBase(os.Environ(), h.cfg.Spec), h.cfg.Terminal, h.cfg.Env)
 	// The child must not outlive its supervisor: this process is the only
 	// holder of its PTY master, so a child that survived it would be
@@ -212,6 +223,7 @@ func (h *sessionHost) start() error {
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
 	if err != nil {
+		_ = os.Remove(path)
 		return fmt.Errorf("daemon: session host start child: %w", err)
 	}
 	h.cmd, h.ptmx = cmd, ptmx
@@ -354,6 +366,12 @@ func (h *sessionHost) readDaemon(ctx context.Context, r io.Reader) {
 				h.finish()
 				return
 			}
+		case FrameTerminal:
+			if info, derr := DecodeTerminalInfo(frame.Payload); derr == nil {
+				if err := h.updateTerminal(info); err != nil {
+					log.Warn("session host: terminal update failed", "session_id", h.cfg.ID, "error", err)
+				}
+			}
 		case FrameResize:
 			if cols, rows, derr := DecodeResize(frame.Payload); derr == nil {
 				_ = h.sizer.resize(h.ptmx, winSize{cols: cols, rows: rows})
@@ -430,6 +448,7 @@ func (h *sessionHost) wait() {
 // finish marks the session over and tells the driving daemon once.
 func (h *sessionHost) finish() {
 	h.doneOnce.Do(func() {
+		_ = os.Remove(h.cfg.Env[RemoteTerminalFileEnv])
 		h.send(Frame{Type: FrameBye})
 		close(h.done)
 	})
@@ -444,4 +463,17 @@ func (h *sessionHost) stopChild() {
 		_ = h.ptmx.Close()
 	}
 	h.finish()
+}
+
+// updateTerminal publishes before notifying, including when the size is unchanged.
+func (h *sessionHost) updateTerminal(info TerminalInfo) error {
+	if err := writeTerminalCapabilities(h.cfg.Env[RemoteTerminalFileEnv], info); err != nil {
+		return err
+	}
+	if pid := h.childPID(); pid > 0 {
+		if err := signalWindowChange(pid); err != nil {
+			return fmt.Errorf("daemon: notify terminal update: %w", err)
+		}
+	}
+	return nil
 }

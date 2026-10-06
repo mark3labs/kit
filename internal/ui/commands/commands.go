@@ -92,6 +92,11 @@ var SlashCommands = []SlashCommand{
 		// offer levels the current model does not accept.
 	},
 	{
+		Name:        "/refresh",
+		Description: "Refresh terminal colors and repaint the screen",
+		Category:    "System",
+	},
+	{
 		Name:        "/theme",
 		Description: "Switch color theme (e.g. /theme catppuccin)",
 		Category:    "System",
