@@ -79,6 +79,37 @@ func TestSayHardBreaksLongWords(t *testing.T) {
 	}
 }
 
+func TestSayPreservesExplicitLineBreaks(t *testing.T) {
+	got := Say("first\nsecond")
+	textLines := bubbleLines(got)
+	if len(textLines) != 2 {
+		t.Fatalf("expected 2 bubble lines for two explicit lines, got %d:\n%s", len(textLines), got)
+	}
+	if !strings.Contains(textLines[0], "first") || !strings.Contains(textLines[1], "second") {
+		t.Errorf("line order wrong:\n%s", got)
+	}
+
+	// A trailing newline adds one empty bubble line.
+	got = Say("first\n")
+	if textLines := bubbleLines(got); len(textLines) != 2 {
+		t.Errorf("expected 2 bubble lines for trailing newline, got %d:\n%s", len(textLines), got)
+	}
+}
+
+func TestSayWrapsEachExplicitLineSeparately(t *testing.T) {
+	got := Say("one two three four five six seven eight nine ten\nshort")
+	textLines := bubbleLines(got)
+	if len(textLines) < 3 {
+		t.Fatalf("expected at least 3 bubble lines, got %d:\n%s", len(textLines), got)
+	}
+	if !strings.HasPrefix(textLines[1], "| ") {
+		t.Errorf("middle line should use | sides:\n%s", got)
+	}
+	if !strings.HasPrefix(textLines[2], "\\ ") {
+		t.Errorf("last line should use \\ sides:\n%s", got)
+	}
+}
+
 func TestSayUnicode(t *testing.T) {
 	got := Say("héllo wörld — ünicode 🐮 works")
 	if !strings.Contains(got, "héllo wörld — ünicode 🐮 works") {

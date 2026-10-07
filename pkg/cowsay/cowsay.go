@@ -82,17 +82,29 @@ func writeBorder(b *strings.Builder, ruler byte, width int) {
 	b.WriteByte('\n')
 }
 
-// wrap splits message into lines of at most width runes. It breaks at
-// spaces when it can, and hard-breaks a word that is longer than width
-// on its own. An empty message yields one empty line.
+// wrap splits message into bubble lines of at most width runes.
+// Explicit newlines in message start a new bubble line. Within a
+// segment, text breaks at spaces when it can, and a word that is longer
+// than width breaks across lines. An empty message yields one empty
+// line.
 func wrap(message string, width int) []string {
 	if message == "" {
 		return []string{""}
 	}
 
 	var lines []string
+	for segment := range strings.SplitSeq(message, "\n") {
+		lines = append(lines, wrapLine(segment, width)...)
+	}
+	return lines
+}
+
+// wrapLine wraps one segment of text, without newlines, into bubble
+// lines of at most width runes.
+func wrapLine(segment string, width int) []string {
+	var lines []string
 	current := ""
-	for word := range strings.FieldsSeq(message) {
+	for word := range strings.FieldsSeq(segment) {
 		rest := word
 		if current != "" {
 			if utf8.RuneCountInString(current)+1+utf8.RuneCountInString(rest) <= width {
