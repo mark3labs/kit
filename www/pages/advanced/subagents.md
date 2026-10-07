@@ -49,6 +49,23 @@ subagent(
 
 Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
 
+### Inspecting subagent conversations
+
+The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run `/subagent-sessions` (alias `/agents`) to open it; `/subagents` opens the same view unless an extension registers that command. In that case, the extension command takes precedence, and `/subagent-sessions` still opens the native view.
+
+The view opens on the newest retained run and shows siblings with the same `ParentSessionID` as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.
+
+| Key | Action |
+|-----|--------|
+| Left / Right | Switch between sibling runs |
+| Up / Down | Scroll one line |
+| Page Up / Page Down | Scroll one page |
+| Home / End | Go to the start / end |
+| Esc | Return to the parent conversation |
+| Ctrl+K | Stop the selected run if it is still active |
+
+The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.
+
 ### Killing a running subagent
 
 In the TUI, run `/kill-subagent` (alias `/ks`) while subagents run. A picker shows each running subagent with its agent name, run time, model and task. Select one and press Enter to stop it. The `subagent` tool call then returns this result to the parent agent:
@@ -294,6 +311,36 @@ if errors.Is(err, kit.ErrSubagentKilled) {
 }
 ```
 
+### Retained run snapshots
+
+Use `SubagentRuns` and `GetSubagentRun` to inspect active and finished runs without registering a live event listener. These methods include runs started by the LLM, extensions, and direct SDK calls.
+
+| API | Use when |
+|-----|----------|
+| `RunningSubagents() []RunningSubagent` | You need only active runs, including child setup |
+| `SubagentRuns() []SubagentRun` | You need retained active and finished runs, oldest first |
+| `GetSubagentRun(id string) (SubagentRun, bool)` | You need a snapshot for one run ID |
+| `KillSubagent(id string) bool` | You need to stop an active run |
+| `SubscribeSubagent` / `SubagentConfig.OnEvent` | You need live event callbacks rather than retained history |
+
+```go
+for _, run := range host.SubagentRuns() {
+    fmt.Println(run.ID, run.Status, run.SessionID, run.ParentSessionID)
+    if snapshot, ok := host.GetSubagentRun(run.ID); ok {
+        fmt.Printf("Retained: %d events; dropped: %d\n",
+            len(snapshot.Events), snapshot.DroppedEvents)
+    }
+}
+```
+
+`SubagentRun.ID` identifies an execution and is the ID to pass to `GetSubagentRun` or `KillSubagent`. It is not the child's `SessionID`, which you pass to `SubagentConfig.SessionID` to resume a session. `ParentSessionID` records the configured parent ID, or the host's session ID when no override is supplied. `SessionID` is empty until child setup succeeds.
+
+`Status` is `starting`, `running`, `completed`, `failed`, `stopped`, or `timed_out`. `FinishedAt` is zero until the run ends; `Error` describes a failed, stopped, or timed-out run when available.
+
+History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. `Events` is in emission order; adjacent text chunks can be combined. `DroppedEvents` counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. `GetSubagentRun` returns `false` for an unknown or evicted ID. History is also available for `NoSession` runs, but it is not restored from saved sessions.
+
+`RunningSubagents` still lists only active runs, and `KillSubagent` still returns `false` when the run is no longer active. Existing live callbacks continue to receive events; retention does not replace them.
+
 Inspect the discovered definitions:
 
 ```go
@@ -327,4 +374,4 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 
 The listener receives the same event types as `Subscribe()` (`ToolCallEvent`, `MessageUpdateEvent`, `ReasoningDeltaEvent`, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.
 
-If no listeners are registered for a tool call, no event dispatching overhead is incurred.
+If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for [run snapshots](#retained-run-snapshots) and the [native inspector](#inspecting-subagent-conversations).

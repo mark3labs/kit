@@ -672,6 +672,16 @@ result, err := k.Subagent(ctx, kit.SubagentConfig{
 
 Disable discovery entirely with `--no-agents`, the `no-agents` config key (`.kit.yml`), `KIT_NO_AGENTS=true`, or `Options.NoAgents` in the SDK.
 
+### Inspecting Subagent Runs
+
+Inspect retained child output and tool activity in the TUI with `/subagent-sessions` (alias `/agents`) or `/subagents`. Use Left/Right to switch sibling runs, Up/Down or Page Up/Page Down to scroll, Esc to return to the parent, and Ctrl+K to stop an active run. The conversation view is read-only and refreshes once per second.
+
+If an extension registers `/subagents`, that extension command takes precedence; `/subagent-sessions` still opens the native inspector. The view uses in-memory history, not saved session files.
+
+From the SDK, use `k.SubagentRuns()` for active and retained finished runs, or `k.GetSubagentRun(runID)` for one snapshot. `k.RunningSubagents()` continues to list only active runs. History retains up to 100 finished runs plus all active runs and up to 500 event records per run.
+
+See the [subagent documentation](https://go-kit.dev/advanced/subagents#inspecting-subagent-conversations) for controls, history limits, and SDK examples.
+
 ## GitHub Integration
 
 Kit can run as an automated collaborator/reviewer inside GitHub Actions. The

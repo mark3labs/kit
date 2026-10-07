@@ -561,6 +561,8 @@ With `Blocking: false` (the default), the subagent runs in a background goroutin
 
 Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
+The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with `/subagent-sessions` (alias `/agents`) without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension `Context`.
+
 ### Monitoring subagents spawned by the main agent
 
 When the LLM uses the built-in `subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:

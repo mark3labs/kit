@@ -77,6 +77,23 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 })
 ```
 
+### Retained run snapshots
+
+Inspect active and finished runs without a live listener:
+
+```go
+for _, run := range host.SubagentRuns() {
+    fmt.Println(run.ID, run.Status, run.SessionID)
+    if snapshot, ok := host.GetSubagentRun(run.ID); ok {
+        fmt.Println(len(snapshot.Events), snapshot.DroppedEvents)
+    }
+}
+```
+
+`RunningSubagents()` lists only active runs. `SubagentRuns()` returns retained snapshots, oldest first, including runs started by tools, extensions, and direct SDK calls. `GetSubagentRun(id)` returns `(kit.SubagentRun, bool)`; the boolean is false for unknown or evicted IDs. Pass the execution `ID` to `KillSubagent`, not the child's `SessionID` (used to resume a session).
+
+Status values are `starting`, `running`, `completed`, `failed`, `stopped`, and `timed_out`. History is in memory, including for `NoSession` runs: up to 100 finished runs plus all active runs, and up to 500 event records per run. Adjacent text chunks can be combined; `DroppedEvents` counts removed records. The returned event slice is copied, but event payloads are not deep-copied. History is not restored from saved sessions. Live callbacks still work independently.
+
 ### Named agents
 
 Named agents are reusable subagent presets discovered from markdown files

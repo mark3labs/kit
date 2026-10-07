@@ -608,6 +608,8 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 
 ### Types
 
+- `SubagentRun` - Retained execution snapshot with status, session links, events,
+  and dropped-event count; distinct from the active-only `RunningSubagent`
 - `Kit` - Main SDK type
 - `Options` - Configuration options
 - `Option` - Functional option (`func(*Options)`) for `NewAgent`
@@ -663,6 +665,17 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
   (`parent_session_id`), and `SubagentConfig.SessionID` resumes a previous
   subagent session (from `SubagentResult.SessionID`) for multi-turn
   follow-ups that reuse the subagent's accumulated context
+- `RunningSubagents()` - List only active in-process runs, including setup
+- `SubagentRuns()` - List active and retained finished `SubagentRun` snapshots,
+  oldest first; history is local to the host instance, with up to 100 finished
+  runs plus all active runs and up to 500 event records per run
+- `GetSubagentRun(id)` - Look up a snapshot by execution ID; returns
+  `(SubagentRun, bool)`, with false for unknown or evicted IDs. Returned event
+  slices are copied, but event payloads are not deep-copied
+- `KillSubagent(id)` - Stop an active run by execution ID (not child session ID);
+  returns false when it is no longer active
+- See [retained run snapshots](https://go-kit.dev/advanced/subagents#retained-run-snapshots)
+  for examples, status values, and comparison with live event callbacks
 - `GetAgents()` / `GetAgent(name)` - Query named agent definitions discovered
   at construction (built-ins plus `.agents/agents/` / `.kit/agents/` /
   `~/.config/kit/agents/` files)

@@ -492,6 +492,8 @@ func (a *App) SubagentRuns() []kit.SubagentRun {
 	return a.opts.Kit.SubagentRuns()
 }
 
+// GetSubagentRun returns a retained snapshot by execution ID, or false if the
+// run is unknown, has been evicted, or no Kit instance is available.
 func (a *App) GetSubagentRun(id string) (kit.SubagentRun, bool) {
 	if a.opts.Kit == nil {
 		return kit.SubagentRun{}, false

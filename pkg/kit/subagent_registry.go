@@ -31,7 +31,10 @@ type RunningSubagent struct {
 	StartedAt time.Time
 }
 
-// SubagentRun is a snapshot of a subagent run, including its retained events.
+// SubagentRun is a snapshot of an active or finished in-process subagent run.
+// Snapshots are retained in memory by the host Kit instance, including for
+// NoSession runs. They are not restored from saved child sessions.
+// See [Kit.SubagentRuns] and [Kit.GetSubagentRun].
 type SubagentRun struct {
 	// ID identifies this execution, not the child session. Pass it to KillSubagent.
 	ID string
@@ -55,9 +58,11 @@ type SubagentRun struct {
 	// Error describes a failed, stopped, or timed-out execution, if available.
 	Error string
 	// Events contains retained child events in emission order. Adjacent text
-	// chunks can be combined. The slice is copied when a snapshot is returned.
+	// chunks can be combined. Up to 500 event records are retained per run.
+	// The slice is copied when a snapshot is returned; event payloads are not
+	// deep-copied.
 	Events []Event
-	// DroppedEvents counts retained event records removed by the history limit.
+	// DroppedEvents counts event records removed by the per-run event limit.
 	DroppedEvents int
 }
 
@@ -224,10 +229,17 @@ func newRunID() string {
 	return "subagent-" + hex.EncodeToString(b[:])
 }
 
-// SubagentRuns returns retained run snapshots, oldest first.
+// SubagentRuns returns active and retained finished run snapshots, oldest first
+// by registration order. Runs started by tools, extensions, and direct calls to
+// [Kit.Subagent] are included. The host retains up to 100 finished runs plus all
+// active runs. Each snapshot has a copied Events slice.
+// Use [Kit.RunningSubagents] when only active runs are needed.
 func (m *Kit) SubagentRuns() []SubagentRun { return m.subagents.snapshots() }
 
-// GetSubagentRun returns a retained snapshot for a run ID.
+// GetSubagentRun returns a retained snapshot for an execution ID, not a child
+// session ID. It returns false if the ID is unknown or has been evicted from
+// history. The returned snapshot has a copied Events slice.
+// See [Kit.SubagentRuns] for retention limits.
 func (m *Kit) GetSubagentRun(id string) (SubagentRun, bool) { return m.subagents.get(id) }
 
 // RunningSubagents returns the in-process subagents of this Kit instance
