@@ -672,7 +672,8 @@ type AppModelOptions struct {
 // All messages (completed and streaming) are rendered via the ScrollList
 // viewport. The alt screen owns the full terminal.
 type AppModel struct {
-	subagentView *subagentInspector
+	subagentView                *subagentInspector
+	subagentInspectorGeneration uint64
 	// state is the current state machine state.
 	state appState
 
@@ -1619,8 +1620,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.subagentView.width, m.subagentView.height = msg.Width, msg.Height
 			m.refreshSubagentView()
 		case subagentInspectorTick:
+			if msg.generation != m.subagentInspectorGeneration {
+				return m, nil
+			}
 			m.refreshSubagentView()
-			return m, subagentInspectorTickCmd()
+			return m, subagentInspectorTickCmd(msg.generation)
 		}
 	}
 	// Handle capabilities before modal sub-loops can consume the message.

@@ -46,6 +46,49 @@ func TestSubagentInspectorNavigation(t *testing.T) {
 	}
 }
 
+func TestSubagentInspectorStaleTickDoesNotRestartAfterReopen(t *testing.T) {
+	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "child", ParentSessionID: "parent"}}}
+	m := &AppModel{appCtrl: c, state: stateWorking, width: 80, height: 24}
+	m.openSubagentInspector()
+	stale := subagentInspectorTick{generation: m.subagentInspectorGeneration}
+	m.handleSubagentInspectorKey("esc")
+	m.openSubagentInspector()
+	generation := m.subagentInspectorGeneration
+	_, cmd := m.Update(stale)
+	if cmd != nil || m.subagentInspectorGeneration != generation {
+		t.Fatal("stale tick restarted the inspector refresh chain")
+	}
+}
+
+func TestSubagentInspectorKeepsParentFilterAfterEviction(t *testing.T) {
+	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "other", ParentSessionID: "other"}, {ID: "a", ParentSessionID: "parent"}}}
+	m := &AppModel{appCtrl: c, state: stateWorking, width: 80, height: 24}
+	m.openSubagentInspector()
+	c.runs = []kit.SubagentRun{{ID: "other", ParentSessionID: "other"}}
+	m.refreshSubagentView()
+	if m.subagentView.childList != nil || m.subagentView.viewedRunID != "" || len(m.subagentView.runs) != 0 {
+		t.Fatal("evicted inspector retained stale child content")
+	}
+	if got := m.renderSubagentInspector(); !strings.Contains(got, "No retained subagent runs") {
+		t.Fatalf("empty state not shown: %q", got)
+	}
+}
+
+func TestSubagentInspectorUpScrollsAndDoesNotClose(t *testing.T) {
+	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "child", ParentSessionID: "parent", Prompt: strings.Repeat("line\\n", 30)}}}
+	m := &AppModel{appCtrl: c, state: stateWorking, width: 80, height: 8}
+	m.openSubagentInspector()
+	m.subagentView.childList.GotoBottom()
+	before := m.subagentView.childList.offsetLine
+	m.handleSubagentInspectorKey("up")
+	if m.subagentView == nil {
+		t.Fatal("up closed inspector")
+	}
+	if m.subagentView.childList.offsetLine >= before {
+		t.Fatal("up did not scroll up")
+	}
+}
+
 func TestSubagentInspectorShowsActiveToolAndUsesOwnedRenderer(t *testing.T) {
 	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "live", ParentSessionID: "parent", Status: "running", Events: []kit.Event{kit.ToolCallEvent{ToolCallID: "tool-1", ToolName: "bash", ToolArgs: `{"command":"sleep 10"}`}, kit.MessageUpdateEvent{Chunk: "in progress"}}}}}
 	parentRenderer := newMessageRenderer(80, false)

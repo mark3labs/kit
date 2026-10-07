@@ -33,18 +33,32 @@ type RunningSubagent struct {
 
 // SubagentRun is a snapshot of a subagent run, including its retained events.
 type SubagentRun struct {
-	ID              string
-	Prompt          string
-	Agent           string
-	Model           string
-	StartedAt       time.Time
-	FinishedAt      time.Time
-	SessionID       string
+	// ID identifies this execution, not the child session. Pass it to KillSubagent.
+	ID string
+	// Prompt is the task submitted for this run.
+	Prompt string
+	// Agent is the named agent definition, or empty when none was selected.
+	Agent string
+	// Model is the resolved provider/model identifier.
+	Model string
+	// StartedAt is the time execution started, including child setup.
+	StartedAt time.Time
+	// FinishedAt is zero until execution ends.
+	FinishedAt time.Time
+	// SessionID identifies the child session and is empty until setup succeeds.
+	SessionID string
+	// ParentSessionID identifies the parent session associated with this run.
 	ParentSessionID string
-	Status          string
-	Error           string
-	Events          []Event
-	DroppedEvents   int
+	// Status is starting, running, completed, failed, stopped, or timed_out.
+	// Starting includes setup; stopped includes explicit user cancellation.
+	Status string
+	// Error describes a failed, stopped, or timed-out execution, if available.
+	Error string
+	// Events contains retained child events in emission order. Adjacent text
+	// chunks can be combined. The slice is copied when a snapshot is returned.
+	Events []Event
+	// DroppedEvents counts retained event records removed by the history limit.
+	DroppedEvents int
 }
 
 const subagentHistoryLimit = 100
@@ -88,7 +102,6 @@ func (r *subagentRegistry) add(info RunningSubagent, kill context.CancelCauseFun
 		r.mu.Lock()
 		if r.runs[info.ID] == run {
 			run.kill = nil
-			r.pruneLocked()
 		}
 		r.mu.Unlock()
 	}
@@ -134,9 +147,13 @@ func (r *subagentRegistry) update(id string, fn func(*SubagentRun)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if run := r.runs[id]; run != nil {
+		before := run.snapshot.Status
 		fn(&run.snapshot)
-		run.info.ID = run.snapshot.ID
-		r.pruneLocked()
+		wasActive := before == "starting" || before == "running"
+		isActive := run.snapshot.Status == "starting" || run.snapshot.Status == "running"
+		if wasActive && !isActive {
+			r.pruneLocked()
+		}
 	}
 }
 func (r *subagentRegistry) addEvent(id string, e Event) {

@@ -24,6 +24,7 @@ type childScrollPosition struct {
 }
 
 type subagentInspector struct {
+	parentSessionID      string
 	runs                 []kit.SubagentRun
 	index, width, height int
 	childList            *ScrollList
@@ -31,7 +32,7 @@ type subagentInspector struct {
 	renderer             Renderer
 	scrollByRun          map[string]childScrollPosition
 }
-type subagentInspectorTick struct{}
+type subagentInspectorTick struct{ generation uint64 }
 
 func (m *AppModel) openSubagentInspector() tea.Cmd {
 	c, ok := m.appCtrl.(subagentInspectorController)
@@ -44,12 +45,14 @@ func (m *AppModel) openSubagentInspector() tea.Cmd {
 		return nil
 	}
 	childWidth := max(1, m.width)
-	m.subagentView = &subagentInspector{runs: runs, index: len(runs) - 1, width: childWidth, height: m.height, renderer: newMessageRenderer(childWidth, false), scrollByRun: make(map[string]childScrollPosition)}
+	m.subagentInspectorGeneration++
+	parentID := runs[len(runs)-1].ParentSessionID
+	m.subagentView = &subagentInspector{parentSessionID: parentID, runs: runs, index: len(runs) - 1, width: childWidth, height: m.height, renderer: newMessageRenderer(childWidth, false), scrollByRun: make(map[string]childScrollPosition)}
 	m.refreshSubagentView()
-	return subagentInspectorTickCmd()
+	return subagentInspectorTickCmd(m.subagentInspectorGeneration)
 }
-func subagentInspectorTickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(time.Time) tea.Msg { return subagentInspectorTick{} })
+func subagentInspectorTickCmd(generation uint64) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return subagentInspectorTick{generation: generation} })
 }
 
 func (m *AppModel) refreshSubagentView() {
@@ -63,19 +66,18 @@ func (m *AppModel) refreshSubagentView() {
 		oldID = s.runs[s.index].ID
 	}
 	fresh := c.SubagentRuns()
-	if s.index >= 0 && s.index < len(s.runs) {
-		parentID := s.runs[s.index].ParentSessionID
-		filtered := make([]kit.SubagentRun, 0, len(fresh))
-		for _, run := range fresh {
-			if run.ParentSessionID == parentID {
-				filtered = append(filtered, run)
-			}
+	filtered := make([]kit.SubagentRun, 0, len(fresh))
+	for _, run := range fresh {
+		if run.ParentSessionID == s.parentSessionID {
+			filtered = append(filtered, run)
 		}
-		fresh = filtered
 	}
+	fresh = filtered
 	if len(fresh) == 0 {
 		s.runs = nil
 		s.index = 0
+		s.childList = nil
+		s.viewedRunID = ""
 		return
 	}
 	s.runs = fresh
@@ -189,16 +191,32 @@ func (m *AppModel) handleSubagentInspectorKey(key string) tea.Cmd {
 	}
 	c, ok := m.appCtrl.(subagentInspectorController)
 	switch key {
-	case "esc", "up":
+	case "esc":
 		m.subagentView = nil
+	case "up":
+		if s.childList != nil {
+			s.childList.ScrollBy(-1)
+		}
+	case "down":
+		if s.childList != nil {
+			s.childList.ScrollBy(1)
+		}
 	case "pgup":
-		s.childList.ScrollBy(-max(1, s.height-4))
+		if s.childList != nil {
+			s.childList.ScrollBy(-max(1, s.height-4))
+		}
 	case "pgdown":
-		s.childList.ScrollBy(max(1, s.height-4))
+		if s.childList != nil {
+			s.childList.ScrollBy(max(1, s.height-4))
+		}
 	case "home":
-		s.childList.GotoTop()
+		if s.childList != nil {
+			s.childList.GotoTop()
+		}
 	case "end":
-		s.childList.GotoBottom()
+		if s.childList != nil {
+			s.childList.GotoBottom()
+		}
 	case "left", "right":
 		if len(s.runs) > 0 {
 			d := 1
@@ -220,6 +238,9 @@ func (m *AppModel) renderSubagentInspector() string {
 	s := m.subagentView
 	if s == nil {
 		return ""
+	}
+	if len(s.runs) == 0 {
+		return "No retained subagent runs."
 	}
 	footer := fmt.Sprintf("Child %d/%d · READ ONLY · ←/→ siblings · PgUp/PgDn scroll\nEsc parent · Ctrl+K stop", s.index+1, len(s.runs))
 	footer = ansi.Hardwrap(footer, max(1, s.width), true)
