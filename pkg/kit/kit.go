@@ -2525,7 +2525,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	childOpts.Providers = m.providers
 
 	// Register the run so that it can be listed and killed.
-	_, unregister := m.subagents.add(RunningSubagent{
+	runID, unregister := m.subagents.add(RunningSubagent{
 		ID:        cfg.runID,
 		Prompt:    cfg.Prompt,
 		Agent:     cfg.Agent,
@@ -2533,15 +2533,32 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		StartedAt: start,
 	}, kill)
 	defer unregister()
+	parentSessionID := cfg.ParentSessionID
+	if parentSessionID == "" {
+		parentSessionID = m.GetSessionID()
+	}
+	m.subagents.update(runID, func(s *SubagentRun) { s.ParentSessionID = parentSessionID })
 
 	child, err := New(ctx, childOpts)
 	if err != nil {
+		finalErr := err
 		if kerr := killedErr(err); kerr != err {
-			return &SubagentResult{Elapsed: time.Since(start)}, kerr
+			finalErr = kerr
 		}
-		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
+		status := "failed"
+		if errors.Is(finalErr, ErrSubagentKilled) {
+			status = "stopped"
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "timed_out"
+		}
+		m.subagents.update(runID, func(s *SubagentRun) { s.Status = status; s.Error = finalErr.Error(); s.FinishedAt = time.Now() })
+		if errors.Is(finalErr, ErrSubagentKilled) {
+			return &SubagentResult{Elapsed: time.Since(start)}, finalErr
+		}
+		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", finalErr)
 	}
 	defer func() { _ = child.Close() }()
+	m.subagents.update(runID, func(s *SubagentRun) { s.SessionID = child.GetSessionID(); s.Status = "running" })
 
 	// Link the child session to the parent so delegated work can be traced
 	// from either direction: the parent receives the child's session ID in
@@ -2565,17 +2582,29 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 
 	// Forward events to parent if requested.
-	if cfg.OnEvent != nil {
-		child.Subscribe(cfg.OnEvent)
-	}
+	child.Subscribe(func(e Event) {
+		m.subagents.addEvent(runID, e)
+		if cfg.OnEvent != nil {
+			cfg.OnEvent(e)
+		}
+	})
 
 	// Run the prompt.
 	result, err := child.PromptResult(ctx, cfg.Prompt)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return &SubagentResult{Elapsed: elapsed}, killedErr(err)
+		finalErr := killedErr(err)
+		status := "failed"
+		if errors.Is(finalErr, ErrSubagentKilled) {
+			status = "stopped"
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "timed_out"
+		}
+		m.subagents.update(runID, func(s *SubagentRun) { s.Status = status; s.Error = finalErr.Error(); s.FinishedAt = time.Now() })
+		return &SubagentResult{Elapsed: elapsed}, finalErr
 	}
+	m.subagents.update(runID, func(s *SubagentRun) { s.Status = "completed"; s.FinishedAt = time.Now() })
 
 	subResult := &SubagentResult{
 		Response:   result.Response,
