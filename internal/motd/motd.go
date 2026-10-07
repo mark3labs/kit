@@ -8,10 +8,6 @@ package motd
 
 import "time"
 
-// daysPerLeapYear is the number of days in a leap year. It shifts the
-// day index between years so the sequence continues past New Year.
-const daysPerLeapYear = 366
-
 // messages holds the daily lines. Keep each entry short and kind.
 var messages = []string{
 	"Small steps, clean diffs.",
@@ -27,20 +23,38 @@ var messages = []string{
 }
 
 // Today returns the message for the current day, using the local clock.
+//
+// It is a thin wrapper around At(time.Now()).
 func Today() string {
 	return At(time.Now())
 }
 
-// At returns the message for the calendar day of now.
+// At returns the message for the calendar day of now, in now's location.
 //
-// The choice is a pure function of the day: the same day always maps
-// to the same message, and the sequence cycles through the whole set.
-// Callers can pass any clock they like, which keeps the function easy
-// to test.
+// The choice is a pure function of the day: the same day always maps to
+// the same message, consecutive days always move one step through the
+// set (also across New Year), and the sequence repeats after
+// len(messages) days. Callers can pass any clock they like, which keeps
+// the function easy to test.
 func At(now time.Time) string {
-	if len(messages) == 0 {
+	n := len(messages)
+	if n == 0 {
 		return ""
 	}
-	day := now.YearDay() + daysPerLeapYear*now.Year()
-	return messages[day%len(messages)]
+	day := dayIndex(now) % n
+	if day < 0 {
+		day += n
+	}
+	return messages[day]
+}
+
+// dayIndex counts the whole days between the Unix epoch and the midnight
+// that starts now's calendar day, in now's location.
+//
+// Counting from local midnight (instead of the year number and the day
+// of year) keeps the step between consecutive days at exactly one, no
+// matter how long the year is or when daylight saving time shifts.
+func dayIndex(now time.Time) int {
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	return int(midnight.Sub(time.Unix(0, 0)) / (24 * time.Hour))
 }

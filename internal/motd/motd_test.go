@@ -1,61 +1,61 @@
 package motd
 
 import (
-	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
 
+// TestAtIsDeterministic verifies that every instant within one calendar
+// day yields the same, known message.
 func TestAtIsDeterministic(t *testing.T) {
 	morning := time.Date(2026, 10, 7, 8, 0, 0, 0, time.UTC)
 	evening := time.Date(2026, 10, 7, 23, 0, 0, 0, time.UTC)
 
-	if got := At(morning); got != At(evening) {
-		t.Errorf("At() changed within one day: %q vs %q", got, At(evening))
+	first, second := At(morning), At(evening)
+	if first != second {
+		t.Errorf("At() changed within one day: %q vs %q", first, second)
 	}
-	if got := At(morning); !contains(messages, got) {
-		t.Errorf("At() = %q, want one of the known messages", got)
+	if !slices.Contains(messages, first) {
+		t.Errorf("At() = %q, want one of the known messages", first)
 	}
 }
 
+// TestAtCyclesThroughAllMessages verifies that consecutive days walk
+// through every message exactly once.
 func TestAtCyclesThroughAllMessages(t *testing.T) {
 	// Consecutive days map to consecutive indices, so len(messages)
 	// consecutive days must produce every message exactly once.
 	start := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	seen := make([]string, 0, len(messages))
-	for i := 0; i < len(messages); i++ {
-		seen = append(seen, At(start.AddDate(0, 0, i)))
+	for range len(messages) {
+		seen = append(seen, At(start))
+		start = start.AddDate(0, 0, 1)
 	}
 
-	if !sameMembers(seen, messages) {
+	got, want := slices.Clone(seen), slices.Clone(messages)
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
 		t.Errorf("cycle over %d days = %v, want all messages", len(messages), seen)
 	}
 }
 
+// TestAtChangesAcrossNewYear verifies that the sequence still advances
+// one step per day across the year boundary.
+func TestAtChangesAcrossNewYear(t *testing.T) {
+	newYearsEve := time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
+	newYearsDay := newYearsEve.AddDate(0, 0, 1)
+
+	if At(newYearsEve) == At(newYearsDay) {
+		t.Errorf("At() repeated %q across New Year; sequence should advance", At(newYearsEve))
+	}
+}
+
+// TestTodayReturnsAKnownMessage verifies that Today answers with one of
+// the known messages for the live clock.
 func TestTodayReturnsAKnownMessage(t *testing.T) {
-	if got := Today(); !contains(messages, got) {
+	if got := Today(); !slices.Contains(messages, got) {
 		t.Errorf("Today() = %q, want one of the known messages", got)
 	}
-}
-
-func contains(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
-}
-
-// sameMembers reports whether the two lists hold the same strings,
-// ignoring order and repeats.
-func sameMembers(a, b []string) bool {
-	count := func(list []string) map[string]int {
-		out := make(map[string]int, len(list))
-		for _, s := range list {
-			out[s]++
-		}
-		return out
-	}
-	return reflect.DeepEqual(count(a), count(b))
 }
