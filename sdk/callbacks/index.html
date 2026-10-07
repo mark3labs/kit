@@ -7,7 +7,7 @@
 <meta name="description" content="Monitor tool calls and streaming output with the Kit Go SDK.">
 <link rel="canonical" href="/sdk/callbacks">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-z88uiVBB.js"></script>
+<script type="module" src="/assets/index-BKpw7Wsv.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -239,6 +239,8 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
     }
 })
 ```
+
+For retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
 
 `SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.</div>
 </body>

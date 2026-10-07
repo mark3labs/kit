@@ -15,6 +15,7 @@ in <a href="/advanced/remote-sessions">Remote sessions</a>. The two are independ
 <p>Path separators in the working directory are replaced with <code>--</code>. For example, <code>/home/user/project</code> becomes <code>home--user--project</code>.</p>
 <p>Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.</p>
 <p>When a <a href="/advanced/subagents">subagent</a> is spawned from a persisted parent session, the child records its parent in the file header (<code>parent_session_id</code>, <code>parent_session</code>, and the originating <code>subagent_task</code>), so delegated work can be traced back to the session that spawned it.</p>
+<p>Use <code>/subagent-sessions</code> (alias <code>/agents</code>) to <a href="/advanced/subagents#inspecting-subagent-conversations">inspect retained child conversations</a> without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the <code>subagent</code> tool's <code>session_id</code> parameter instead.</p>
 <h2 id="compaction"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#compaction"><span class="icon icon-link"></span></a>Compaction</h2>
 <p>When conversations grow long, Kit can compact them to free up context window space. The compaction system:</p>
 <ul>
@@ -141,6 +142,8 @@ Path separators in the working directory are replaced with \`--\`. For example, 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
 
 When a [subagent](/advanced/subagents) is spawned from a persisted parent session, the child records its parent in the file header (\`parent_session_id\`, \`parent_session\`, and the originating \`subagent_task\`), so delegated work can be traced back to the session that spawned it.
+
+Use \`/subagent-sessions\` (alias \`/agents\`) to [inspect retained child conversations](/advanced/subagents#inspecting-subagent-conversations) without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the \`subagent\` tool's \`session_id\` parameter instead.
 
 ## Compaction
 

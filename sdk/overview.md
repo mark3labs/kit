@@ -951,6 +951,8 @@ parent's session ID in their header, and `result.SessionID` can be passed back
 as `SubagentConfig.SessionID` to resume the child session for follow-up
 prompts that reuse its accumulated context.
 
+Inspect active and finished child runs with `host.SubagentRuns()` or look up one execution with `host.GetSubagentRun(runID)`. Each `SubagentRun` includes status, session links, and retained child events. `host.RunningSubagents()` still lists only active runs; pass a run ID, not a session ID, to `host.KillSubagent(runID)` to stop one. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for API examples and history limits.
+
 See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.
 

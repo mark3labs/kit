@@ -305,6 +305,7 @@ start/end lifecycle telemetry without hand-rolling the failure path:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>For retained history rather than live callbacks, use <code>SubagentRuns</code> or <code>GetSubagentRun</code>. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See <a href="/advanced/subagents#retained-run-snapshots">Retained run snapshots</a> for limits and an API comparison. Existing live listeners are unchanged.</p>
 <p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:`Event-based monitoring`,id:`event-based-monitoring`},{depth:2,text:`Tool call argument streaming`,id:`tool-call-argument-streaming`},{depth:2,text:`Hook system`,id:`hook-system`},{depth:3,text:`BeforeToolCall — block tool execution`,id:`beforetoolcall--block-tool-execution`},{depth:3,text:`AfterToolResult — modify tool output`,id:`aftertoolresult--modify-tool-output`},{depth:3,text:`BeforeTurn — modify prompt, inject messages`,id:`beforeturn--modify-prompt-inject-messages`},{depth:3,text:`AfterTurn — observation only`,id:`afterturn--observation-only`},{depth:3,text:`PrepareStep — intercept messages between steps`,id:`preparestep--intercept-messages-between-steps`},{depth:3,text:`Hook priorities`,id:`hook-priorities`},{depth:2,text:`All event types`,id:`all-event-types`},{depth:3,text:`Compaction telemetry`,id:`compaction-telemetry`},{depth:2,text:`Subagent event monitoring`,id:`subagent-event-monitoring`}],raw:`
 # Callbacks
 
@@ -533,6 +534,8 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
     }
 })
 \`\`\`
+
+For retained history rather than live callbacks, use \`SubagentRuns\` or \`GetSubagentRun\`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
 
 \`SubscribeSubagent\` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.
 `};export{e as default};

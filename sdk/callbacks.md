@@ -227,4 +227,6 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 })
 ```
 
+For retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
+
 `SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.

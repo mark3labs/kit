@@ -74,6 +74,7 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Inspecting subagent conversations",
         "Killing a running subagent",
         "Session linking and resuming",
         "Named agents",
@@ -83,10 +84,11 @@
         "Extension subagents",
         "Monitoring subagents from extensions",
         "Go SDK subagents",
+        "Retained run snapshots",
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 1860
+      "wordCount": 2447
     },
     {
       "id": "advanced/testing",
@@ -133,7 +135,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4069
+      "wordCount": 4104
     },
     {
       "id": "cli/flags",
@@ -246,7 +248,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4272
+      "wordCount": 4310
     },
     {
       "id": "extensions/examples",
@@ -266,7 +268,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 582
+      "wordCount": 617
     },
     {
       "id": "extensions/loading",
@@ -432,7 +434,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 1149
+      "wordCount": 1191
     },
     {
       "id": "sdk/options",
@@ -505,7 +507,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 4758
+      "wordCount": 4812
     },
     {
       "id": "sdk/sessions",
@@ -544,7 +546,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 889
+      "wordCount": 933
     },
     {
       "id": "themes",
