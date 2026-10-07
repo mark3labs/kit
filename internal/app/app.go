@@ -484,6 +484,21 @@ func (a *App) RunningSubagents() []kit.RunningSubagent {
 	return a.opts.Kit.RunningSubagents()
 }
 
+// SubagentRuns returns retained subagent run snapshots.
+func (a *App) SubagentRuns() []kit.SubagentRun {
+	if a.opts.Kit == nil {
+		return nil
+	}
+	return a.opts.Kit.SubagentRuns()
+}
+
+func (a *App) GetSubagentRun(id string) (kit.SubagentRun, bool) {
+	if a.opts.Kit == nil {
+		return kit.SubagentRun{}, false
+	}
+	return a.opts.Kit.GetSubagentRun(id)
+}
+
 // KillSubagent stops the running subagent with the given ID. It returns
 // false when no subagent with that ID is running (for example, because it
 // completed first). Satisfies ui.AppController.

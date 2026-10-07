@@ -13,6 +13,79 @@ import (
 	"charm.land/fantasy"
 )
 
+func TestSubagentRegistry_RetainsSnapshotsAndCopiesEvents(t *testing.T) {
+	var r subagentRegistry
+	ctx, cancel := context.WithCancelCause(context.Background())
+	id, finish := r.add(RunningSubagent{ID: "one", StartedAt: time.Now()}, cancel)
+	r.update(id, func(s *SubagentRun) { s.Status = "completed"; s.FinishedAt = time.Now() })
+	finish()
+	got, ok := r.get(id)
+	if !ok || got.Status != "completed" {
+		t.Fatalf("snapshot = %+v, %v", got, ok)
+	}
+	got.Events = append(got.Events, nil)
+	again, _ := r.get(id)
+	if len(again.Events) != 0 {
+		t.Fatal("snapshot exposed registry event slice")
+	}
+	for i := range subagentHistoryLimit + 1 {
+		x, done := r.add(RunningSubagent{ID: fmt.Sprint("run", i)}, cancel)
+		r.update(x, func(s *SubagentRun) { s.Status = "completed" })
+		done()
+	}
+	if _, ok := r.get(id); ok {
+		t.Fatal("old run was not evicted")
+	}
+	_ = ctx
+}
+
+func TestSubagentRegistry_ActiveRunsSurviveHistoryLimit(t *testing.T) {
+	var r subagentRegistry
+	kills := make([]context.CancelCauseFunc, subagentHistoryLimit+1)
+	ids := make([]string, len(kills))
+	for i := range kills {
+		_, kills[i] = context.WithCancelCause(context.Background())
+		ids[i], _ = r.add(RunningSubagent{ID: fmt.Sprint("active", i)}, kills[i])
+	}
+	if len(r.list()) != len(ids) {
+		t.Fatalf("active count = %d, want %d", len(r.list()), len(ids))
+	}
+	for _, id := range ids {
+		if !r.kill(id) {
+			t.Fatalf("active run %s was not retained", id)
+		}
+		r.update(id, func(s *SubagentRun) { s.Status = "completed" })
+	}
+	if len(r.snapshots()) != subagentHistoryLimit {
+		t.Fatalf("retained completed runs = %d, want %d", len(r.snapshots()), subagentHistoryLimit)
+	}
+}
+
+func TestSubagentRegistry_ConcurrentKillAndFinish(t *testing.T) {
+	for range 100 {
+		var r subagentRegistry
+		_, cancel := context.WithCancelCause(context.Background())
+		id, finish := r.add(RunningSubagent{ID: "race"}, cancel)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); r.kill(id) }()
+		go func() { defer wg.Done(); finish() }()
+		wg.Wait()
+	}
+}
+
+func TestSubagentRegistry_DroppedEventsAndCoalescing(t *testing.T) {
+	var r subagentRegistry
+	id, _ := r.add(RunningSubagent{ID: "events"}, nil)
+	for range 500 {
+		r.addEvent(id, MessageUpdateEvent{Chunk: "x"})
+	}
+	got, _ := r.get(id)
+	if len(got.Events) != 1 || got.Events[0].(MessageUpdateEvent).Chunk != strings.Repeat("x", 500) || got.DroppedEvents != 0 {
+		t.Fatalf("stream retention = events %d, dropped %d", len(got.Events), got.DroppedEvents)
+	}
+}
+
 func TestSubagentRegistry_AddListKill(t *testing.T) {
 	var r subagentRegistry
 	now := time.Now()

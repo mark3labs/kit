@@ -31,16 +31,50 @@ type RunningSubagent struct {
 	StartedAt time.Time
 }
 
-// subagentRun is the registry entry for one running subagent.
+// SubagentRun is a snapshot of a subagent run, including its retained events.
+type SubagentRun struct {
+	// ID identifies this execution, not the child session. Pass it to KillSubagent.
+	ID string
+	// Prompt is the task submitted for this run.
+	Prompt string
+	// Agent is the named agent definition, or empty when none was selected.
+	Agent string
+	// Model is the resolved provider/model identifier.
+	Model string
+	// StartedAt is the time execution started, including child setup.
+	StartedAt time.Time
+	// FinishedAt is zero until execution ends.
+	FinishedAt time.Time
+	// SessionID identifies the child session and is empty until setup succeeds.
+	SessionID string
+	// ParentSessionID identifies the parent session associated with this run.
+	ParentSessionID string
+	// Status is starting, running, completed, failed, stopped, or timed_out.
+	// Starting includes setup; stopped includes explicit user cancellation.
+	Status string
+	// Error describes a failed, stopped, or timed-out execution, if available.
+	Error string
+	// Events contains retained child events in emission order. Adjacent text
+	// chunks can be combined. The slice is copied when a snapshot is returned.
+	Events []Event
+	// DroppedEvents counts retained event records removed by the history limit.
+	DroppedEvents int
+}
+
+const subagentHistoryLimit = 100
+const subagentEventLimit = 500
+
 type subagentRun struct {
-	info RunningSubagent
-	kill context.CancelCauseFunc
+	info     RunningSubagent
+	snapshot SubagentRun
+	kill     context.CancelCauseFunc
 }
 
 // subagentRegistry tracks the running subagents of one Kit instance.
 type subagentRegistry struct {
-	mu   sync.Mutex
-	runs map[string]*subagentRun
+	mu    sync.Mutex
+	runs  map[string]*subagentRun
+	order []string
 }
 
 // add registers a run and returns the function that removes it. An empty
@@ -54,14 +88,22 @@ func (r *subagentRegistry) add(info RunningSubagent, kill context.CancelCauseFun
 	if _, taken := r.runs[info.ID]; info.ID == "" || taken {
 		info.ID = newRunID()
 	}
-	run := &subagentRun{info: info, kill: kill}
+	run := &subagentRun{info: info, kill: kill, snapshot: SubagentRun{ID: info.ID, Prompt: info.Prompt, Agent: info.Agent, Model: info.Model, StartedAt: info.StartedAt, Status: "starting"}}
 	r.runs[info.ID] = run
+	r.order = append(r.order, info.ID)
+	r.pruneLocked()
 	return info.ID, func() {
+		r.update(info.ID, func(s *SubagentRun) {
+			if s.FinishedAt.IsZero() {
+				s.Status = "stopped"
+				s.FinishedAt = time.Now()
+			}
+		})
 		r.mu.Lock()
-		defer r.mu.Unlock()
 		if r.runs[info.ID] == run {
-			delete(r.runs, info.ID)
+			run.kill = nil
 		}
+		r.mu.Unlock()
 	}
 }
 
@@ -71,7 +113,9 @@ func (r *subagentRegistry) list() []RunningSubagent {
 	defer r.mu.Unlock()
 	out := make([]RunningSubagent, 0, len(r.runs))
 	for _, run := range r.runs {
-		out = append(out, run.info)
+		if run.snapshot.Status == "starting" || run.snapshot.Status == "running" {
+			out = append(out, run.info)
+		}
 	}
 	slices.SortFunc(out, func(a, b RunningSubagent) int {
 		return a.StartedAt.Compare(b.StartedAt)
@@ -79,16 +123,95 @@ func (r *subagentRegistry) list() []RunningSubagent {
 	return out
 }
 
+func (r *subagentRegistry) pruneLocked() {
+	completed := 0
+	for _, id := range r.order {
+		if run := r.runs[id]; run != nil && run.snapshot.Status != "starting" && run.snapshot.Status != "running" {
+			completed++
+		}
+	}
+	for i := 0; completed > subagentHistoryLimit && i < len(r.order); {
+		id := r.order[i]
+		run := r.runs[id]
+		if run != nil && run.snapshot.Status != "starting" && run.snapshot.Status != "running" {
+			delete(r.runs, id)
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			completed--
+			continue
+		}
+		i++
+	}
+}
+
+func (r *subagentRegistry) update(id string, fn func(*SubagentRun)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if run := r.runs[id]; run != nil {
+		before := run.snapshot.Status
+		fn(&run.snapshot)
+		wasActive := before == "starting" || before == "running"
+		isActive := run.snapshot.Status == "starting" || run.snapshot.Status == "running"
+		if wasActive && !isActive {
+			r.pruneLocked()
+		}
+	}
+}
+func (r *subagentRegistry) addEvent(id string, e Event) {
+	r.update(id, func(s *SubagentRun) {
+		if chunk, ok := e.(MessageUpdateEvent); ok && len(s.Events) > 0 {
+			if previous, ok := s.Events[len(s.Events)-1].(MessageUpdateEvent); ok && len(previous.Chunk)+len(chunk.Chunk) <= 64*1024 {
+				s.Events[len(s.Events)-1] = MessageUpdateEvent{Chunk: previous.Chunk + chunk.Chunk}
+				return
+			}
+		}
+		s.Events = append(s.Events, e)
+		if len(s.Events) > subagentEventLimit {
+			dropped := len(s.Events) - subagentEventLimit
+			s.DroppedEvents += dropped
+			s.Events = append([]Event(nil), s.Events[dropped:]...)
+		}
+	})
+}
+func (r *subagentRegistry) snapshots() []SubagentRun {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]SubagentRun, 0, len(r.order))
+	for _, id := range r.order {
+		if run := r.runs[id]; run != nil {
+			s := run.snapshot
+			s.Events = append([]Event(nil), s.Events...)
+			out = append(out, s)
+		}
+	}
+	return out
+}
+func (r *subagentRegistry) get(id string) (SubagentRun, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run := r.runs[id]
+	if run == nil {
+		return SubagentRun{}, false
+	}
+	s := run.snapshot
+	s.Events = append([]Event(nil), s.Events...)
+	return s, true
+}
+
 // kill cancels the run with the given ID. It returns false when no run
 // with that ID is running.
 func (r *subagentRegistry) kill(id string) bool {
 	r.mu.Lock()
 	run, ok := r.runs[id]
-	r.mu.Unlock()
-	if !ok {
+	if !ok || run.snapshot.Status != "starting" && run.snapshot.Status != "running" || run.kill == nil {
+		r.mu.Unlock()
 		return false
 	}
-	run.kill(ErrSubagentKilled)
+	kill := run.kill
+	r.mu.Unlock()
+	if kill == nil {
+		return false
+	}
+	kill(ErrSubagentKilled)
 	return true
 }
 
@@ -100,6 +223,12 @@ func newRunID() string {
 	}
 	return "subagent-" + hex.EncodeToString(b[:])
 }
+
+// SubagentRuns returns retained run snapshots, oldest first.
+func (m *Kit) SubagentRuns() []SubagentRun { return m.subagents.snapshots() }
+
+// GetSubagentRun returns a retained snapshot for a run ID.
+func (m *Kit) GetSubagentRun(id string) (SubagentRun, bool) { return m.subagents.get(id) }
 
 // RunningSubagents returns the in-process subagents of this Kit instance
 // that are running now, oldest first. This includes subagents started by

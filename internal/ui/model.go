@@ -672,6 +672,8 @@ type AppModelOptions struct {
 // All messages (completed and streaming) are rendered via the ScrollList
 // viewport. The alt screen owns the full terminal.
 type AppModel struct {
+	subagentView                *subagentInspector
+	subagentInspectorGeneration uint64
 	// state is the current state machine state.
 	state appState
 
@@ -1610,6 +1612,21 @@ func tildeHome(path string) string {
 // nothing on the overwhelming majority of messages, when the clock is either
 // already running or not wanted.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.subagentView != nil {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			return m, m.handleSubagentInspectorKey(msg.String())
+		case tea.WindowSizeMsg:
+			m.subagentView.width, m.subagentView.height = msg.Width, msg.Height
+			m.refreshSubagentView()
+		case subagentInspectorTick:
+			if msg.generation != m.subagentInspectorGeneration {
+				return m, nil
+			}
+			m.refreshSubagentView()
+			return m, subagentInspectorTickCmd(msg.generation)
+		}
+	}
 	// Handle capabilities before modal sub-loops can consume the message.
 	var capabilityCmd tea.Cmd
 	switch msg := msg.(type) {
@@ -3450,6 +3467,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // layout shifts; the activity row appears only while the agent is working.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
+	if m.subagentView != nil {
+		v := tea.NewView(m.renderSubagentInspector())
+		v.AltScreen = true
+		return v
+	}
 	// When quitting, disable alt screen for clean terminal restoration.
 	// This prevents terminal corruption issues on exit.
 	if m.quitting {
@@ -4599,6 +4621,14 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleRefreshCommand()
 	case "/thinking":
 		return m.handleThinkingCommand(args)
+	case "/subagents":
+		// Registered extension commands take precedence over the native alias.
+		if cmd := m.handleExtensionCommand(sc.Name); cmd != nil {
+			return cmd
+		}
+		return m.openSubagentInspector()
+	case "/subagent-sessions":
+		return m.openSubagentInspector()
 	case "/kill-subagent":
 		m.handleKillSubagentCommand()
 	case "/compact":
