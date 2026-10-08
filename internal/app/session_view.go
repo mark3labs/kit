@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -243,7 +242,7 @@ func (a *App) SetSessionName(name string) error {
 	if _, err := tm.AppendSessionInfo(name); err != nil {
 		return fmt.Errorf("append session info: %w", err)
 	}
-	if rawID := os.Getenv(daemon.SessionIDEnv); rawID != "" {
+	if rawID := a.opts.DaemonSessionID; rawID != "" {
 		id, err := strconv.ParseUint(rawID, 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse daemon session ID: %w", err)

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -33,6 +34,16 @@ func envValue(t *testing.T, env []string, key string) (string, bool) {
 		t.Fatalf("%s appears %d times in the child environment", key, found)
 	}
 	return value, found == 1
+}
+
+func TestCaptureSessionIDUnsetsEnvironment(t *testing.T) {
+	t.Setenv(SessionIDEnv, "123")
+	if got := CaptureSessionID(); got != "123" {
+		t.Fatalf("CaptureSessionID() = %q, want 123", got)
+	}
+	if got := os.Getenv(SessionIDEnv); got != "" {
+		t.Errorf("%s remains set to %q", SessionIDEnv, got)
+	}
 }
 
 func TestChildEnvDescribesTheClientTerminal(t *testing.T) {

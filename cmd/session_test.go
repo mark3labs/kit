@@ -1,6 +1,11 @@
 package cmd
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+	"testing/iotest"
+)
 
 func TestSessionCommandGroup(t *testing.T) {
 	for _, name := range []string{"attach", "ls", "rename", "kill"} {
@@ -17,6 +22,22 @@ func TestSessionCommandGroup(t *testing.T) {
 		if err != nil || command.Parent() != rootCmd || command.Deprecated == "" {
 			t.Fatalf("missing deprecated alias %s", name)
 		}
+	}
+}
+
+func TestReadSessionConfirmation(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  bool
+	}{{"", false}, {"n", false}, {"\n", false}, {"y", true}, {"YES", true}, {"yes\n", true}} {
+		got, err := readSessionConfirmation(strings.NewReader(tc.input))
+		if err != nil || got != tc.want {
+			t.Fatalf("input %q: %v, %v", tc.input, got, err)
+		}
+	}
+	wantErr := errors.New("read failed")
+	if _, err := readSessionConfirmation(iotest.ErrReader(wantErr)); !errors.Is(err, wantErr) {
+		t.Fatalf("error not preserved: %v", err)
 	}
 }
 

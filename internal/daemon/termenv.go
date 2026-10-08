@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,6 +37,14 @@ import (
 // names a pane on the wrong machine. Both halves are handled here: the
 // daemon's multiplexer variables are dropped and the client's is planted
 // under termgfx.RemoteMultiplexerEnv.
+
+// CaptureSessionID reads and removes the daemon session ID from the process
+// environment. This prevents child processes from inheriting the parent's ID.
+func CaptureSessionID() string {
+	id := os.Getenv(SessionIDEnv)
+	_ = os.Unsetenv(SessionIDEnv)
+	return id
+}
 
 const (
 	// RemoteSessionEnv marks a child as running inside a daemon session.

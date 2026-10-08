@@ -269,6 +269,7 @@ func newRunApp(k *kit.Kit, cli *ui.CLI, mcpConfig *config.Config, modelName stri
 	appOpts := BuildAppOptions(mcpConfig, modelName, serverNames, toolNames)
 	appOpts.Kit = k
 	appOpts.TreeSession = treeSession
+	appOpts.DaemonSessionID = capturedDaemonSessionID
 
 	var usageTracker *ui.UsageTracker
 	if cli != nil {
@@ -521,7 +522,7 @@ func buildUIProviders(k *kit.Kit) uiProviders {
 }
 
 func killHostedSessionForUI() error {
-	rawID := os.Getenv(daemon.SessionIDEnv)
+	rawID := capturedDaemonSessionID
 	if rawID == "" {
 		return fmt.Errorf("daemon session ID is not set")
 	}
@@ -585,7 +586,7 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 		},
 		// reloadExtensions backs the /reload-ext command and the file watcher.
 		killHostedSession: func() func() error {
-			if os.Getenv(daemon.SessionIDEnv) == "" {
+			if capturedDaemonSessionID == "" {
 				return nil
 			}
 			return killHostedSessionForUI

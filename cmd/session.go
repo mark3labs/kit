@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -66,12 +68,11 @@ var sessionKillCmd = &cobra.Command{
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), " on %s", sessionHost)
 			}
 			_, _ = fmt.Fprint(cmd.ErrOrStderr(), "? [y/N] ")
-			answer, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+			confirmed, err := readSessionConfirmation(cmd.InOrStdin())
 			if err != nil {
-				return fmt.Errorf("read confirmation: %w", err)
+				return err
 			}
-			answer = strings.TrimSpace(answer)
-			if answer != "y" && answer != "Y" && answer != "yes" && answer != "YES" {
+			if !confirmed {
 				return nil
 			}
 		}
@@ -86,6 +87,15 @@ var sessionKillCmd = &cobra.Command{
 		fmt.Printf("Stopped session %d.\n", id)
 		return nil
 	},
+}
+
+func readSessionConfirmation(input io.Reader) (bool, error) {
+	answer, err := bufio.NewReader(input).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("read confirmation: %w", err)
+	}
+	answer = strings.TrimSpace(answer)
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
 func init() {
