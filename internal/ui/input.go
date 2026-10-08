@@ -801,6 +801,10 @@ func gfxNudgeCmd() tea.Cmd {
 // DirectPlacement locates one directly-placed preview image within the input
 // component's view.
 type DirectPlacement struct {
+	// ImageID identifies the terminal image, so AppModel can remove its
+	// placement when a modal covers the composer.
+	ImageID uint32
+
 	// RowOffset is the image's first row, counted from the top of the input
 	// component's own view.
 	RowOffset int
@@ -825,7 +829,7 @@ func (s *InputComponent) DirectPlacements() []DirectPlacement {
 	var out []DirectPlacement
 	for i, rect := range s.imageTileRects() {
 		if rect.row >= 0 && i < len(s.imagePlace) && s.imagePlace[i] != "" {
-			out = append(out, DirectPlacement{RowOffset: rect.row + max(0, (thumbMaxRows-lipgloss.Height(s.imageThumbs[i]))/2), Col: rect.col + max(0, (rect.width-lipgloss.Width(s.imageThumbs[i]))/2), Sequence: s.imagePlace[i]})
+			out = append(out, DirectPlacement{ImageID: s.imageIDs[i], RowOffset: rect.row + max(0, (thumbMaxRows-lipgloss.Height(s.imageThumbs[i]))/2), Col: rect.col + max(0, (rect.width-lipgloss.Width(s.imageThumbs[i]))/2), Sequence: s.imagePlace[i]})
 		}
 	}
 	return out
