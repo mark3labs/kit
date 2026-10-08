@@ -2571,7 +2571,7 @@ Persistent content above and below the conversation:
 
 ```go
 ctx.SetHeader(ext.HeaderFooterConfig{
-    Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+    Content: ext.WidgetContent{Text: "Project: my-app | Branch: master"},
 })
 
 ctx.SetFooter(ext.HeaderFooterConfig{

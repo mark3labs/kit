@@ -393,7 +393,7 @@ for 30fps playback.</p>
 <h2 id="headers-and-footers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#headers-and-footers"><span class="icon icon-link"></span></a>Headers and footers</h2>
 <p>Persistent content above and below the conversation:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetHeader</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">HeaderFooterConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Project: my-app | Branch: main"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Project: my-app | Branch: master"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetFooter</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">HeaderFooterConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -1216,7 +1216,7 @@ Persistent content above and below the conversation:
 
 \`\`\`go
 ctx.SetHeader(ext.HeaderFooterConfig{
-    Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+    Content: ext.WidgetContent{Text: "Project: my-app | Branch: master"},
 })
 
 ctx.SetFooter(ext.HeaderFooterConfig{
