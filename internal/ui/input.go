@@ -290,8 +290,21 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		oldCols := s.thumbCols()
 		s.width = msg.Width
 		s.textarea.SetWidth(max(msg.Width-inputChromeWidth, 1))
+		if oldCols != s.thumbCols() && len(s.pendingImages) > 0 {
+			cleanup := s.releaseImages()
+			s.imageGen++
+			cmds := []tea.Cmd{cleanup}
+			for i, img := range s.pendingImages {
+				s.imageThumbs = append(s.imageThumbs, "")
+				s.imageIDs = append(s.imageIDs, 0)
+				s.imagePlace = append(s.imagePlace, "")
+				cmds = append(cmds, renderThumbnailCmd(img, s.thumbCols(), thumbMaxRows, style.GetTheme().Background, s.imageGen, i))
+			}
+			return s, tea.Batch(cmds...)
+		}
 		return s, nil
 
 	case clipboardImageMsg:
@@ -715,8 +728,8 @@ func (s *InputComponent) resetHistoryBrowsing() {
 // image previews. Kept small for the low-res look and to keep scrollback
 // light.
 const (
-	thumbMaxCols = 40
-	thumbMaxRows = 12
+	thumbMaxCols = 20
+	thumbMaxRows = 6
 )
 
 // thumbCols returns the thumbnail width in terminal cells given the current
@@ -810,13 +823,9 @@ type DirectPlacement struct {
 // in step by thumbRowOffsets.
 func (s *InputComponent) DirectPlacements() []DirectPlacement {
 	var out []DirectPlacement
-	for i, off := range s.thumbRowOffsets() {
-		if i < len(s.imagePlace) && s.imagePlace[i] != "" {
-			out = append(out, DirectPlacement{
-				RowOffset: off,
-				Col:       thumbPaddingLeft,
-				Sequence:  s.imagePlace[i],
-			})
+	for i, rect := range s.imageTileRects() {
+		if rect.row >= 0 && i < len(s.imagePlace) && s.imagePlace[i] != "" {
+			out = append(out, DirectPlacement{RowOffset: rect.row + max(0, (thumbMaxRows-lipgloss.Height(s.imageThumbs[i]))/2), Col: rect.col + max(0, (rect.width-lipgloss.Width(s.imageThumbs[i]))/2), Sequence: s.imagePlace[i]})
 		}
 	}
 	return out
@@ -827,29 +836,62 @@ func (s *InputComponent) DirectPlacements() []DirectPlacement {
 // thumbnail starts.
 const thumbPaddingLeft = 1
 
-// thumbRowOffsets returns, for each pending image, the row its thumbnail
-// starts on relative to the top of this component's view, or -1 when that
-// image has no thumbnail yet.
-//
-// This mirrors the stacking order in View: the composer bar, then the "N
-// image(s) attached" label, then one block per rendered thumbnail.
-func (s *InputComponent) thumbRowOffsets() []int {
+type imageTileRect struct{ row, col, width, height int }
+
+// imageTileRects provides the single geometry source for rendering, direct
+// graphics placement, and mouse hit testing.
+func (s *InputComponent) imageTileRects() []imageTileRect {
 	if len(s.pendingImages) == 0 {
 		return nil
 	}
-	// The composer bar, followed by the attachment label.
-	row := lipgloss.Height(s.textarea.View()) + 1
-
-	offsets := make([]int, len(s.pendingImages))
-	for i := range s.pendingImages {
-		if i >= len(s.imageThumbs) || s.imageThumbs[i] == "" {
-			offsets[i] = -1
-			continue
-		}
-		offsets[i] = row
-		row += lipgloss.Height(s.imageThumbs[i])
+	tileWidth := min(thumbMaxCols+4, max(s.width-2, 1))
+	cols := max(s.width-2, 1)
+	perRow := max(cols/tileWidth, 1)
+	start := lipgloss.Height(lipgloss.NewStyle().Padding(0, 1).Width(s.width).Render(s.textarea.View())) + 1
+	r := make([]imageTileRect, len(s.pendingImages))
+	for i := range r {
+		rowGroup, colGroup := i/perRow, i%perRow
+		r[i] = imageTileRect{row: start + rowGroup*7, col: 1 + colGroup*tileWidth, width: tileWidth, height: 7}
 	}
-	return offsets
+	return r
+}
+
+// thumbRowOffsets returns the first image row for each attachment.
+func (s *InputComponent) thumbRowOffsets() []int {
+	r := make([]int, len(s.pendingImages))
+	for i, rect := range s.imageTileRects() {
+		r[i] = rect.row
+	}
+	return r
+}
+
+// ImageTileAt returns the image index and whether the remove button was hit.
+// Coordinates are relative to the top-left of the input view.
+func (s *InputComponent) ImageTileAt(x, y int) (index int, remove bool) {
+	for i, r := range s.imageTileRects() {
+		if r.row >= 0 && y >= r.row && y < r.row+r.height && x >= r.col && x < r.col+r.width {
+			return i, y == r.row+r.height-1 && x >= r.col+r.width-3
+		}
+	}
+	return -1, false
+}
+
+// RemoveImage removes a pending image and its preview resources.
+func (s *InputComponent) RemoveImage(index int) tea.Cmd {
+	if index < 0 || index >= len(s.pendingImages) {
+		return nil
+	}
+	cleanup := s.releaseImages()
+	s.pendingImages = append(s.pendingImages[:index], s.pendingImages[index+1:]...)
+	s.imageGen++
+	cmds := []tea.Cmd{cleanup}
+	for i, img := range s.pendingImages {
+		s.imageThumbs = append(s.imageThumbs, "")
+		s.imageIDs = append(s.imageIDs, 0)
+		s.imagePlace = append(s.imagePlace, "")
+		cmds = append(cmds, renderThumbnailCmd(img, s.thumbCols(), thumbMaxRows, style.GetTheme().Background, s.imageGen, i))
+	}
+	return tea.Batch(cmds...)
 }
 
 // View implements tea.Model. Renders the composer bar and any pending image
@@ -878,15 +920,24 @@ func (s *InputComponent) View() tea.View {
 			Foreground(theme.VeryMuted).
 			PaddingLeft(1)
 
-		label := fmt.Sprintf("%d image(s) attached · ctrl+u to clear", len(s.pendingImages))
+		label := fmt.Sprintf("%d image(s) attached · ctrl+o preview · ctrl+u clear", len(s.pendingImages))
 		view.WriteString("\n")
 		view.WriteString(imgStyle.Render(label))
 
-		thumbStyle := lipgloss.NewStyle().PaddingLeft(thumbPaddingLeft)
-		for i := range s.pendingImages {
+		rects := s.imageTileRects()
+		var tiles []string
+		for i, r := range rects {
+			thumb := "Loading…"
 			if i < len(s.imageThumbs) && s.imageThumbs[i] != "" {
-				view.WriteString("\n")
-				view.WriteString(thumbStyle.Render(s.imageThumbs[i]))
+				thumb = s.imageThumbs[i]
+			}
+			thumb = lipgloss.NewStyle().MaxWidth(r.width).MaxHeight(thumbMaxRows).Render(thumb)
+			area := lipgloss.Place(r.width, thumbMaxRows, lipgloss.Center, lipgloss.Center, thumb)
+			caption := fmt.Sprintf("%-*s[x]", max(0, r.width-3), fmt.Sprintf("%d", i+1))
+			tiles = append(tiles, area+"\n"+caption)
+			if i == len(rects)-1 || rects[i+1].row != r.row {
+				view.WriteString("\n" + lipgloss.NewStyle().PaddingLeft(1).Render(lipgloss.JoinHorizontal(lipgloss.Top, tiles...)))
+				tiles = nil
 			}
 		}
 	}

@@ -682,7 +682,10 @@ type AppModel struct {
 	appCtrl AppController
 
 	// input is the child input component (slash commands + autocomplete).
-	input inputComponentIface
+	input                  inputComponentIface
+	imagePreview           *imagePreviewModal
+	inputYOffset           int
+	imagePreviewGeneration int
 
 	// stream is the child streaming display component (spinner + streaming text).
 	stream streamComponentIface
@@ -1816,6 +1819,23 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushPendingStreamChunks()
 	}
 
+	if _, ok := msg.(attachmentPreviewReadyMsg); ok && m.imagePreview == nil {
+		return m, nil
+	}
+	if m.imagePreview != nil {
+		switch msg.(type) {
+		case attachmentPreviewReadyMsg, tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+			return m.updateImagePreview(msg)
+		}
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+o" && !m.modalActive() {
+		if m.input != nil {
+			if in, ok := m.input.(*InputComponent); ok && len(in.pendingImages) > 0 {
+				return m, m.openImagePreview(0)
+			}
+		}
+	}
+
 	// Prompt overlay takes precedence when active — it is fully modal.
 	if m.state == statePrompt && m.prompt != nil {
 		return m.updatePromptState(msg)
@@ -1986,6 +2006,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layoutDirty = true
+		if m.imagePreview != nil {
+			cmds = append(cmds, tea.Sequence(tea.Raw(imagepreview.DeleteImage(m.imagePreview.imageID)), m.openImagePreview(m.imagePreview.index)))
+		}
 		m.notifyResize()
 		// Update renderer width for proper message styling
 		m.renderer.SetWidth(m.width)
@@ -2043,6 +2066,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Mouse click selection (crush-style character-level) ──────────────────
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
+			if in, ok := m.input.(*InputComponent); ok && msg.Y >= m.inputYOffset {
+				if index, remove := in.ImageTileAt(msg.X, msg.Y-m.inputYOffset); index >= 0 {
+					if remove {
+						return m, in.RemoveImage(index)
+					}
+					return m, m.openImagePreview(index)
+				}
+			}
 			// Compute the scrollback origin from the current frame's layout
 			// rather than the stale cached value from the previous View().
 			// scrollbackYOffset/scrollList.height are only refreshed inside
@@ -3627,6 +3658,10 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, footerView)
 	}
 
+	m.inputYOffset = m.height - lipgloss.Height(inputView)
+	for _, part := range parts[inputPartIndex+1:] {
+		m.inputYOffset -= lipgloss.Height(part)
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Record where directly-placed images landed. This must happen with the
@@ -3687,6 +3722,9 @@ func (m *AppModel) View() tea.View {
 		finalContent = compositeAnchored(finalContent, m.overlay.Render(), m.overlay.Anchor(), m.width, m.height)
 	}
 
+	if m.imagePreview != nil {
+		finalContent = compositeCentered(finalContent, m.renderImagePreview(), m.width, m.height)
+	}
 	// Notice a repaint. The renderer scrolls the screen to update it, and a
 	// terminal scrolls its images along with the text, so any change to the
 	// frame can move an image that is not part of the frame. Hashing the
@@ -7491,6 +7529,7 @@ func (m *AppModel) followShellRun(id string) {
 func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPartIndex int) string {
 	placements := m.composerPlacements(parts, inputPartIndex)
 	placements = append(placements, m.transcriptPlacements(parts, scrollPartIndex)...)
+	placements = append(placements, m.imagePreviewPlacement()...)
 
 	var draw strings.Builder
 	drawn := make(map[uint32]struct{}, len(placements))
@@ -7551,6 +7590,9 @@ type gfxPlacement struct {
 // and deletes them outright when the attachment goes away, so tracking their
 // placements here would only duplicate that.
 func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxPlacement {
+	if m.imagePreview != nil {
+		return nil
+	}
 	ic, ok := m.input.(*InputComponent)
 	if !ok || inputPartIndex < 0 || inputPartIndex >= len(parts) {
 		return nil

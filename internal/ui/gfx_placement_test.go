@@ -29,7 +29,7 @@ import (
 func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 	const (
 		screenH   = 40
-		imageRows = 12
+		imageRows = thumbMaxRows
 		imageCols = 20
 	)
 
@@ -67,12 +67,12 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 
 	// The image must end on the row just above the status bar. If this fails
 	// the preview has drifted off the composer, which is the bug this guards.
-	if wantEnd := screenH - lipgloss.Height(statusBar); wantRow+imageRows-1 != wantEnd {
+	if wantEnd := screenH - lipgloss.Height(statusBar); wantRow+imageRows != wantEnd {
 		t.Errorf("image occupies rows %d-%d, want it to end at %d (just above the status bar)",
 			wantRow, wantRow+imageRows-1, wantEnd)
 	}
 
-	want := xansi.CursorPosition(thumbPaddingLeft+1, wantRow)
+	want := xansi.CursorPosition(ic.DirectPlacements()[0].Col+1, wantRow)
 	if !strings.Contains(got, want) {
 		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, got, want)
 	}
