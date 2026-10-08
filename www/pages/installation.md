@@ -1,6 +1,7 @@
 ---
 title: Installation
 description: Install Kit using the install script, npm, bun, pnpm, Nix, Go, or build from source.
+ogImage: /og-image.png
 ---
 
 # Installation

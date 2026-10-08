@@ -1,6 +1,7 @@
 ---
 title: Development
 description: Build, test, and contribute to Kit.
+ogImage: /og-image.png
 ---
 
 # Development

@@ -1,6 +1,7 @@
 ---
 title: Themes
 description: Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.
+ogImage: /og-image.png
 ---
 
 # Themes

@@ -1,6 +1,7 @@
 ---
 title: Commands
 description: Complete reference for all Kit CLI subcommands.
+ogImage: /og-image.png
 ---
 
 # Commands

@@ -1,6 +1,7 @@
 ---
 title: Providers
 description: Supported LLM providers and model configuration.
+ogImage: /og-image.png
 ---
 
 # Providers

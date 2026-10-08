@@ -1,6 +1,7 @@
 ---
 title: Testing with tmux
 description: Test Kit's TUI non-interactively using tmux.
+ogImage: /og-image.png
 ---
 
 # Testing with tmux

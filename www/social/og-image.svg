@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1">
+      <stop stop-color="#111116"/><stop offset="1" stop-color="#050507"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#e03030" stop-opacity=".2"/><stop offset="1" stop-color="#e03030" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ffffff" stroke-opacity=".035"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <ellipse cx="950" cy="290" rx="440" ry="370" fill="url(#glow)"/>
+  <rect x="0" y="0" width="1200" height="6" fill="#e03030"/>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="72" y="96" fill="#e85858" font-size="17" font-weight="bold" letter-spacing="4">YOUR TERMINAL. YOUR AGENT.</text>
+    <text x="66" y="255" fill="#fafafa" font-size="142" font-weight="bold" letter-spacing="-6">KIT<tspan fill="#e03030">.</tspan></text>
+    <text x="72" y="325" fill="#fafafa" font-size="35" font-weight="bold">The extensible</text>
+    <text x="72" y="375" fill="#fafafa" font-size="35" font-weight="bold">AI coding agent.</text>
+    <text x="72" y="432" fill="#a1a1ad" font-size="21">Any model. Powerful tools. Built in Go.</text>
+    <rect x="72" y="489" width="144" height="36" rx="6" fill="#19191f" stroke="#33333c"/>
+    <rect x="228" y="489" width="152" height="36" rx="6" fill="#19191f" stroke="#33333c"/>
+    <rect x="392" y="489" width="105" height="36" rx="6" fill="#19191f" stroke="#33333c"/>
+    <g fill="#c8c8d0" font-size="14" text-anchor="middle">
+      <text x="144" y="512">Multi-provider</text>
+      <text x="304" y="512">Go extensions</text>
+      <text x="444" y="512">MCP + SDK</text>
+    </g>
+    <text x="72" y="587" fill="#ededf0" font-size="18" font-weight="bold">go-kit.dev</text>
+    <text x="1128" y="587" fill="#747480" font-size="15" text-anchor="end">OPEN SOURCE / MIT</text>
+  </g>
+  <rect x="651" y="156" width="477" height="350" rx="14" fill="#09090d" stroke="#38313a" stroke-width="2"/>
+  <path d="M665 156 H1114 Q1128 156 1128 170 V204 H651 V170 Q651 156 665 156" fill="#1b191f"/>
+  <g><circle cx="676" cy="180" r="5" fill="#e03030"/><circle cx="695" cy="180" r="5" fill="#80636a"/><circle cx="714" cy="180" r="5" fill="#55515d"/></g>
+  <text x="1106" y="186" fill="#94909e" font-family="DejaVu Sans Mono, monospace" font-size="13" text-anchor="end">kit — ~/project</text>
+  <g font-family="DejaVu Sans Mono, monospace" font-size="19">
+    <text x="681" y="250" fill="#e85858">$ <tspan fill="#fafafa">kit</tspan></text>
+    <text x="681" y="301" fill="#fafafa">&gt; Build something great.</text>
+    <text x="681" y="359" fill="#9393a2">read   <tspan fill="#d8d8e0">Understand your code</tspan></text>
+    <text x="681" y="399" fill="#9393a2">edit   <tspan fill="#d8d8e0">Make it work</tspan></text>
+    <text x="681" y="439" fill="#9393a2">bash   <tspan fill="#d8d8e0">Test. Ship. Repeat.</tspan></text>
+  </g>
+  <rect x="681" y="466" width="11" height="20" fill="#e03030"/>
+</svg>

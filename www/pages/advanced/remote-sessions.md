@@ -1,6 +1,7 @@
 ---
 title: Remote Sessions
 description: Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.
+ogImage: /og-image.png
 ---
 
 # Remote Sessions

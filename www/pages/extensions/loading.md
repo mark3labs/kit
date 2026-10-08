@@ -1,6 +1,7 @@
 ---
 title: Loading Extensions
 description: How Kit discovers and loads extensions.
+ogImage: /og-image.png
 ---
 
 # Loading Extensions

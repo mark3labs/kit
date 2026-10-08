@@ -1,7 +1,8 @@
 ---
-title: Kit
-description: Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
+title: The extensible AI coding agent
+description: Build with Kit, an open-source AI coding agent for your terminal. Choose your model, add Go extensions, connect MCP tools, or embed the Go SDK.
 toc: false
+ogImage: /og-image.png
 ---
 
 <div style="text-align: center; margin: 2rem 0;">

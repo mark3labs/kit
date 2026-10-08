@@ -1,6 +1,7 @@
 ---
 title: Global Flags
 description: Complete reference for all Kit CLI flags.
+ogImage: /og-image.png
 ---
 
 # Global Flags

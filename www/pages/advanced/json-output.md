@@ -1,6 +1,7 @@
 ---
 title: JSON Output
 description: Machine-readable JSON output for scripting and automation.
+ogImage: /og-image.png
 ---
 
 # JSON Output

@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "tome dev",
-    "build": "tome build",
+    "build": "tome build && node social/write-meta.mjs && node social/check-meta.mjs",
+    "check:meta": "node social/check-meta.mjs",
+    "og:image": "magick -background none social/og-image.svg -strip public/og-image.png",
     "deploy": "tome deploy"
   },
   "devDependencies": {
@@ -14,6 +16,6 @@
     "react-dom": "^19.3.0"
   },
   "overrides": {
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

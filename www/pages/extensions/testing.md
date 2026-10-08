@@ -1,6 +1,7 @@
 ---
 title: Testing Extensions
 description: Write unit tests for your Kit extensions using the test package.
+ogImage: /og-image.png
 ---
 
 # Testing Extensions

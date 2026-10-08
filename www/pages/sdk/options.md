@@ -1,6 +1,7 @@
 ---
 title: SDK Options
 description: Configuration options for the Kit Go SDK.
+ogImage: /og-image.png
 ---
 
 # SDK Options

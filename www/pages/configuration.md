@@ -1,6 +1,7 @@
 ---
 title: Configuration
 description: Configure Kit using config files, environment variables, and CLI flags.
+ogImage: /og-image.png
 ---
 
 # Configuration

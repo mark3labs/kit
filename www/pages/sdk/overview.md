@@ -1,6 +1,7 @@
 ---
 title: Go SDK
 description: Embed Kit in your Go applications.
+ogImage: /og-image.png
 ---
 
 # Go SDK

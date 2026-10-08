@@ -1,6 +1,7 @@
 ---
 title: Code Mode
 description: Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.
+ogImage: /og-image.png
 ---
 
 # Code Mode

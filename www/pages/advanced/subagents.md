@@ -1,6 +1,7 @@
 ---
 title: Subagents
 description: Multi-agent orchestration with Kit subagents.
+ogImage: /og-image.png
 ---
 
 # Subagents

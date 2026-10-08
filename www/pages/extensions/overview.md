@@ -1,6 +1,7 @@
 ---
 title: Extension System
 description: Overview of Kit's Go-based extension system.
+ogImage: /og-image.png
 ---
 
 # Extension System

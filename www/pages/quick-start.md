@@ -1,6 +1,7 @@
 ---
 title: Quick Start
 description: Get up and running with Kit in minutes.
+ogImage: /og-image.png
 ---
 
 # Quick Start

@@ -1,6 +1,7 @@
 ---
 title: Examples
 description: Catalog of example extensions included with Kit.
+ogImage: /og-image.png
 ---
 
 # Extension Examples

@@ -1,6 +1,7 @@
 ---
 title: Capabilities
 description: All extension capabilities — lifecycle events, tools, commands, widgets, and more.
+ogImage: /og-image.png
 ---
 
 # Extension Capabilities

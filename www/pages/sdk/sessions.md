@@ -1,6 +1,7 @@
 ---
 title: SDK Sessions
 description: Session management in the Kit Go SDK.
+ogImage: /og-image.png
 ---
 
 # SDK Sessions

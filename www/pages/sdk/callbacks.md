@@ -1,6 +1,7 @@
 ---
 title: Callbacks
 description: Monitor tool calls and streaming output with the Kit Go SDK.
+ogImage: /og-image.png
 ---
 
 # Callbacks

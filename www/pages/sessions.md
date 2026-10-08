@@ -1,6 +1,7 @@
 ---
 title: Session Management
 description: How Kit persists and manages conversation sessions.
+ogImage: /og-image.png
 ---
 
 # Session Management
