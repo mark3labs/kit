@@ -285,6 +285,35 @@ func TestSetSessionName(t *testing.T) {
 	}
 }
 
+func TestSetSessionNameRollbackOnDaemonFailure(t *testing.T) {
+	_, tm := newSessionApp(t)
+	if _, err := tm.AppendSessionInfo("original"); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("daemon unavailable")
+	err := setSessionName(tm, "new", func(string) error { return wantErr })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want daemon error", err)
+	}
+	if got := tm.GetSessionName(); got != "original" {
+		t.Errorf("session name = %q, want original", got)
+	}
+}
+
+func TestSetSessionNameParsesIDBeforeMutation(t *testing.T) {
+	a, tm := newSessionApp(t)
+	a.opts.DaemonSessionID = "not-an-id"
+	if _, err := tm.AppendSessionInfo("original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetSessionName("new"); err == nil {
+		t.Fatal("expected invalid daemon session ID error")
+	}
+	if got := tm.GetSessionName(); got != "original" {
+		t.Errorf("session name = %q, want original", got)
+	}
+}
+
 func TestSessionHistoryIncludesIncompleteTranscriptOnly(t *testing.T) {
 	a, tm := newSessionApp(t)
 	appendUserMessage(t, tm, "go")
