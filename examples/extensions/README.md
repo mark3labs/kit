@@ -198,6 +198,6 @@ kit install github.com/mark3labs/kit/examples/extensions --update
 
 ## See Also
 
-- [Kit Extensions Guide](https://github.com/mark3labs/kit/blob/main/.agents/skills/kit-extensions/SKILL.md)
-- [API Reference](https://github.com/mark3labs/kit/blob/main/internal/extensions/api.go)
-- [Example Extensions Source](https://github.com/mark3labs/kit/tree/main/examples/extensions)
+- [Kit Extensions Guide](https://github.com/mark3labs/kit/blob/master/.agents/skills/kit-extensions/SKILL.md)
+- [API Reference](https://github.com/mark3labs/kit/blob/master/internal/extensions/api.go)
+- [Example Extensions Source](https://github.com/mark3labs/kit/tree/master/examples/extensions)

@@ -120,7 +120,7 @@ kit install github.com/user/repo
 
 # Pin to a specific version/tag
 kit install github.com/user/repo@v1.0.0
-kit install github.com/user/repo@main
+kit install github.com/user/repo@master
 kit install github.com/user/repo@abc1234
 
 # Install locally in project (./.kit/git/)

@@ -10,8 +10,8 @@ Open a GitHub pull request for the current branch, filling out the repository's 
    - `git status -sb` and `git log @{u}..HEAD --oneline 2>/dev/null` — if there is no upstream or unpushed commits, run `git push -u origin "$(git branch --show-current)"` first
    - If the working tree is dirty, stop and tell the user to commit first (suggest `/commit-push`)
 2. **Gather context**:
-   - `git log origin/main..HEAD --oneline` — list of commits going into the PR
-   - `git diff origin/main...HEAD --stat` then `git diff origin/main...HEAD` — read the actual changes
+   - `git log origin/master..HEAD --oneline` — list of commits going into the PR
+   - `git diff origin/master...HEAD --stat` then `git diff origin/master...HEAD` — read the actual changes
    - Identify the linked issue (from commit messages, branch name, or extra user input: $@) — capture as `Fixes #N` if applicable
 3. **Locate the PR template**:
    - Check `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE.md`, or `docs/pull_request_template.md`
@@ -30,10 +30,10 @@ Open a GitHub pull request for the current branch, filling out the repository's 
    gh pr create \
      --title "<title>" \
      --body-file /tmp/pr-body-<...>.md \
-     --base main \
+     --base master \
      --head "$(git branch --show-current)"
    ```
-   Use the repo's actual default branch if it isn't `main` (`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`)
+   Use the repo's actual default branch if it isn't `master` (`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`)
 8. **Report the PR URL** returned by `gh` and stop
 
 ## Guidelines

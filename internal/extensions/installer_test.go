@@ -109,11 +109,11 @@ func TestParseGitSource(t *testing.T) {
 		},
 		{
 			name:       "with branch ref",
-			source:     "github.com/user/repo@main",
+			source:     "github.com/user/repo@master",
 			wantRepo:   "https://github.com/user/repo.git",
 			wantHost:   "github.com",
 			wantPath:   "user/repo",
-			wantRef:    "main",
+			wantRef:    "master",
 			wantPinned: true,
 		},
 		{

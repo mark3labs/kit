@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Kit Documentation
-    url: https://github.com/mark3labs/kit/tree/main/www/pages
+    url: https://github.com/mark3labs/kit/tree/master/www/pages
     about: Check the documentation before filing an issue
   - name: Extension Examples
-    url: https://github.com/mark3labs/kit/tree/main/examples/extensions
+    url: https://github.com/mark3labs/kit/tree/master/examples/extensions
     about: See working extension examples for reference
   - name: Discussions
     url: https://github.com/mark3labs/kit/discussions

@@ -3830,7 +3830,7 @@ func (m *AppModel) renderScrollback() string {
 // renderStatusBar renders the ambient footer: a single muted line carrying
 // context that is true regardless of what the agent is doing.
 //
-//	~/Workspace/kit (main)        anthropic · claude-opus-5 · 7.2K · $0.02
+//	~/Workspace/kit (master)        anthropic · claude-opus-5 · 7.2K · $0.02
 //
 // Live activity deliberately does not appear here — it owns the activity row
 // directly above the composer (see renderActivityRow). Keeping the two apart

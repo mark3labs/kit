@@ -37,7 +37,7 @@ Supported URL formats:
 
 You can pin to a specific version, tag, or commit using @:
   - github.com/user/repo@v1.0.0
-  - github.com/user/repo@main
+  - github.com/user/repo@master
   - github.com/user/repo@abc1234
 
 Examples:

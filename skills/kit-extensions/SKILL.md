@@ -179,10 +179,10 @@ Read the file that matches the task. Paths are relative to this skill's root dir
 
 ## Key Files for Reference
 
-- [`internal/extensions/api.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/api.go) — Complete API type definitions
-- [`internal/extensions/runner.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/runner.go) — Event dispatch and state management
-- [`internal/extensions/loader.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/loader.go) — Yaegi interpreter setup
-- [`internal/extensions/symbols.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/symbols.go) — All types exported to extensions
-- [`pkg/extensions/test/`](https://github.com/mark3labs/kit/tree/main/pkg/extensions/test) — Testing package with harness, mocks, and assertions
-- [`examples/extensions/tool-logger_test.go`](https://github.com/mark3labs/kit/blob/main/examples/extensions/tool-logger_test.go) — Complete test example
-- [`examples/extensions/`](https://github.com/mark3labs/kit/tree/main/examples/extensions) — 25+ working example extensions
+- [`internal/extensions/api.go`](https://github.com/mark3labs/kit/blob/master/internal/extensions/api.go) — Complete API type definitions
+- [`internal/extensions/runner.go`](https://github.com/mark3labs/kit/blob/master/internal/extensions/runner.go) — Event dispatch and state management
+- [`internal/extensions/loader.go`](https://github.com/mark3labs/kit/blob/master/internal/extensions/loader.go) — Yaegi interpreter setup
+- [`internal/extensions/symbols.go`](https://github.com/mark3labs/kit/blob/master/internal/extensions/symbols.go) — All types exported to extensions
+- [`pkg/extensions/test/`](https://github.com/mark3labs/kit/tree/master/pkg/extensions/test) — Testing package with harness, mocks, and assertions
+- [`examples/extensions/tool-logger_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) — Complete test example
+- [`examples/extensions/`](https://github.com/mark3labs/kit/tree/master/examples/extensions) — 25+ working example extensions

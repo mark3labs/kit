@@ -52,7 +52,7 @@ Anything inside triple-backtick fences, `~~~` fences, or single-backtick `inline
 2. **Use a 4-space-indented code block** instead of a triple-backtick fence — kit only skips backtick/tilde fences, so indentation-style code blocks still get substitution:
 
        git push -u origin "$(git branch --show-current)"
-       gh pr create --title "fix: ... (#$1)" --base main
+       gh pr create --title "fix: ... (#$1)" --base master
 
 3. **Bind once, reference loosely**: put `Issue: $1` at the top in prose, then leave the backticked examples literal — the model will substitute mentally
 

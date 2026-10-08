@@ -227,7 +227,7 @@ type Context struct {
 	// Example:
 	//
 	//   ctx.SetHeader(ext.HeaderFooterConfig{
-	//       Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+	//       Content: ext.WidgetContent{Text: "Project: my-app | Branch: master"},
 	//       Style:   ext.WidgetStyle{BorderColor: "#89b4fa"},
 	//   })
 	SetHeader func(HeaderFooterConfig)
@@ -486,7 +486,7 @@ type Context struct {
 	//
 	// Example:
 	//
-	//   ctx.SetStatus("myext:branch", "main", 50)
+	//   ctx.SetStatus("myext:branch", "master", 50)
 	SetStatus func(key string, text string, priority int)
 
 	// RemoveStatus removes a keyed status bar entry. No-op if the key

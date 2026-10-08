@@ -57,7 +57,7 @@ body:
     attributes:
       label: Kit Version
       description: What version of Kit are you running?
-      placeholder: e.g., v0.1.0, commit hash, or "main"
+      placeholder: e.g., v0.1.0, commit hash, or "master"
 
   - type: textarea
     id: context

@@ -35,7 +35,7 @@ const issueCommentEvent = `{
     "user": {"login": "alice"}
   },
   "issue": {"number": 42, "title": "Parser crashes on empty input", "body": "It panics."},
-  "repository": {"full_name": "acme/widgets", "default_branch": "main"}
+  "repository": {"full_name": "acme/widgets", "default_branch": "master"}
 }`
 
 func TestExtractRequest(t *testing.T) {
@@ -143,7 +143,7 @@ func TestRunGitHub_PullRequestReviewComment(t *testing.T) {
     "user": {"login": "bob"}
   },
   "pull_request": {"number": 7, "title": "Add caching", "body": "Speeds things up."},
-  "repository": {"full_name": "acme/widgets", "default_branch": "main"}
+  "repository": {"full_name": "acme/widgets", "default_branch": "master"}
 }`)
 	event, _ := loadGitHubEvent()
 	tr, err := buildTrigger(event)

@@ -18,9 +18,15 @@ Resolve GitHub issue #$1 by reading it, classifying it, and producing the approp
    - `question` / `discussion` → answer in a comment, do **not** write code
    - Anything else → ask the user how to proceed
 
-3. **Create a working branch** off the default branch:
-   - `git checkout main && git pull --ff-only`
+3. **Create a working branch and a new worktree** off the default branch:
+   - Get the default branch: `default_branch=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)`
+   - Update the remote branch: `git fetch origin "$default_branch"`
    - Branch name: <type>/$1-<slug> (e.g. `fix/42-borderColor-ignored`, `feat/57-keyboard-clear`, `docs/63-widget-lifecycle`)
+   - Set `branch` to the branch name and `repo` to the repository name. Set `worktree="$HOME/Workspace/worktrees/$repo-${branch//\//-}"`.
+   - Create the directory: `mkdir -p "$HOME/Workspace/worktrees"`
+   - Create the branch and worktree: `git worktree add -b "$branch" "$worktree" "origin/$default_branch"`
+   - Do not switch branches in the original working tree. If the branch or worktree already exists, stop and ask the user how to proceed.
+   - Change to the new worktree with `cd "$worktree"`. Run all subsequent edits, tests, and Git commands there.
 
 4. **Do the work** based on type:
 
@@ -44,6 +50,7 @@ Resolve GitHub issue #$1 by reading it, classifying it, and producing the approp
    - No tests required, but run `golangci-lint run` if Go files were touched
 
 5. **Report**:
+   - Worktree path (`pwd`)
    - Branch name (`git branch --show-current`)
    - Summary of files changed (`git status -s`) and the diff highlights
    - Test/lint results (pass/fail with key output)
@@ -57,5 +64,5 @@ Resolve GitHub issue #$1 by reading it, classifying it, and producing the approp
 - If the issue is unclear, post a clarifying comment on the issue and stop; do not guess
 - Keep the change scoped to the issue; surface unrelated cleanups separately
 - For breaking changes or architecture shifts, propose the design on the issue first and wait for maintainer sign-off
-- If the issue is a duplicate or already fixed on `main`, comment with the reference and stop
+- If the issue is a duplicate or already fixed on `master`, comment with the reference and stop
 - Do not close the issue manually — the eventual PR's `Fixes #$1` handles that on merge
