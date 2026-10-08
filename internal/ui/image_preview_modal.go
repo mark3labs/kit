@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -22,13 +23,15 @@ type attachmentPreviewReadyMsg struct{ thumbnailReadyMsg }
 func (m *AppModel) openImagePreview(index int) tea.Cmd {
 	m.imagePreviewGeneration++
 	m.imagePreview = &imagePreviewModal{index: index, generation: m.imagePreviewGeneration}
-	var drops string
+	var drops strings.Builder
 	if in, ok := m.input.(*InputComponent); ok {
-		for _, id := range in.imageIDs {
-			drops += imagepreview.DeletePlacements(id)
+		for i, id := range in.imageIDs {
+			if i < len(in.imagePlace) && in.imagePlace[i] != "" {
+				drops.WriteString(imagepreview.DeletePlacements(id))
+			}
 		}
 	}
-	return tea.Sequence(tea.Raw(drops), m.renderImagePreviewCmd())
+	return tea.Sequence(tea.Raw(drops.String()), m.renderImagePreviewCmd())
 }
 
 func (m *AppModel) renderImagePreviewCmd() tea.Cmd {
