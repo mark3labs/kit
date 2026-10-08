@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and model configuration.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
+var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and model configuration.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
 <p>Kit supports a wide range of LLM providers through a unified <code>provider/model</code> string format.</p>
 <h2 id="supported-providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#supported-providers"><span class="icon icon-link"></span></a>Supported providers</h2>
 <table>

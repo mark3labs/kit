@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`SDK Options`,description:`Configuration options for the Kit Go SDK.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="sdk-options"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sdk-options"><span class="icon icon-link"></span></a>SDK Options</h1>
+var e={frontmatter:{title:`SDK Options`,description:`Configuration options for the Kit Go SDK.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="sdk-options"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sdk-options"><span class="icon icon-link"></span></a>SDK Options</h1>
 <p>Pass an <code>Options</code> struct to <code>kit.New()</code> to configure the Kit instance.</p>
 <blockquote>
 <p><strong>Tip:</strong> for simple setups, <code>kit.NewAgent(ctx, ...Option)</code> provides

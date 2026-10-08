@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Capabilities`,description:`All extension capabilities — lifecycle events, tools, commands, widgets, and more.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
+var e={frontmatter:{title:`Capabilities`,description:`All extension capabilities — lifecycle events, tools, commands, widgets, and more.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
 <p>Extensions can hook into 30 lifecycle events:</p>
 <table>

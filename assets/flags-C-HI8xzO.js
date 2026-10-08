@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Global Flags`,description:`Complete reference for all Kit CLI flags.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="global-flags"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#global-flags"><span class="icon icon-link"></span></a>Global Flags</h1>
+var e={frontmatter:{title:`Global Flags`,description:`Complete reference for all Kit CLI flags.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="global-flags"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#global-flags"><span class="icon icon-link"></span></a>Global Flags</h1>
 <p>All flags can be passed to the root <code>kit</code> command.</p>
 <h2 id="model-and-provider"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-and-provider"><span class="icon icon-link"></span></a>Model and provider</h2>
 <table>

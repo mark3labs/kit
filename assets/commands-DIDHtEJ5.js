@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Commands`,description:`Complete reference for all Kit CLI subcommands.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#commands"><span class="icon icon-link"></span></a>Commands</h1>
+var e={frontmatter:{title:`Commands`,description:`Complete reference for all Kit CLI subcommands.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#commands"><span class="icon icon-link"></span></a>Commands</h1>
 <h2 id="authentication"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#authentication"><span class="icon icon-link"></span></a>Authentication</h2>
 <p>Anthropic, OpenAI and GitHub Copilot use OAuth flows. Every other provider
 in the model database takes an API key.</p>

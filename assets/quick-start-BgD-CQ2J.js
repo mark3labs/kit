@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Quick Start`,description:`Get up and running with Kit in minutes.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="quick-start"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#quick-start"><span class="icon icon-link"></span></a>Quick Start</h1>
+var e={frontmatter:{title:`Quick Start`,description:`Get up and running with Kit in minutes.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="quick-start"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#quick-start"><span class="icon icon-link"></span></a>Quick Start</h1>
 <h2 id="basic-usage"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#basic-usage"><span class="icon icon-link"></span></a>Basic usage</h2>
 <p>Start an interactive session:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span></span></code></pre>

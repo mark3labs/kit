@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Loading Extensions`,description:`How Kit discovers and loads extensions.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="loading-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#loading-extensions"><span class="icon icon-link"></span></a>Loading Extensions</h1>
+var e={frontmatter:{title:`Loading Extensions`,description:`How Kit discovers and loads extensions.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="loading-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#loading-extensions"><span class="icon icon-link"></span></a>Loading Extensions</h1>
 <h2 id="auto-discovery"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#auto-discovery"><span class="icon icon-link"></span></a>Auto-discovery</h2>
 <p>Kit automatically discovers and loads extensions from these paths, in order:</p>
 <table>

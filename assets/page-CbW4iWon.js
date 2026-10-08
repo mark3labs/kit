@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Kit`,description:`Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.`,hidden:!1,toc:!1,draft:!1},html:`<div style="text-align: center; margin: 2rem 0;">
+var e={frontmatter:{title:`The extensible AI coding agent`,description:`Build with Kit, an open-source AI coding agent for your terminal. Choose your model, add Go extensions, connect MCP tools, or embed the Go SDK.`,hidden:!1,toc:!1,ogImage:`/og-image.png`,draft:!1},html:`<div style="text-align: center; margin: 2rem 0;">
   <img src="/logo.jpg" alt="KIT" style="max-width: 400px; width: 100%; margin: 0 auto; display: block;">
 </div>
 <p>A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.</p>

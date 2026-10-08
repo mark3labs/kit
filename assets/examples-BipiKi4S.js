@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Examples`,description:`Catalog of example extensions included with Kit.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-examples"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-examples"><span class="icon icon-link"></span></a>Extension Examples</h1>
+var e={frontmatter:{title:`Examples`,description:`Catalog of example extensions included with Kit.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="extension-examples"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-examples"><span class="icon icon-link"></span></a>Extension Examples</h1>
 <p>Kit ships with a rich set of example extensions in the <code>examples/extensions/</code> directory. These serve as both documentation and starting points for your own extensions.</p>
 <h2 id="ui-and-display"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#ui-and-display"><span class="icon icon-link"></span></a>UI and display</h2>
 <table>

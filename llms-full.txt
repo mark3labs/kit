@@ -4119,7 +4119,7 @@ See `examples/extensions/tool-logger_test.go` for a complete example with 14 tes
 
 ---
 
-## Kit
+## The extensible AI coding agent
 
 <div style="text-align: center; margin: 2rem 0;">
   <img src="/logo.jpg" alt="KIT" style="max-width: 400px; width: 100%; margin: 0 auto; display: block;" />

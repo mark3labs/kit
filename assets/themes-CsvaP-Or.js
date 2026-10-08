@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Themes`,description:`Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themes"><span class="icon icon-link"></span></a>Themes</h1>
+var e={frontmatter:{title:`Themes`,description:`Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themes"><span class="icon icon-link"></span></a>Themes</h1>
 <p>Kit ships with 22 built-in color themes and supports custom themes via YAML/JSON files or the extension API. Themes control all UI colors: input borders, popups, system messages, markdown rendering, syntax highlighting, and diff displays.</p>
 <h2 id="quick-start"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#quick-start"><span class="icon icon-link"></span></a>Quick start</h2>
 <p>Switch themes at runtime with the <code>/theme</code> command:</p>

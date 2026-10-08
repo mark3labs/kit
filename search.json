@@ -349,8 +349,8 @@
     {
       "id": "index",
       "url": "https://go-kit.dev/",
-      "title": "Kit",
-      "description": "Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.",
+      "title": "The extensible AI coding agent",
+      "description": "Build with Kit, an open-source AI coding agent for your terminal. Choose your model, add Go extensions, connect MCP tools, or embed the Go SDK.",
       "headings": [
         "Features",
         "Quick links"

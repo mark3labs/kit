@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Configuration`,description:`Configure Kit using config files, environment variables, and CLI flags.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#configuration"><span class="icon icon-link"></span></a>Configuration</h1>
+var e={frontmatter:{title:`Configuration`,description:`Configure Kit using config files, environment variables, and CLI flags.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#configuration"><span class="icon icon-link"></span></a>Configuration</h1>
 <p>Kit looks for configuration in the following locations, in order of priority:</p>
 <ol>
 <li>CLI flags</li>

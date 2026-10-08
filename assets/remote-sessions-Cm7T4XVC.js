@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Remote Sessions`,description:`Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="remote-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#remote-sessions"><span class="icon icon-link"></span></a>Remote Sessions</h1>
+var e={frontmatter:{title:`Remote Sessions`,description:`Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="remote-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#remote-sessions"><span class="icon icon-link"></span></a>Remote Sessions</h1>
 <p>Kit can run as a daemon that hosts <strong>detachable sessions</strong>: a session keeps
 running when you close the terminal, and you can reattach to it later,
 switch between several like tmux, or share one with someone else. The

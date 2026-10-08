@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration with Kit subagents.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagents"><span class="icon icon-link"></span></a>Subagents</h1>
+var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration with Kit subagents.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagents"><span class="icon icon-link"></span></a>Subagents</h1>
 <p>Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.</p>
 <h2 id="subprocess-pattern"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subprocess-pattern"><span class="icon icon-link"></span></a>Subprocess pattern</h2>
 <p>Spawn Kit as a subprocess for isolated agent execution:</p>

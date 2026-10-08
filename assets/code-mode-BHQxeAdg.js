@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Code Mode`,description:`Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="code-mode"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#code-mode"><span class="icon icon-link"></span></a>Code Mode</h1>
+var e={frontmatter:{title:`Code Mode`,description:`Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="code-mode"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#code-mode"><span class="icon icon-link"></span></a>Code Mode</h1>
 <p>In code mode the model gets one more tool, <code>codemode</code>. Its input is a
 JavaScript program. The program calls Kit's other tools, combines and filters
 their results, and returns a small answer. <strong>Only the program's output goes

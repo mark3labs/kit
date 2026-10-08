@@ -1,4 +1,4 @@
-var e={frontmatter:{title:`Session Management`,description:`How Kit persists and manages conversation sessions.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="session-management"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-management"><span class="icon icon-link"></span></a>Session Management</h1>
+var e={frontmatter:{title:`Session Management`,description:`How Kit persists and manages conversation sessions.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="session-management"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-management"><span class="icon icon-link"></span></a>Session Management</h1>
 <p>Kit uses a tree-based session model that supports branching and forking conversations.</p>
 <blockquote>
 <p><strong>This page is about conversation sessions</strong> — the JSONL transcript Kit
