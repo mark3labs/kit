@@ -40,6 +40,8 @@ import (
 const (
 	// RemoteSessionEnv marks a child as running inside a daemon session.
 	RemoteSessionEnv = "KIT_REMOTE_SESSION"
+	// SessionIDEnv identifies the active local daemon session to its child.
+	SessionIDEnv = "KIT_DAEMON_SESSION_ID"
 
 	// RemoteBackgroundEnv holds the CLIENT terminal's background colour as
 	// "#rrggbb", or BackgroundUnknown when that terminal was asked and did

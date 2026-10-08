@@ -54,6 +54,8 @@ const (
 	// FrameSessionRename sets a session's display name so a list of many
 	// sessions stays readable.
 	FrameSessionRename FrameType = 0x0d // client -> daemon: {id u64 BE, name UTF-8}
+	FrameSessionKill FrameType = 0x1a // client -> daemon: {id u64 BE}
+	FrameSessionControlResult FrameType = 0x1b // daemon -> client: JSON {error,omitempty}
 	// FrameTerminal describes the CLIENT's terminal to the daemon (JSON,
 	// see TerminalInfo). A daemon owns a PTY, not a terminal, and a PTY
 	// reports no colour depth and answers no background-colour query, so

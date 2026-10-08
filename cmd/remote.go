@@ -33,7 +33,7 @@ After pairing, reconnect by the name you saved — no code needed:
 The session runs entirely on the host; this terminal just renders it.
 Ctrl-] d detaches; /quit ends the session.
 
-'kit attach --host <name>' is the same thing with session switching:
+'kit session attach --host <name>' is the same thing with session switching:
 Ctrl-] s picks another session, Ctrl-] w lists every paired host.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -64,6 +64,7 @@ Ctrl-] s picks another session, Ctrl-] w lists every paired host.`,
 			}
 			return daemon.RunPair(ctx, daemon.PairOptions{Code: code, Name: remoteHost})
 		case remoteHost != "":
+			fmt.Fprintln(cmd.ErrOrStderr(), "Deprecated: use 'kit session attach --host' to attach to remote sessions.")
 			return daemon.RunHost(ctx, remoteHost, daemon.AttachOptions{
 				Pick: localPicker,
 			})

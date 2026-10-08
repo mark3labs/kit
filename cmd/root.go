@@ -1451,6 +1451,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		SetThinkingLevel:         act.setThinkingLevel,
 		SwitchSession:            act.switchSession,
 		ReloadExtensions:         act.reloadExtensions,
+		KillSession:              act.killHostedSession,
 		ShowSessionPicker:        resumeFlag,
 		GetMCPResources:          prov.getMCPResources,
 		MCPResourceReader:        act.readMCPResource,

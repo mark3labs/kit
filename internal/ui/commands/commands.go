@@ -115,6 +115,11 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/re"},
 	},
 	{
+		Name:        "/kill",
+		Description: "Stop this daemon session, or quit Kit",
+		Category:    "System",
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",

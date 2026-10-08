@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	charmlog "github.com/charmbracelet/log"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/ui"
@@ -103,6 +105,7 @@ type uiActions struct {
 	setThinkingLevel        func(string) error
 	switchSession           func(string) error
 	reloadExtensions        func() error
+	killHostedSession       func() error
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +520,18 @@ func buildUIProviders(k *kit.Kit) uiProviders {
 	}
 }
 
+func killHostedSessionForUI() error {
+	rawID := os.Getenv(daemon.SessionIDEnv)
+	if rawID == "" {
+		return fmt.Errorf("daemon session ID is not set")
+	}
+	id, err := strconv.ParseUint(rawID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid daemon session ID: %w", err)
+	}
+	return daemon.KillSession(context.Background(), id)
+}
+
 // buildUIActions wires the callbacks the TUI invokes to change state or emit
 // extension events.
 func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTracker) uiActions {
@@ -569,6 +584,12 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			return nil
 		},
 		// reloadExtensions backs the /reload-ext command and the file watcher.
+		killHostedSession: func() func() error {
+			if os.Getenv(daemon.SessionIDEnv) == "" {
+				return nil
+			}
+			return killHostedSessionForUI
+		}(),
 		reloadExtensions: func() error {
 			if err := k.Extensions().Reload(); err != nil {
 				return err
