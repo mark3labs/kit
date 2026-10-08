@@ -29,7 +29,7 @@ import (
 func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 	const (
 		screenH   = 40
-		imageRows = 12
+		imageRows = thumbMaxRows
 		imageCols = 20
 	)
 
@@ -67,12 +67,12 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 
 	// The image must end on the row just above the status bar. If this fails
 	// the preview has drifted off the composer, which is the bug this guards.
-	if wantEnd := screenH - lipgloss.Height(statusBar); wantRow+imageRows-1 != wantEnd {
+	if wantEnd := screenH - lipgloss.Height(statusBar); wantRow+imageRows != wantEnd {
 		t.Errorf("image occupies rows %d-%d, want it to end at %d (just above the status bar)",
 			wantRow, wantRow+imageRows-1, wantEnd)
 	}
 
-	want := xansi.CursorPosition(thumbPaddingLeft+1, wantRow)
+	want := xansi.CursorPosition(ic.DirectPlacements()[0].Col+1, wantRow)
 	if !strings.Contains(got, want) {
 		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, got, want)
 	}
@@ -95,6 +95,27 @@ func TestComputeGfxPlacementEmptyWithoutImages(t *testing.T) {
 
 // Half-block and placeholder thumbnails draw themselves as text and must not
 // produce a placement.
+func TestComputeGfxPlacementHidesComposerImageBehindModal(t *testing.T) {
+	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	m := &AppModel{height: 40, width: 80, gfxPlaced: make(map[uint32]struct{})}
+	ic := NewInputComponent(80, nil)
+	ic.pendingImages = make([]uicore.ImageAttachment, 1)
+	ic.imageThumbs = []string{strings.Repeat(" ", 20) + "\n" + strings.Repeat(" ", 20)}
+	ic.imageIDs = []uint32{77}
+	ic.imagePlace = []string{"\x1b_Ga=p,i=77\\"}
+	m.input = ic
+	parts := []string{"scroll", ic.View().Content, "status"}
+	if got := m.computeGfxPlacement(parts, 1, -1); !strings.Contains(got, "a=p,i=77") {
+		t.Fatalf("initial placement missing: %q", got)
+	}
+	m.state = stateModelSelector
+	got := m.computeGfxPlacement(parts, 1, -1)
+	if strings.Contains(got, "a=p,i=77") || !strings.Contains(got, "a=d,d=i,i=77") {
+		t.Fatalf("modal should remove composer placement: %q", got)
+	}
+}
+
 func TestComputeGfxPlacementIgnoresTextThumbnails(t *testing.T) {
 	m := &AppModel{height: 40, width: 80}
 	ic := NewInputComponent(80, nil)
@@ -125,8 +146,14 @@ func TestFlushGfxPlacementRedrawsAfterRepaint(t *testing.T) {
 	if cmd := m.flushGfxPlacement(); cmd == nil {
 		t.Fatal("no placement written after a repaint")
 	}
+	if !m.gfxFlushPending || !m.gfxDirty {
+		t.Fatal("placement was not deferred")
+	}
+	if m.completeGfxFlush() == nil {
+		t.Fatal("deferred placement not written")
+	}
 	if m.gfxDirty {
-		t.Error("gfxDirty still set after the placement was written")
+		t.Fatal("dirty flag not cleared")
 	}
 
 	// Nothing has changed since, so nothing more should be written. Without
@@ -508,5 +535,21 @@ func TestTranscriptPlacementYieldsToModals(t *testing.T) {
 	}
 	if !strings.Contains(got, "a=d") || !strings.Contains(got, "i=7") {
 		t.Errorf("image 7 not removed while the modal is up: %q", got)
+	}
+}
+
+func TestGfxDeletionSurvivesRepeatedViews(t *testing.T) {
+	m := &AppModel{width: 80, height: 40, gfxPlaced: map[uint32]struct{}{7: {}}}
+	first := m.computeGfxPlacement(nil, -1, -1)
+	second := m.computeGfxPlacement(nil, -1, -1)
+	if first == "" || second != first {
+		t.Fatalf("deletion lost before flush: %q -> %q", first, second)
+	}
+	m.gfxPlacement, m.gfxDirty = second, true
+	if m.completeGfxFlush() == nil {
+		t.Fatal("missing deletion")
+	}
+	if got := m.computeGfxPlacement(nil, -1, -1); got != "" {
+		t.Fatalf("deletion repeated after flush: %q", got)
 	}
 }

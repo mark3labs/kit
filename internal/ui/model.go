@@ -685,7 +685,10 @@ type AppModel struct {
 	appCtrl AppController
 
 	// input is the child input component (slash commands + autocomplete).
-	input inputComponentIface
+	input                  inputComponentIface
+	imagePreview           *imagePreviewModal
+	inputYOffset           int
+	imagePreviewGeneration int
 
 	// stream is the child streaming display component (spinner + streaming text).
 	stream streamComponentIface
@@ -1094,7 +1097,9 @@ type AppModel struct {
 	// images along with the text, so an image drifts upward while the row it
 	// belongs on stays exactly the same. Redrawing whenever the frame content
 	// changes catches that; gfxContentHash is what detects the change.
-	gfxDirty bool
+	gfxDirty        bool
+	gfxFlushPending bool
+	gfxPendingDrops map[uint32]struct{}
 
 	// gfxContentHash is a hash of the last rendered frame, used to notice that
 	// the screen was repainted.
@@ -1657,10 +1662,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			capabilityCmd = tea.ClearScreen
 		}
 	}
+	var placementCmd tea.Cmd
+	if _, ok := msg.(gfxFlushMsg); ok {
+		placementCmd = m.completeGfxFlush()
+	}
 	model, cmd := m.update(msg)
-	cmds := []tea.Cmd{cmd}
+	cmds := []tea.Cmd{cmd, placementCmd}
 	if capabilityCmd != nil {
 		cmds = append(cmds, capabilityCmd)
+	}
+	// View follows Update. Schedule a settling pass even for the final input
+	// event, when no further event will arrive to flush the new frame.
+	switch msg.(type) {
+	case gfxFlushMsg, tea.RawMsg:
+	default:
+		if m.gfxPlacement != "" {
+			m.gfxDirty = true
+		}
 	}
 	if gfx := m.flushGfxPlacement(); gfx != nil {
 		cmds = append(cmds, gfx)
@@ -1689,22 +1707,32 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // a keystroke, a resize, an agent event, the frame clock — produces that
 // event, and the image is re-placed against a screen the renderer has already
 // finished drawing.
-func (m *AppModel) flushGfxPlacement() tea.Cmd {
+// gfxFlushMsg gives the renderer time to flush the frame before direct images
+// are placed. The latest View sequence is used, not a captured older layout.
+type gfxFlushMsg struct{}
+
+// completeGfxFlush writes the latest placement sequence and clears pending cleanup.
+func (m *AppModel) completeGfxFlush() tea.Cmd {
+	m.gfxFlushPending = false
 	if !m.gfxDirty {
 		return nil
 	}
 	m.gfxDirty = false
-	if m.gfxPlacement == "" {
-		// The images are gone. They are deleted by the input component, which
-		// owns their ids, so there is nothing to draw here.
+	m.gfxPendingDrops = nil
+	return tea.Raw(m.gfxPlacement)
+}
+
+// flushGfxPlacement schedules one delayed placement update while the frame settles.
+func (m *AppModel) flushGfxPlacement() tea.Cmd {
+	if !m.gfxDirty || m.gfxFlushPending {
 		return nil
 	}
-	// Draw the image, then ask for one more cycle. Update runs before View, so
-	// the sequence written here was computed for the previous frame; the extra
-	// cycle lets the frame after this one settle and, if it moved the image
-	// again, mark it dirty once more. It converges as soon as the screen stops
-	// changing, because an unchanged frame leaves gfxDirty false.
-	return tea.Batch(tea.Raw(m.gfxPlacement), gfxNudgeCmd())
+	if m.gfxPlacement == "" {
+		m.gfxDirty = false
+		return nil
+	}
+	m.gfxFlushPending = true
+	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return gfxFlushMsg{} })
 }
 
 // wantsFrames reports whether any animation currently needs the clock.
@@ -1820,6 +1848,31 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		m.flushPendingStreamChunks()
+	}
+
+	if _, ok := msg.(attachmentPreviewReadyMsg); ok && m.imagePreview == nil {
+		return m, nil
+	}
+	var previewCleanup tea.Cmd
+	if m.imagePreview != nil {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			if msg.String() == "ctrl+c" {
+				previewCleanup = tea.Raw(imagepreview.DeleteImage(m.imagePreview.imageID))
+				m.imagePreview = nil
+			} else {
+				return m.updateImagePreview(msg)
+			}
+		case attachmentPreviewReadyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+			return m.updateImagePreview(msg)
+		}
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+o" && !m.modalActive() {
+		if m.input != nil {
+			if in, ok := m.input.(*InputComponent); ok && len(in.pendingImages) > 0 {
+				return m, m.openImagePreview(0)
+			}
+		}
 	}
 
 	// Prompt overlay takes precedence when active — it is fully modal.
@@ -1992,6 +2045,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layoutDirty = true
+		if m.imagePreview != nil {
+			cmds = append(cmds, tea.Sequence(tea.Raw(imagepreview.DeleteImage(m.imagePreview.imageID)), m.openImagePreview(m.imagePreview.index)))
+		}
 		m.notifyResize()
 		// Update renderer width for proper message styling
 		m.renderer.SetWidth(m.width)
@@ -2049,6 +2105,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Mouse click selection (crush-style character-level) ──────────────────
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
+			if in, ok := m.input.(*InputComponent); ok && msg.Y >= m.inputYOffset {
+				if index, remove := in.ImageTileAt(msg.X, msg.Y-m.inputYOffset); index >= 0 {
+					if remove {
+						return m, in.RemoveImage(index)
+					}
+					return m, m.openImagePreview(index)
+				}
+			}
 			// Compute the scrollback origin from the current frame's layout
 			// rather than the stale cached value from the previous View().
 			// scrollbackYOffset/scrollList.height are only refreshed inside
@@ -2112,6 +2176,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Second Ctrl+C within the timeout window — quit.
 			if m.ctrlCPressedOnce {
 				m.quitting = true
+				if previewCleanup != nil {
+					return m, tea.Sequence(previewCleanup, tea.Quit)
+				}
 				return m, tea.Quit
 			}
 
@@ -2123,6 +2190,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.ctrlCPressedOnce = true
 			// Start reset timer so the flag clears after 3 seconds.
+			if previewCleanup != nil {
+				return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
+			}
 			return m, ctrlCResetCmd()
 		}
 
@@ -3633,12 +3703,20 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, footerView)
 	}
 
+	m.inputYOffset = m.height - lipgloss.Height(inputView)
+	for _, part := range parts[inputPartIndex+1:] {
+		m.inputYOffset -= lipgloss.Height(part)
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Record where directly-placed images landed. This must happen with the
 	// assembled parts in hand: the absolute screen row of a preview is only
 	// knowable once everything above and below it has been measured.
-	m.gfxPlacement = m.computeGfxPlacement(parts, inputPartIndex, scrollPartIndex)
+	placement := m.computeGfxPlacement(parts, inputPartIndex, scrollPartIndex)
+	if placement != m.gfxPlacement {
+		m.gfxDirty = true
+	}
+	m.gfxPlacement = placement
 
 	// Composite every modal surface over the layout at the cell level, so
 	// the conversation stays visible around each one. Ordering is z-order:
@@ -3693,6 +3771,9 @@ func (m *AppModel) View() tea.View {
 		finalContent = compositeAnchored(finalContent, m.overlay.Render(), m.overlay.Anchor(), m.width, m.height)
 	}
 
+	if m.imagePreview != nil {
+		finalContent = compositeCentered(finalContent, m.renderImagePreview(), m.width, m.height)
+	}
 	// Notice a repaint. The renderer scrolls the screen to update it, and a
 	// terminal scrolls its images along with the text, so any change to the
 	// frame can move an image that is not part of the frame. Hashing the
@@ -3704,7 +3785,7 @@ func (m *AppModel) View() tea.View {
 		// Only a frame that still shows an image needs one drawn. The hash is
 		// updated either way, so that a frame rendered while no image was
 		// attached cannot later be mistaken for an unchanged screen.
-		m.gfxDirty = m.gfxPlacement != ""
+		m.gfxDirty = m.gfxDirty || m.gfxPlacement != ""
 	}
 
 	v := tea.NewView(finalContent)
@@ -7524,6 +7605,7 @@ func (m *AppModel) followShellRun(id string) {
 func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPartIndex int) string {
 	placements := m.composerPlacements(parts, inputPartIndex)
 	placements = append(placements, m.transcriptPlacements(parts, scrollPartIndex)...)
+	placements = append(placements, m.imagePreviewPlacement()...)
 
 	var draw strings.Builder
 	drawn := make(map[uint32]struct{}, len(placements))
@@ -7538,11 +7620,21 @@ func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPar
 		}
 	}
 
-	var drops strings.Builder
+	if m.gfxPendingDrops == nil {
+		m.gfxPendingDrops = make(map[uint32]struct{})
+	}
 	for id := range m.gfxPlaced {
 		if _, ok := drawn[id]; !ok {
-			drops.WriteString(imagepreview.DeletePlacements(id))
+			m.gfxPendingDrops[id] = struct{}{}
 		}
+	}
+	var drops strings.Builder
+	for id := range m.gfxPendingDrops {
+		if _, ok := drawn[id]; ok {
+			delete(m.gfxPendingDrops, id)
+			continue
+		}
+		drops.WriteString(imagepreview.DeletePlacements(id))
 	}
 	m.gfxPlaced = drawn
 
@@ -7580,10 +7672,15 @@ type gfxPlacement struct {
 // scrollback's rendered height, and any disagreement between what it was
 // allotted and what it drew would float the image away from the composer.
 //
-// The ids are deliberately left at zero: the input component owns these images
-// and deletes them outright when the attachment goes away, so tracking their
-// placements here would only duplicate that.
+// The input component owns image data; the parent tracks placements so it can
+// hide images behind overlays without deleting their data.
 func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxPlacement {
+	// Direct placements do not participate in cell-level composition. Hide
+	// composer images while a modal or autocomplete popup is active, just as
+	// transcript images are hidden, or they can paint over the overlay.
+	if m.modalActive() {
+		return nil
+	}
 	ic, ok := m.input.(*InputComponent)
 	if !ok || inputPartIndex < 0 || inputPartIndex >= len(parts) {
 		return nil
@@ -7607,6 +7704,7 @@ func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxP
 		out = append(out, gfxPlacement{
 			row: inputTop + p.RowOffset,
 			col: p.Col + 1,
+			id:  p.ImageID,
 			seq: p.Sequence,
 		})
 	}
