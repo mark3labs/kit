@@ -1671,13 +1671,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if capabilityCmd != nil {
 		cmds = append(cmds, capabilityCmd)
 	}
-	// View follows Update. Schedule a settling pass even for the final input
-	// event, when no further event will arrive to flush the new frame.
+	// View marks graphics dirty only when the layout or frame changes. Do not
+	// mark them dirty for every input event: mouse motion over a static preview
+	// would repeatedly delete and redraw the image in the terminal.
+	// Update precedes View. Check once after the final input event as well,
+	// so changes discovered by that View do not need another user event.
 	switch msg.(type) {
 	case gfxFlushMsg, tea.RawMsg:
 	default:
-		if m.gfxPlacement != "" {
-			m.gfxDirty = true
+		if m.gfxPlacement != "" && !m.gfxDirty && !m.gfxFlushPending {
+			m.gfxFlushPending = true
+			cmds = append(cmds, tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return gfxFlushMsg{} }))
 		}
 	}
 	if gfx := m.flushGfxPlacement(); gfx != nil {
@@ -1863,7 +1867,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				return m.updateImagePreview(msg)
 			}
-		case attachmentPreviewReadyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		case attachmentPreviewReadyMsg, tea.WindowSizeMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 			return m.updateImagePreview(msg)
 		}
 	}

@@ -102,6 +102,39 @@ func TestImagePreviewFitsAndCloses(t *testing.T) {
 	}
 }
 
+func TestImagePreviewMouseMotionDoesNotRedrawGraphics(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.imagePreview = &imagePreviewModal{imageID: 77}
+	m.gfxPlacement = "placement"
+	m.gfxDirty = false
+	_, cmd := m.Update(tea.MouseMotionMsg{})
+	if m.gfxDirty {
+		t.Fatal("mouse motion marked unchanged graphics dirty")
+	}
+	if cmd == nil || !m.gfxFlushPending {
+		t.Fatal("missing post-View settling check")
+	}
+	if m.completeGfxFlush() != nil {
+		t.Fatal("unchanged preview emitted a graphics write")
+	}
+}
+
+func TestImagePreviewResizeStartsNewRender(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	in := NewInputComponent(80, nil)
+	m.input = in
+	in.pendingImages = []core.ImageAttachment{{}}
+	m.openImagePreview(0)
+	generation := m.imagePreview.generation
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if cmd == nil || m.imagePreview.generation <= generation {
+		t.Fatal("resize did not start a new bounded render")
+	}
+	if m.width != 100 || m.height != 30 {
+		t.Fatal("resize did not update preview dimensions")
+	}
+}
+
 func TestImagePreviewCtrlCReachesNormalHandler(t *testing.T) {
 	for _, armed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("armed=%v", armed), func(t *testing.T) {
