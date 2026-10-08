@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/kit/internal/message"
@@ -282,6 +283,19 @@ func TestSetSessionName(t *testing.T) {
 	}
 	if snap.Name != "renamed" {
 		t.Errorf("Name = %q, want %q", snap.Name, "renamed")
+	}
+}
+
+func TestSetSessionNameNormalizesBothCopies(t *testing.T) {
+	_, tm := newSessionApp(t)
+	input := "  " + strings.Repeat("界", 70) + "  "
+	want := strings.Repeat("界", 64)
+	var liveName string
+	if err := setSessionName(tm, input, func(name string) error { liveName = name; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := tm.GetSessionName(); got != want || liveName != want {
+		t.Fatalf("saved=%q live=%q want=%q", got, liveName, want)
 	}
 }
 

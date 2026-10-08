@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/kit/internal/daemon"
@@ -253,6 +254,11 @@ func (a *App) SetSessionName(name string) error {
 }
 
 func setSessionName(tm *session.TreeManager, name string, rename func(string) error) error {
+	// Match the daemon's name policy before either copy is updated.
+	name = strings.TrimSpace(name)
+	if runes := []rune(name); len(runes) > 64 {
+		name = strings.TrimSpace(string(runes[:64]))
+	}
 	previousName := tm.GetSessionName()
 	if _, err := tm.AppendSessionInfo(name); err != nil {
 		return fmt.Errorf("append session info: %w", err)
