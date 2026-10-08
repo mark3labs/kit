@@ -86,8 +86,8 @@ func (c *clientConn) sessionPrompt(ctx context.Context, prompt, initial string) 
 	}
 	defer func() { _ = term.Restore(fd, state) }()
 	text := []rune(initial)
-	render := func() { fmt.Fprintf(os.Stdout, "\r\x1b[2K%s%s", prompt, string(text)) }
-	fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
+	render := func() { _, _ = fmt.Fprintf(os.Stdout, "\r\x1b[2K%s%s", prompt, string(text)) }
+	_, _ = fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
 	render()
 	for {
 		select {

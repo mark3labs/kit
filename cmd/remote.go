@@ -64,7 +64,7 @@ Ctrl-] s picks another session, Ctrl-] w lists every paired host.`,
 			}
 			return daemon.RunPair(ctx, daemon.PairOptions{Code: code, Name: remoteHost})
 		case remoteHost != "":
-			fmt.Fprintln(cmd.ErrOrStderr(), "Deprecated: use 'kit session attach --host' to attach to remote sessions.")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Deprecated: use 'kit session attach --host' to attach to remote sessions.")
 			return daemon.RunHost(ctx, remoteHost, daemon.AttachOptions{
 				Pick: localPicker,
 			})

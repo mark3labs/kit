@@ -15,7 +15,7 @@ func RenameSession(ctx context.Context, id uint64, name string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	return controlSession(ctx, conn, FrameSessionRename, id, name)
 }
 
@@ -25,7 +25,7 @@ func KillSession(ctx context.Context, id uint64) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	return controlSession(ctx, conn, FrameSessionKill, id, "")
 }
 

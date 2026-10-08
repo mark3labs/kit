@@ -61,11 +61,11 @@ var sessionKillCmd = &cobra.Command{
 			if input, ok := cmd.InOrStdin().(*os.File); ok && !term.IsTerminal(int(input.Fd())) {
 				return fmt.Errorf("confirmation needs a terminal; use --yes for scripts")
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Stop session %d", id)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Stop session %d", id)
 			if sessionHost != "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), " on %s", sessionHost)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), " on %s", sessionHost)
 			}
-			fmt.Fprint(cmd.ErrOrStderr(), "? [y/N] ")
+			_, _ = fmt.Fprint(cmd.ErrOrStderr(), "? [y/N] ")
 			answer, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 			if err != nil {
 				return fmt.Errorf("read confirmation: %w", err)
