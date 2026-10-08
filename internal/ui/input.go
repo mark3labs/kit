@@ -855,7 +855,7 @@ func (s *InputComponent) imageTileRects() []imageTileRect {
 	r := make([]imageTileRect, len(s.pendingImages))
 	for i := range r {
 		rowGroup, colGroup := i/perRow, i%perRow
-		r[i] = imageTileRect{row: start + rowGroup*7, col: 1 + colGroup*tileWidth, width: tileWidth, height: 7}
+		r[i] = imageTileRect{row: start + rowGroup*7, col: thumbPaddingLeft + colGroup*tileWidth, width: tileWidth, height: 7}
 	}
 	return r
 }
@@ -940,7 +940,7 @@ func (s *InputComponent) View() tea.View {
 			caption := fmt.Sprintf("%-*s[x]", max(0, r.width-3), fmt.Sprintf("%d", i+1))
 			tiles = append(tiles, area+"\n"+caption)
 			if i == len(rects)-1 || rects[i+1].row != r.row {
-				view.WriteString("\n" + lipgloss.NewStyle().PaddingLeft(1).Render(lipgloss.JoinHorizontal(lipgloss.Top, tiles...)))
+				view.WriteString("\n" + lipgloss.NewStyle().PaddingLeft(thumbPaddingLeft).Render(lipgloss.JoinHorizontal(lipgloss.Top, tiles...)))
 				tiles = nil
 			}
 		}

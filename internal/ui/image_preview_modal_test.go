@@ -63,6 +63,10 @@ func TestRemoveImageInvalidatesAllPendingRenders(t *testing.T) {
 }
 
 func TestImagePreviewFitsAndCloses(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CLICOLOR", "1")
 	var data bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 600, 100))
 	img.Set(0, 0, color.White)
