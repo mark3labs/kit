@@ -1845,9 +1845,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(attachmentPreviewReadyMsg); ok && m.imagePreview == nil {
 		return m, nil
 	}
+	var previewCleanup tea.Cmd
 	if m.imagePreview != nil {
-		switch msg.(type) {
-		case attachmentPreviewReadyMsg, tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			if msg.String() == "ctrl+c" {
+				previewCleanup = tea.Raw(imagepreview.DeleteImage(m.imagePreview.imageID))
+				m.imagePreview = nil
+			} else {
+				return m.updateImagePreview(msg)
+			}
+		case attachmentPreviewReadyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 			return m.updateImagePreview(msg)
 		}
 	}
@@ -2160,6 +2168,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Second Ctrl+C within the timeout window — quit.
 			if m.ctrlCPressedOnce {
 				m.quitting = true
+				if previewCleanup != nil {
+					return m, tea.Sequence(previewCleanup, tea.Quit)
+				}
 				return m, tea.Quit
 			}
 
@@ -2171,6 +2182,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.ctrlCPressedOnce = true
 			// Start reset timer so the flag clears after 3 seconds.
+			if previewCleanup != nil {
+				return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
+			}
 			return m, ctrlCResetCmd()
 		}
 

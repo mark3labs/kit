@@ -2,9 +2,11 @@ package ui
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -97,5 +99,39 @@ func TestImagePreviewFitsAndCloses(t *testing.T) {
 	m.updateImagePreview(ready)
 	if m.imagePreview.content != "" {
 		t.Fatal("accepted stale preview result")
+	}
+}
+
+func TestImagePreviewCtrlCReachesNormalHandler(t *testing.T) {
+	for _, armed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("armed=%v", armed), func(t *testing.T) {
+			m, _, _ := newTestAppModel(&stubAppController{})
+			m.imagePreview = &imagePreviewModal{imageID: 77}
+			m.ctrlCPressedOnce = armed
+			_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+			if m.imagePreview != nil {
+				t.Fatal("preview still open")
+			}
+			if m.quitting != armed || !m.ctrlCPressedOnce {
+				t.Fatal("normal Ctrl+C behavior lost")
+			}
+			if cmd == nil {
+				t.Fatal("missing cleanup/reset sequence")
+			}
+			sequence := reflect.ValueOf(cmd())
+			if sequence.Kind() != reflect.Slice || sequence.Len() != 2 {
+				t.Fatal("expected cleanup before reset or quit")
+			}
+			cleanup := sequence.Index(0).Interface().(tea.Cmd)()
+			raw, ok := cleanup.(tea.RawMsg)
+			if !ok || !strings.Contains(fmt.Sprint(raw.Msg), "a=d,d=I,i=77") {
+				t.Fatalf("missing image cleanup: %#v", cleanup)
+			}
+			if armed {
+				if _, ok := sequence.Index(1).Interface().(tea.Cmd)().(tea.QuitMsg); !ok {
+					t.Fatal("missing quit")
+				}
+			}
+		})
 	}
 }
