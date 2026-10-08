@@ -93,6 +93,8 @@ const (
 	// frames, so a SessionSpec larger than one frame (a large
 	// environment) arrives complete instead of being trimmed.
 	FeatureSessionSpecParts Feature = 1 << 8
+	// FeatureSessionControl: the peer supports acknowledged rename and kill requests.
+	FeatureSessionControl Feature = 1 << 9
 )
 
 // ProtocolFeatures is everything this build supports.
@@ -104,7 +106,8 @@ const ProtocolFeatures = FeatureTerminalInfo |
 	FeatureSessionRedraw |
 	FeatureReattach |
 	FeatureScrollback |
-	FeatureSessionSpecParts
+	FeatureSessionSpecParts |
+	FeatureSessionControl
 
 // Has reports whether every bit in want is present.
 func (f Feature) Has(want Feature) bool { return f&want == want }
@@ -125,6 +128,7 @@ var featureNames = []struct {
 	{FeatureReattach, "reattach"},
 	{FeatureScrollback, "scrollback"},
 	{FeatureSessionSpecParts, "session-spec-parts"},
+	{FeatureSessionControl, "session-control"},
 }
 
 // String renders a feature set as a comma-separated list.

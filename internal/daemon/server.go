@@ -494,7 +494,11 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 				sess.nudgeRedraw()
 			}
 		case FrameSessionRename:
-			t.renameSession(frame.Payload)
+			err := t.renameSession(frame.Payload)
+			t.sendSessionControlResult(frame.Session, err)
+		case FrameSessionKill:
+			err := t.killSession(frame.Payload)
+			t.sendSessionControlResult(frame.Session, err)
 		case FrameData:
 			if sess := t.logicalFor(frame.Session); sess != nil {
 				if _, err := sess.io.Write(frame.Payload); err != nil {
@@ -762,9 +766,9 @@ type sessionInfo struct {
 }
 
 // renameSession applies a client's rename request: {id u64 BE, name}.
-func (t *sessionTable) renameSession(payload []byte) {
+func (t *sessionTable) renameSession(payload []byte) error {
 	if len(payload) < 8 {
-		return
+		return fmt.Errorf("invalid rename request")
 	}
 	id := binary.BigEndian.Uint64(payload[:8])
 	name := strings.TrimSpace(string(payload[8:]))
@@ -776,9 +780,41 @@ func (t *sessionTable) renameSession(payload []byte) {
 	t.mu.Lock()
 	sess := t.sessions[id]
 	t.mu.Unlock()
-	if sess != nil {
-		sess.setName(name)
+	if sess == nil {
+		return fmt.Errorf("session %d not found", id)
 	}
+	sess.setName(name)
+	return nil
+}
+
+// killSession ends the session named by an {id u64 BE} request.
+func (t *sessionTable) killSession(payload []byte) error {
+	if len(payload) != 8 {
+		return fmt.Errorf("invalid kill request")
+	}
+	id := binary.BigEndian.Uint64(payload)
+	t.mu.Lock()
+	_, exists := t.sessions[id]
+	t.mu.Unlock()
+	if !exists {
+		return fmt.Errorf("session %d not found", id)
+	}
+	t.retireSession(id)
+	return nil
+}
+
+func (t *sessionTable) sendSessionControlResult(wire uint32, err error) {
+	result := struct {
+		Error string `json:"error,omitempty"`
+	}{}
+	if err != nil {
+		result.Error = err.Error()
+	}
+	payload, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return
+	}
+	_ = t.writeTo(Frame{Type: FrameSessionControlResult, Session: wire, Payload: payload})
 }
 
 // sendSessionList replies to a client's list request with the live
@@ -1181,7 +1217,9 @@ func (t *sessionTable) spawnLocalSession(session uint64, info TerminalInfo, spec
 	if err := writeTerminalCapabilities(capabilityPath, info); err != nil {
 		return nil, err
 	}
-	cmd.Env = childEnv(specBase(os.Environ(), spec), info, env)
+	childEnvironment := childEnv(specBase(os.Environ(), spec), info, env)
+	childEnvironment = append(childEnvironment, fmt.Sprintf("%s=%d", SessionIDEnv, session))
+	cmd.Env = childEnvironment
 
 	// Ask the kernel to kill this child if the daemon dies, so a crash
 	// cannot leave an unreachable session running (see recovery.go).

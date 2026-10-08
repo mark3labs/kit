@@ -454,7 +454,7 @@ func (c *clientConn) readLoop() {
 					return
 				}
 			}
-		case FrameSessionListReply, FrameSessionAttachAck:
+		case FrameSessionListReply, FrameSessionAttachAck, FrameSessionControlResult:
 			select {
 			case c.ctrlCh <- frame:
 			default: // a stale reply nobody is waiting for
@@ -983,6 +983,35 @@ func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions,
 		}
 		switch {
 		case out.wantSwitch:
+			if out.switchTo == renameSentinel || out.switchTo == killSentinel {
+				if !peer.Features.Has(FeatureSessionControl) {
+					return run, fmt.Errorf("daemon does not support session management; upgrade and restart it")
+				}
+				killed, err := manageAttachedSession(ctx, conn, opts, out.switchTo)
+				if err != nil {
+					return run, err
+				}
+				if killed {
+					if opts.Pick == nil {
+						run.parting = "Session terminated. Saved history remains."
+						return run, nil
+					}
+					entries, err := conn.listSessions(ctx)
+					if err != nil {
+						return run, err
+					}
+					choice, err = runPicker(ctx, conn, opts.Pick, candidateSessions(ctx, entries, opts), opts.Host)
+					if err != nil {
+						return run, err
+					}
+					if choice.Cancel {
+						return run, nil
+					}
+					continue
+				}
+				choice = stayOnCurrent(conn, opts)
+				continue
+			}
 			next, cancelled, serr := resolveSwitch(ctx, conn, opts, out)
 			if serr != nil {
 				return run, serr
@@ -1459,6 +1488,10 @@ func dispatchChord(conn *clientConn, opts AttachOptions, kind leaderKind, ev key
 		return pumpControl{}, false // the host owns every other Ctrl-X chord
 	}
 	switch ev.Data[0] {
+	case ',':
+		return pumpControl{stop: true, outcome: attachOutcome{wantSwitch: true, switchTo: renameSentinel}}, true
+	case 'k':
+		return pumpControl{stop: true, outcome: attachOutcome{wantSwitch: true, switchTo: killSentinel}}, true
 	case 'r':
 		return pumpControl{refresh: true}, true
 	case 's':
@@ -1492,9 +1525,11 @@ func dispatchChord(conn *clientConn, opts AttachOptions, kind leaderKind, ev key
 // uint64 range, where they cannot collide with a real logical id: the
 // daemon counts those up from 1.
 const (
-	pickSentinel = ^uint64(0)
-	cycleNext    = ^uint64(0) - 1
-	cyclePrev    = ^uint64(0) - 2
+	pickSentinel   = ^uint64(0)
+	cycleNext      = ^uint64(0) - 1
+	cyclePrev      = ^uint64(0) - 2
+	renameSentinel = ^uint64(0) - 3
+	killSentinel   = ^uint64(0) - 4
 )
 
 // detectTerminalInfo describes the terminal this client runs in, for the

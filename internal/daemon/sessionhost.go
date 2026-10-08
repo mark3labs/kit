@@ -215,7 +215,9 @@ func (h *sessionHost) start() error {
 	if err := writeTerminalCapabilities(path, h.cfg.Terminal); err != nil {
 		return err
 	}
-	cmd.Env = childEnv(specBase(os.Environ(), h.cfg.Spec), h.cfg.Terminal, h.cfg.Env)
+	env := childEnv(specBase(os.Environ(), h.cfg.Spec), h.cfg.Terminal, h.cfg.Env)
+	env = append(env, fmt.Sprintf("%s=%d", SessionIDEnv, h.cfg.ID))
+	cmd.Env = env
 	// The child must not outlive its supervisor: this process is the only
 	// holder of its PTY master, so a child that survived it would be
 	// exactly the unreachable session the old design produced.

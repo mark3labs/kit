@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,9 +38,19 @@ import (
 // daemon's multiplexer variables are dropped and the client's is planted
 // under termgfx.RemoteMultiplexerEnv.
 
+// CaptureSessionID reads and removes the daemon session ID from the process
+// environment. This prevents child processes from inheriting the parent's ID.
+func CaptureSessionID() string {
+	id := os.Getenv(SessionIDEnv)
+	_ = os.Unsetenv(SessionIDEnv)
+	return id
+}
+
 const (
 	// RemoteSessionEnv marks a child as running inside a daemon session.
 	RemoteSessionEnv = "KIT_REMOTE_SESSION"
+	// SessionIDEnv identifies the active local daemon session to its child.
+	SessionIDEnv = "KIT_DAEMON_SESSION_ID"
 
 	// RemoteBackgroundEnv holds the CLIENT terminal's background colour as
 	// "#rrggbb", or BackgroundUnknown when that terminal was asked and did

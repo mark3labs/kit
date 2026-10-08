@@ -232,7 +232,7 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 	entries = append(entries, remote...)
 	reportSkippedHosts(skipped)
 	if len(entries) == 0 {
-		fmt.Println("No live sessions anywhere. Start one with: kit attach")
+		fmt.Println("No live sessions anywhere. Start one with: kit session attach")
 		return nil
 	}
 
@@ -335,7 +335,13 @@ skipped.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
-		entries, err := daemon.ListLocalSessions(ctx)
+		var entries []daemon.SessionEntry
+		var err error
+		if attachHost != "" {
+			entries, err = daemon.ListHostSessions(ctx, attachHost, 10*time.Second)
+		} else {
+			entries, err = daemon.ListLocalSessions(ctx)
+		}
 		if err != nil && err != daemon.ErrNoLocalDaemon {
 			return err
 		}
@@ -351,7 +357,7 @@ skipped.`,
 			return cerr
 		}
 		if len(entries) == 0 {
-			fmt.Println("No live sessions. Start one with: kit attach")
+			fmt.Println("No live sessions. Start one with: kit session attach")
 			return nil
 		}
 		printSessionTable(entries)
@@ -359,7 +365,7 @@ skipped.`,
 	},
 }
 
-// printSessionTable renders the session list for `kit ls`.
+// printSessionTable renders the session list for `kit session ls`.
 func printSessionTable(entries []daemon.SessionEntry) {
 	fmt.Printf("%-6s %-10s %-10s %-10s %s\n", "ID", "HOST", "CLIENTS", "UPTIME", "DIRECTORY")
 	for _, e := range entries {
@@ -387,6 +393,12 @@ func init() {
 	attachCmd.Flags().StringVar(&attachHost, "host", "", "attach on a paired host by saved name")
 	attachCmd.Flags().BoolVar(&attachAll, "all", false, "list sessions across every paired host")
 	lsCmd.Flags().BoolVar(&attachAll, "all", false, "include sessions on every paired host")
-	rootCmd.AddCommand(attachCmd)
-	rootCmd.AddCommand(lsCmd)
+	lsCmd.Flags().StringVar(&attachHost, "host", "", "list sessions on a paired host")
+	sessionCmd.AddCommand(attachCmd, lsCmd)
+	rootCmd.AddCommand(sessionCmd)
+	attachAlias := *attachCmd
+	attachAlias.Deprecated = "use 'kit session attach'"
+	lsAlias := *lsCmd
+	lsAlias.Deprecated = "use 'kit session ls'"
+	rootCmd.AddCommand(&attachAlias, &lsAlias)
 }

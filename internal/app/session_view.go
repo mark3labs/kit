@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/session"
 )
@@ -236,8 +240,38 @@ func (a *App) SetSessionName(name string) error {
 	if tm == nil {
 		return ErrNoSession
 	}
+	var rename func(string) error
+	if rawID := a.opts.DaemonSessionID; rawID != "" {
+		id, err := strconv.ParseUint(rawID, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse daemon session ID: %w", err)
+		}
+		rename = func(name string) error {
+			return daemon.RenameSession(context.Background(), id, name)
+		}
+	}
+	return setSessionName(tm, name, rename)
+}
+
+func setSessionName(tm *session.TreeManager, name string, rename func(string) error) error {
+	// Match the daemon's name policy before either copy is updated.
+	name = strings.TrimSpace(name)
+	if runes := []rune(name); len(runes) > 64 {
+		name = strings.TrimSpace(string(runes[:64]))
+	}
+	previousName := tm.GetSessionName()
 	if _, err := tm.AppendSessionInfo(name); err != nil {
 		return fmt.Errorf("append session info: %w", err)
+	}
+	if rename == nil {
+		return nil
+	}
+	if err := rename(name); err != nil {
+		renameErr := fmt.Errorf("rename daemon session: %w", err)
+		if _, rollbackErr := tm.AppendSessionInfo(previousName); rollbackErr != nil {
+			return errors.Join(renameErr, fmt.Errorf("restore session name: %w", rollbackErr))
+		}
+		return renameErr
 	}
 	return nil
 }

@@ -58,6 +58,9 @@ type Options struct {
 	// navigation (/tree, /fork) is enabled.
 	TreeSession *session.TreeManager
 
+	// DaemonSessionID is the captured local daemon session ID, if any.
+	DaemonSessionID string
+
 	// MCPConfig is the full MCP configuration used for session continuation and
 	// slash command resolution.
 	MCPConfig *config.Config

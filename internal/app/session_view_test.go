@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/kit/internal/message"
@@ -282,6 +283,48 @@ func TestSetSessionName(t *testing.T) {
 	}
 	if snap.Name != "renamed" {
 		t.Errorf("Name = %q, want %q", snap.Name, "renamed")
+	}
+}
+
+func TestSetSessionNameNormalizesBothCopies(t *testing.T) {
+	_, tm := newSessionApp(t)
+	input := "  " + strings.Repeat("界", 70) + "  "
+	want := strings.Repeat("界", 64)
+	var liveName string
+	if err := setSessionName(tm, input, func(name string) error { liveName = name; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := tm.GetSessionName(); got != want || liveName != want {
+		t.Fatalf("saved=%q live=%q want=%q", got, liveName, want)
+	}
+}
+
+func TestSetSessionNameRollbackOnDaemonFailure(t *testing.T) {
+	_, tm := newSessionApp(t)
+	if _, err := tm.AppendSessionInfo("original"); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("daemon unavailable")
+	err := setSessionName(tm, "new", func(string) error { return wantErr })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want daemon error", err)
+	}
+	if got := tm.GetSessionName(); got != "original" {
+		t.Errorf("session name = %q, want original", got)
+	}
+}
+
+func TestSetSessionNameParsesIDBeforeMutation(t *testing.T) {
+	a, tm := newSessionApp(t)
+	a.opts.DaemonSessionID = "not-an-id"
+	if _, err := tm.AppendSessionInfo("original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetSessionName("new"); err == nil {
+		t.Fatal("expected invalid daemon session ID error")
+	}
+	if got := tm.GetSessionName(); got != "original" {
+		t.Errorf("session name = %q, want original", got)
 	}
 }
 

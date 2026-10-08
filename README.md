@@ -31,7 +31,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
-- **Sessions**: with the daemon running, a plain `kit` is already a detachable session in the directory you ran it from (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle); `kit attach` picks which session to return to, across this machine *and* every paired host, and `kit ls` lists them
+- **Sessions**: with the daemon running, a plain `kit` is already a detachable session in the directory you ran it from (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle); `kit session attach` picks which session to return to, across this machine *and* every paired host, and `kit session ls` lists them
 - **Remote Sessions**: `kit daemon` on one machine; pair a client once with `kit daemon pair` + `kit remote --pair <code>` (accept/reject on the host), then connect any time with `kit remote --host <name>` — sessions can be detached (`Ctrl+] d`) and reattached from the in-client session list, or shared by several clients at once (tmux-style mirrored view) — end-to-end encrypted iroh transport, revocable public-key credentials, clipboard image paste from the client machine, systemd service support
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
@@ -376,11 +376,13 @@ kit acp --debug              # With debug logging to stderr
 # Detachable sessions (survive closing the terminal; Ctrl+] is the prefix)
 kit daemon service install   # Start the daemon once; after this, plain `kit` is detachable
 cd ~/project && kit          # A detachable session, right here — Ctrl+] d to leave it working
-kit attach                   # Pick a live session (local or paired host), or start one
-kit attach 3                 # Attach straight to session 3
-kit attach --new             # Skip the picker, start a new session
-kit ls                       # List live sessions
-kit ls --all                 # Include sessions on every paired host
+kit session attach           # Pick a live session (local or paired host), or start one
+kit session attach 3         # Attach straight to session 3
+kit session attach --new     # Skip the picker, start a new session
+kit session ls               # List live sessions
+kit session ls --all         # Include sessions on every paired host
+kit session rename 3 work    # Name session 3
+kit session kill 3           # Confirm, then stop session 3
 kit --no-daemon              # Run in this terminal, daemon or no daemon
 
 # Remote sessions (host)
@@ -391,10 +393,18 @@ kit daemon service install   # Install + start the systemd user service
 
 # Remote sessions (client)
 kit remote --pair A1B2C3D4   # Pair with a host and save it under a name
-kit remote --host homelab    # Attach to the paired host
-kit attach --host homelab    # Same, with session switching
-kit attach --all             # Pick across paired hosts without starting a local daemon
+kit session attach --host homelab # Attach to the paired host
+kit session attach --all     # Pick across paired hosts without starting a local daemon
+kit session rename --host homelab 3 work
+kit session kill --host homelab --yes 3
 ```
+
+While attached, use `Ctrl+] ,` to edit the session name, or `Ctrl+] k` to
+kill the session with confirmation. `/name <name>` updates the live-session
+picker name. `/kill` asks you to enter `/kill` again to confirm; `/kill cancel`
+cancels the request. Killing a session retains its saved conversation history.
+The old `kit attach`, `kit ls`, and `kit remote --host` attachment commands
+remain as deprecated aliases.
 
 ## Themes
 

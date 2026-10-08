@@ -46,7 +46,8 @@ var (
 	autoCompactFlag bool // Enable auto-compaction near context limit
 
 	// Session management
-	sessionPath string
+	sessionPath             string
+	capturedDaemonSessionID string
 
 	// Tree session management (pi-style)
 	continueFlag  bool // --continue / -c: resume most recent session for cwd
@@ -191,6 +192,7 @@ this terminal, and 'kit daemon service install' to keep a daemon around.`,
 // This function is the main entry point for the KIT CLI and should be
 // called from main.go with the appropriate version string.
 func GetRootCommand(v string) *cobra.Command {
+	capturedDaemonSessionID = daemon.CaptureSessionID()
 	rootCmd.Version = v
 	// The daemon reports its release in `kit daemon status` and in the
 	// hello it sends every client, so a user can see when a running daemon
@@ -1451,6 +1453,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		SetThinkingLevel:         act.setThinkingLevel,
 		SwitchSession:            act.switchSession,
 		ReloadExtensions:         act.reloadExtensions,
+		KillSession:              act.killHostedSession,
 		ShowSessionPicker:        resumeFlag,
 		GetMCPResources:          prov.getMCPResources,
 		MCPResourceReader:        act.readMCPResource,

@@ -610,6 +610,9 @@ type AppModelOptions struct {
 	// the UI enters or leaves the working state. May be nil.
 	EmitTurnStateChange func(state, previous string)
 
+	// KillSession stops the hosted daemon session. A nil callback makes /kill quit Kit.
+	KillSession func() error
+
 	// SwitchSession opens a session by JSONL file path, replacing the
 	// active tree session and reloading messages. Called when the user
 	// picks a session from /resume. May be nil if session switching is
@@ -961,6 +964,8 @@ type AppModel struct {
 	// switchSession opens a session by JSONL path, replacing the active session.
 	// Wired from cmd/root.go.
 	switchSession func(path string) error
+	killSession   func() error
+	killConfirm   bool
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -1228,6 +1233,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.isReasoningModel = opts.IsReasoningModel
 	m.setThinkingLevel = opts.SetThinkingLevel
 	m.switchSession = opts.SwitchSession
+	m.killSession = opts.KillSession
 	m.reloadExtensions = opts.ReloadExtensions
 
 	// Store context/skills metadata and tool counts for startup display.
@@ -4597,8 +4603,35 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 // handleSlashCommand executes a recognized slash command and returns a tea.Cmd.
 // args contains any text after the command name (may be empty).
 func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) tea.Cmd {
+	if sc.Name != "/kill" {
+		m.killConfirm = false
+	}
 	switch sc.Name {
 	case "/quit":
+		m.quitting = true
+		return tea.Quit
+	case "/kill":
+		if strings.TrimSpace(args) != "" {
+			m.killConfirm = false
+			return nil
+		}
+		if !m.killConfirm {
+			m.killConfirm = true
+			m.printSystemMessage("Kill this session? Saved history will remain. Enter /kill again to confirm, or /kill cancel to cancel.")
+			return nil
+		}
+		m.killConfirm = false
+		if strings.TrimSpace(args) != "" {
+			return nil
+		}
+		if m.killSession == nil {
+			m.quitting = true
+			return tea.Quit
+		}
+		if err := m.killSession(); err != nil {
+			m.printSystemMessage(fmt.Sprintf("Could not stop hosted session: %v", err))
+			return nil
+		}
 		m.quitting = true
 		return tea.Quit
 	case "/help":
