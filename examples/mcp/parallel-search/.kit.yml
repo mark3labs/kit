@@ -1,0 +1,8 @@
+mcpServers:
+  parallel:
+    type: remote
+    url: https://search.parallel.ai/mcp
+    noOAuth: true
+    headers:
+      - "User-Agent: kit-parallel-search-example"
+    allowedTools: [web_search, web_fetch]

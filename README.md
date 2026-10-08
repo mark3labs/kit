@@ -266,6 +266,10 @@ mcpServers:
     tasksMode: always  # async task execution — see MCP Tasks below
 ```
 
+For a runnable web search and page fetch configuration, see the
+[Parallel Search MCP example](examples/mcp/parallel-search/). It uses the public
+endpoint without a Parallel API key.
+
 ## CLI Reference
 
 ### Global Flags
