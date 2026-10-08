@@ -1705,6 +1705,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // are placed. The latest View sequence is used, not a captured older layout.
 type gfxFlushMsg struct{}
 
+// completeGfxFlush writes the latest placement sequence and clears pending cleanup.
 func (m *AppModel) completeGfxFlush() tea.Cmd {
 	m.gfxFlushPending = false
 	if !m.gfxDirty {
@@ -1715,6 +1716,7 @@ func (m *AppModel) completeGfxFlush() tea.Cmd {
 	return tea.Raw(m.gfxPlacement)
 }
 
+// flushGfxPlacement schedules one delayed placement update while the frame settles.
 func (m *AppModel) flushGfxPlacement() tea.Cmd {
 	if !m.gfxDirty || m.gfxFlushPending {
 		return nil

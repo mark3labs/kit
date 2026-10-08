@@ -20,6 +20,7 @@ type imagePreviewModal struct {
 
 type attachmentPreviewReadyMsg struct{ thumbnailReadyMsg }
 
+// openImagePreview starts a separate attachment render and hides direct composer placements.
 func (m *AppModel) openImagePreview(index int) tea.Cmd {
 	m.imagePreviewGeneration++
 	m.imagePreview = &imagePreviewModal{index: index, generation: m.imagePreviewGeneration}
@@ -34,6 +35,8 @@ func (m *AppModel) openImagePreview(index int) tea.Cmd {
 	return tea.Sequence(tea.Raw(drops.String()), m.renderImagePreviewCmd())
 }
 
+// renderImagePreviewCmd renders the selected attachment outside the UI event loop.
+// renderImagePreview builds the viewport-bounded modal with browse and close hints.
 func (m *AppModel) renderImagePreviewCmd() tea.Cmd {
 	p := m.imagePreview
 	in := m.input.(*InputComponent)
@@ -41,6 +44,7 @@ func (m *AppModel) renderImagePreviewCmd() tea.Cmd {
 	return func() tea.Msg { return attachmentPreviewReadyMsg{cmd().(thumbnailReadyMsg)} }
 }
 
+// updateImagePreview handles modal controls and rejects stale render results.
 func (m *AppModel) updateImagePreview(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p := m.imagePreview
 	switch msg := msg.(type) {
@@ -76,6 +80,7 @@ func (m *AppModel) updateImagePreview(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderImagePreview builds the viewport-bounded modal with browse and close hints.
 func (m *AppModel) renderImagePreview() string {
 	p := m.imagePreview
 	in := m.input.(*InputComponent)
@@ -92,6 +97,7 @@ func (m *AppModel) renderImagePreview() string {
 		Width(width).MaxWidth(max(1, m.width)).MaxHeight(max(1, m.height)).Render(body)
 }
 
+// imagePreviewPlacement locates a direct image inside the centered modal.
 func (m *AppModel) imagePreviewPlacement() []gfxPlacement {
 	p := m.imagePreview
 	if p == nil || p.place == "" {
