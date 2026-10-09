@@ -4,7 +4,7 @@
 //
 // Shows a horizontal strip of columns above the composer, one per subagent,
 // each streaming that agent's real-time output. Press ctrl+alt+s (or run
-// /subagents) to open the full transcript in a floating modal dialog.
+// /subagent-monitor) to open the full transcript in a floating modal dialog.
 //
 // The modal is a genuine overlay: Kit composites it over the conversation
 // rather than inserting it into the layout, and it brings its own scrolling,
@@ -957,7 +957,7 @@ func Init(api ext.API) {
 	})
 
 	api.RegisterCommand(ext.CommandDef{
-		Name:        "subagents",
+		Name:        "subagent-monitor",
 		Description: "Open the subagent transcript (same as ctrl+alt+s)",
 		Execute: func(args string, ctx ext.Context) (string, error) {
 			submonOpenModal(ctx)

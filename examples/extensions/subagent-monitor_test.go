@@ -496,11 +496,11 @@ func TestSubagentMonitor_NeverInterceptsTheEditor(t *testing.T) {
 func TestSubagentMonitor_CommandRegistered(t *testing.T) {
 	h := submonLoad(t)
 	for _, c := range h.RegisteredCommands() {
-		if c.Name == "subagents" {
+		if c.Name == "subagent-monitor" {
 			return
 		}
 	}
-	t.Errorf("/subagents command not registered; have %v", h.RegisteredCommands())
+	t.Errorf("/subagent-monitor command not registered; have %v", h.RegisteredCommands())
 }
 
 // ---------------------------------------------------------------------------

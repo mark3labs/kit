@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mark3labs/kit/internal/ui/commands"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -23,6 +24,31 @@ func (c *inspectorTestController) GetSubagentRun(id string) (kit.SubagentRun, bo
 	return kit.SubagentRun{}, false
 }
 func (c *inspectorTestController) KillSubagent(id string) bool { c.stopped = id; return true }
+
+func TestSubagentsCommandOpensNativeInspector(t *testing.T) {
+	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "child", ParentSessionID: "parent"}}}
+	m := &AppModel{
+		appCtrl: c, state: stateWorking, width: 80, height: 24,
+		extensionCommands: []commands.ExtensionCommand{{
+			Name: "subagents",
+			Execute: func(string) (string, error) {
+				panic("built-in command must not call the extension")
+			},
+		}},
+	}
+	command := commands.GetCommandByName("/subagents")
+	if command == nil {
+		t.Fatal("missing /subagents command")
+	}
+	if m.handleSlashCommand(command, "") == nil || m.subagentView == nil {
+		t.Fatal("/subagents did not open the native inspector")
+	}
+	for _, name := range []string{"/subagent-sessions", "/agents"} {
+		if commands.GetCommandByName(name) != nil {
+			t.Fatalf("removed command %q is still registered", name)
+		}
+	}
+}
 
 func TestSubagentInspectorNavigation(t *testing.T) {
 	c := &inspectorTestController{runs: []kit.SubagentRun{{ID: "a", ParentSessionID: "parent"}, {ID: "b", ParentSessionID: "parent"}}}

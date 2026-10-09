@@ -161,12 +161,6 @@ var SlashCommands = []SlashCommand{
 		Category:    "Navigation",
 	},
 	{
-		Name:        "/subagent-sessions",
-		Description: "Open the native subagent conversation view",
-		Category:    "Navigation",
-		Aliases:     []string{"/agents"},
-	},
-	{
 		Name:        "/kill-subagent",
 		Description: "Pick a running subagent and stop it",
 		Category:    "System",

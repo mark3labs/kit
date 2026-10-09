@@ -82,7 +82,7 @@ These examples demonstrate the new bridged SDK APIs that give extensions access 
 | [`subagent-widget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [`subagent-test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
 
-For retained child output without an extension, use the [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) with `/subagent-sessions` (alias `/agents`). The `subagent-monitor.go` example retains its custom `/subagents` command and overlay; that command takes precedence over the native `/subagents` command.
+For retained child output without an extension, use the [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) with `/subagents`. The `subagent-monitor.go` example provides `/subagent-monitor` to open its own transcript overlay.
 
 ## Development
 

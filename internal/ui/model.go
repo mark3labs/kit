@@ -954,6 +954,7 @@ type AppModel struct {
 	// an appState: subagents run while the agent works, so the state stays
 	// stateWorking and keys are routed here while this is non-nil.
 	killSubagentSelector *KillSubagentSelectorComponent
+	subagentRunPicker    *SubagentRunPicker
 
 	// themeSelector is the color-theme picker, active in stateThemeSelector.
 	themeSelector *ThemeSelectorComponent
@@ -1040,7 +1041,10 @@ type AppModel struct {
 	// last distributeHeight. The row appears when the agent starts working and
 	// disappears when it stops, and nothing in that transition otherwise marks
 	// the layout dirty, so it is compared every frame. See syncActivityRow.
-	lastActivityPresent bool
+	lastSubagentStatusPresent bool
+	subagentStatusCheckedAt   time.Time
+	subagentStatusCache       []kit.SubagentRun
+	lastActivityPresent       bool
 
 	// mcpResourceReader is an optional callback to read MCP resources when
 	// processing @mcp:server:uri tokens at submit time. Set by the parent.
@@ -1752,6 +1756,9 @@ func (m *AppModel) wantsFrames() bool {
 	if m.stream != nil && m.stream.IsSpinning() {
 		return true
 	}
+	if m.hasVisibleSubagentRuns() {
+		return true
+	}
 	// An extension widget can hold the clock open for its own animation.
 	// This is the only path by which a session with nothing else moving stays
 	// awake, so it is deliberately gated on an explicit RefreshHz opt-in.
@@ -1974,6 +1981,8 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case KillSubagentSelectorCancelledMsg:
 		m.killSubagentSelector = nil
 		return m, nil
+	case SubagentRunSelectedMsg, SubagentRunPickerCancelledMsg:
+		return m, m.updateSubagentRunPickerEvent(msg)
 
 	// ── Theme selector events ───────────────────────────────────────────────
 	case ThemeSelectedMsg:
@@ -2200,6 +2209,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, ctrlCResetCmd()
 		}
 
+		if m.subagentRunPickerOpen() {
+			_, cmd := m.subagentRunPicker.Update(msg)
+			return m, tea.Batch(append(cmds, cmd)...)
+		}
+
 		// Route to the /kill-subagent picker when open. It owns the keyboard
 		// (including esc, which closes it instead of cancelling the turn).
 		if m.killSubagentOpen() {
@@ -2221,6 +2235,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//
 		// Matched shortcuts are consumed — the key does not propagate
 		// to child components.
+		if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
+			m.openSubagentRunPicker()
+			return m, tea.Batch(cmds...)
+		}
 		if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
 			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
 				if handler, ok := lookupShortcut(shortcuts, msg); ok {
@@ -3577,6 +3595,7 @@ func (m *AppModel) View() tea.View {
 	m.chrome.valid = false
 	m.renderEpoch++
 	m.syncActivityRow()
+	m.syncSubagentStatusBar()
 	if m.layoutDirty {
 		m.distributeHeight()
 		m.layoutDirty = false
@@ -3678,6 +3697,13 @@ func (m *AppModel) View() tea.View {
 	if !m.chrome.valid {
 		activityView = m.renderActivityRow()
 	}
+	subagentView := m.chrome.subagents
+	if !m.chrome.valid {
+		subagentView = m.renderSubagentStatusBar()
+	}
+	if subagentView != "" {
+		parts = append(parts, subagentView)
+	}
 	if activityView != "" {
 		parts = append(parts, activityView)
 	}
@@ -3747,6 +3773,9 @@ func (m *AppModel) View() tea.View {
 	// Kill-subagent selector.
 	if m.killSubagentOpen() {
 		finalContent = compositeCentered(finalContent, m.killSubagentSelector.RenderOverlay(), m.width, m.height)
+	}
+	if m.subagentRunPickerOpen() {
+		finalContent = compositeCentered(finalContent, m.subagentRunPicker.RenderOverlay(), m.width, m.height)
 	}
 
 	// Theme selector.
@@ -4740,12 +4769,6 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 	case "/thinking":
 		return m.handleThinkingCommand(args)
 	case "/subagents":
-		// Registered extension commands take precedence over the native alias.
-		if cmd := m.handleExtensionCommand(sc.Name); cmd != nil {
-			return cmd
-		}
-		return m.openSubagentInspector()
-	case "/subagent-sessions":
 		return m.openSubagentInspector()
 	case "/kill-subagent":
 		m.handleKillSubagentCommand()
@@ -5275,6 +5298,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `Ctrl+X m`: Move — browse and inspect scrollback messages\n" +
 		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
 		"- `Ctrl+V`: Paste image from clipboard\n" +
+		"- `Ctrl+Alt+A`: Pick a subagent run to inspect\n" +
 		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
 		"You can also just type your message to chat with the AI assistant."
 	m.printCustomMessage(help, "Help")
@@ -5543,14 +5567,15 @@ type pendingStreamChunk struct {
 // chromeCache holds the rendered layout chrome measured by distributeHeight()
 // for reuse by View() within the same frame.
 type chromeCache struct {
-	valid    bool
-	header   string
-	footer   string
-	above    string
-	below    string
-	queued   string
-	activity string
-	input    string
+	valid     bool
+	header    string
+	footer    string
+	above     string
+	below     string
+	queued    string
+	activity  string
+	subagents string
+	input     string
 }
 
 // isComposerTextKey reports whether msg is plain text editing in the
@@ -5783,6 +5808,12 @@ func (m *AppModel) distributeHeight() {
 		activityLines = lipgloss.Height(activityView)
 		m.chrome.activity = activityView
 	}
+	var subagentLines int
+	subagentView := m.renderSubagentStatusBar()
+	if subagentView != "" {
+		subagentLines = lipgloss.Height(subagentView)
+		m.chrome.subagents = subagentView
+	}
 	// Remember whether the row was present so syncActivityRow can detect the
 	// next time the agent starts or stops working.
 	m.lastActivityPresent = activityLines > 0
@@ -5842,7 +5873,7 @@ func (m *AppModel) distributeHeight() {
 		warningLines++
 	}
 
-	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-activityLines-inputLines-statusBarLines-warningLines, 0)
+	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-subagentLines-activityLines-inputLines-statusBarLines-warningLines, 0)
 
 	// In alt screen mode, give the calculated height to ScrollList instead of stream.
 	// The stream component still exists but is embedded as the last item in scrollList.

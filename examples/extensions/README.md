@@ -81,7 +81,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `subagent-widget.go` | Widget with subagent updates | Goroutines + widgets |
 | `dev-reload.go` | Hot reload extensions | `ReloadExtensions` |
 
-Kit also has a [native read-only subagent inspector](https://go-kit.dev/advanced/subagents#inspecting-subagent-conversations) with `/subagent-sessions` (alias `/agents`). Use it to inspect retained output without loading a monitoring extension. The `subagent-monitor.go` example keeps its own `/subagents` command and transcript overlay; that command takes precedence over the native `/subagents` command. `/subagent-sessions` remains available.
+Kit also has a [native read-only subagent inspector](https://go-kit.dev/advanced/subagents#inspecting-subagent-conversations) with `/subagents`. Use it to inspect retained output without loading a monitoring extension. The `subagent-monitor.go` example provides `/subagent-monitor` to open its own transcript overlay.
 
 ### Integrations
 

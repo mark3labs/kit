@@ -29,7 +29,7 @@ Each line in the session file is a JSON entry representing a message, tool call,
 
 When a [subagent](/advanced/subagents) is spawned from a persisted parent session, the child records its parent in the file header (`parent_session_id`, `parent_session`, and the originating `subagent_task`), so delegated work can be traced back to the session that spawned it.
 
-Use `/subagent-sessions` (alias `/agents`) to [inspect retained child conversations](/advanced/subagents#inspecting-subagent-conversations) without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the `subagent` tool's `session_id` parameter instead.
+Use `/subagents` to [inspect retained child conversations](/advanced/subagents#inspecting-subagent-conversations) without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the `subagent` tool's `session_id` parameter instead.
 
 ## Compaction
 

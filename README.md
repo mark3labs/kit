@@ -19,7 +19,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools**: shell (configurable shell, bash by default, with interactive sudo password prompt), read, write, edit, grep, find, ls, subagent - no MCP overhead
-- **Named Agents**: Reusable subagent presets defined in markdown with per-agent tool allowlists, advertised to the LLM for delegation
+- **Named Agents**: Reusable subagent presets defined in markdown with per-agent tool allowlists, advertised to the LLM for delegation. A built-in status bar above parent activity shows active runs and recent results
 - **Smart @ Attachments**: Binary files auto-detected via MIME type, MCP resources via `@mcp:server:uri`
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
@@ -684,9 +684,9 @@ Disable discovery entirely with `--no-agents`, the `no-agents` config key (`.kit
 
 ### Inspecting Subagent Runs
 
-Inspect retained child output and tool activity in the TUI with `/subagent-sessions` (alias `/agents`) or `/subagents`. Use Left/Right to switch sibling runs, Up/Down or Page Up/Page Down to scroll, Esc to return to the parent, and Ctrl+K to stop an active run. The conversation view is read-only and refreshes once per second.
+Inspect retained child output and tool activity in the TUI with `/subagents`. Press Ctrl+Alt+A to open a subagent run picker, then Enter to inspect the selected run. The subagent status bar shows this shortcut when space permits. Use Left/Right to switch sibling runs, Up/Down or Page Up/Page Down to scroll, Esc to return to the parent, and Ctrl+K to stop an active run. The conversation view is read-only and refreshes once per second.
 
-If an extension registers `/subagents`, that extension command takes precedence; `/subagent-sessions` still opens the native inspector. The view uses in-memory history, not saved session files.
+The view uses in-memory history, not saved session files.
 
 From the SDK, use `k.SubagentRuns()` for active and retained finished runs, or `k.GetSubagentRun(runID)` for one snapshot. `k.RunningSubagents()` continues to list only active runs. History retains up to 100 finished runs plus all active runs and up to 500 event records per run.
 
