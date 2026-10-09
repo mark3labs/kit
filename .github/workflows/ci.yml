@@ -17,21 +17,25 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
 
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           # Must be built with Go >= the version targeted in go.mod (1.27),
           # otherwise golangci-lint refuses to load the config with
           # "the Go language version used to build golangci-lint is lower
-          # than the targeted Go version".
-          version: v2.13.1
+          # than the targeted Go version". v2.14.0 is also the first release
+          # that can read the export data (version 5) that Go 1.27.2 writes
+          # for the cmp and slices standard library packages; v2.13.1 and
+          # older fail typecheck with "export data version 5 is greater than
+          # maximum supported version 4".
+          version: v2.14.0
 
   # Advisory only: staticcheck with ALL checks enabled (default excludes the
   # stylistic ST* family). Findings here do not block merges; the blocking
@@ -41,11 +45,11 @@ jobs:
   staticcheck-advisory:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
 
@@ -57,11 +61,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
 
