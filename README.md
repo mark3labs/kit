@@ -686,7 +686,9 @@ Disable discovery entirely with `--no-agents`, the `no-agents` config key (`.kit
 
 Inspect retained child output and tool activity in the TUI with `/subagents`. Press Ctrl+Alt+A to open a subagent run picker, then Enter to inspect the selected run. The subagent status bar shows this shortcut when space permits. Use Left/Right to switch sibling runs, Up/Down or Page Up/Page Down to scroll, Esc to return to the parent, and Ctrl+K to stop an active run. The conversation view is read-only and refreshes once per second.
 
-The view uses in-memory history, not saved session files.
+The status bar shows active runs with blinking lights and finished results for 10 seconds. Older retained runs remain available in the picker. The view uses in-memory history, not saved session files.
+
+**Command migration:** `/subagent-sessions` and `/agents` have been removed; use `/subagents` instead. Extensions can no longer override `/subagents`. The `subagent-monitor.go` example now opens its overlay with `/subagent-monitor` (or Ctrl+Alt+S).
 
 From the SDK, use `k.SubagentRuns()` for active and retained finished runs, or `k.GetSubagentRun(runID)` for one snapshot. `k.RunningSubagents()` continues to list only active runs. History retains up to 100 finished runs plus all active runs and up to 500 event records per run.
 
