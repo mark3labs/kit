@@ -31,7 +31,10 @@ jobs:
           # otherwise golangci-lint refuses to load the config with
           # "the Go language version used to build golangci-lint is lower
           # than the targeted Go version".
-          version: v2.13.1
+          # v2.13.1 cannot read the export data (version 5) that Go 1.27.2
+          # writes for the cmp and slices standard library packages, so the
+          # typecheck fails on every run. v2.14.0 reads version 5.
+          version: v2.14.0
 
   # Advisory only: staticcheck with ALL checks enabled (default excludes the
   # stylistic ST* family). Findings here do not block merges; the blocking
