@@ -74,7 +74,9 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Subagent status bar",
         "Inspecting subagent conversations",
+        "Command compatibility",
         "Killing a running subagent",
         "Session linking and resuming",
         "Named agents",
@@ -88,7 +90,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 2493
+      "wordCount": 2723
     },
     {
       "id": "advanced/testing",
@@ -135,7 +137,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4078
+      "wordCount": 4098
     },
     {
       "id": "cli/flags",
@@ -248,7 +250,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4308
+      "wordCount": 4386
     },
     {
       "id": "extensions/examples",

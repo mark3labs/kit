@@ -209,7 +209,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
 | `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
 | `/compact [focus]` | Summarize older messages to free context |
-| `/subagents` | Open the [read-only subagent inspector](/advanced/subagents#inspecting-subagent-conversations). |
+| `/subagents` | Open the [read-only subagent inspector](/advanced/subagents#inspecting-subagent-conversations) on the newest retained run. Use `Ctrl+Alt+A` to pick a run. Replaces `/subagent-sessions` and `/agents`; extensions cannot override this command. |
 | `/kill-subagent` | Open a picker of the running subagents and stop the selected one. The parent agent is told that the user killed it. Alias: `/ks`. |
 | `/clear` | Clear conversation |
 | `/clear-queue` | Clear queued messages |

@@ -369,6 +369,8 @@ handled specially:
 | `ctrl+c` | **Rejected.** Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning. |
 | `esc`, `ctrl+x`, `pgup`, `pgdown`, `ctrl+home`, `ctrl+end`, `shift+tab`, `enter`, `tab`, `up`, `down` | **Accepted with a warning.** The shortcut wins, shadowing Kit's built-in behaviour. |
 
+`Ctrl+Alt+A` opens the built-in [subagent run picker](/advanced/subagents#inspecting-subagent-conversations) before extension shortcuts are consulted while composing a prompt or while the parent agent works, when no modal or leader chord is active. Registration does not reject this binding, but an extension handler cannot override the picker in those states. Use a different key for extension shortcuts.
+
 An armed `Ctrl+X` leader chord takes precedence over shortcuts, so binding a
 chord suffix such as `"s"` does not break `Ctrl+X s`.
 
@@ -557,7 +559,7 @@ With `Blocking: false` (the default), the subagent runs in a background goroutin
 
 Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
-The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with `/subagents` without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension `Context`.
+The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with `/subagents` without adding a monitoring widget. `/subagents` is reserved for the built-in inspector and cannot be overridden by an extension command. See [command compatibility](/advanced/subagents#command-compatibility) if your extension previously used that name. The snapshot methods are Go SDK APIs, not fields on the extension `Context`.
 
 ### Monitoring subagents spawned by the main agent
 

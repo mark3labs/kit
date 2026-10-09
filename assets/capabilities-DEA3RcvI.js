@@ -506,6 +506,7 @@ handled specially:</p>
 </tr>
 </tbody>
 </table>
+<p><code>Ctrl+Alt+A</code> opens the built-in <a href="/advanced/subagents#inspecting-subagent-conversations">subagent run picker</a> before extension shortcuts are consulted while composing a prompt or while the parent agent works, when no modal or leader chord is active. Registration does not reject this binding, but an extension handler cannot override the picker in those states. Use a different key for extension shortcuts.</p>
 <p>An armed <code>Ctrl+X</code> leader chord takes precedence over shortcuts, so binding a
 chord suffix such as <code>"s"</code> does not break <code>Ctrl+X s</code>.</p>
 <blockquote>
@@ -669,7 +670,7 @@ without string matching.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>With <code>Blocking: false</code> (the default), the subagent runs in a background goroutine and <code>SpawnSubagent</code> returns immediately with a non-nil handle (<code>handle.Wait()</code>, <code>handle.Done()</code>, <code>handle.Kill()</code>); use <code>OnComplete</code>/<code>OnEvent</code> callbacks for results. See <a href="/advanced/subagents">Subagents</a> for a full background-mode example.</p>
 <p>Subagent sessions are persisted and linked to the host session by default. Set <code>SessionID</code> to a previous run's <code>SubagentResult.SessionID</code> to resume that subagent for follow-up prompts; see <a href="/advanced/subagents#session-linking-and-resuming">Session linking and resuming</a>.</p>
-<p>The <a href="/advanced/subagents#inspecting-subagent-conversations">native subagent inspector</a> also shows retained runs started by extensions. Users can open it with <code>/subagents</code> without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension <code>Context</code>.</p>
+<p>The <a href="/advanced/subagents#inspecting-subagent-conversations">native subagent inspector</a> also shows retained runs started by extensions. Users can open it with <code>/subagents</code> without adding a monitoring widget. <code>/subagents</code> is reserved for the built-in inspector and cannot be overridden by an extension command. See <a href="/advanced/subagents#command-compatibility">command compatibility</a> if your extension previously used that name. The snapshot methods are Go SDK APIs, not fields on the extension <code>Context</code>.</p>
 <h3 id="monitoring-subagents-spawned-by-the-main-agent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-spawned-by-the-main-agent"><span class="icon icon-link"></span></a>Monitoring subagents spawned by the main agent</h3>
 <p>When the LLM uses the built-in <code>subagent</code> tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Subagent started</span></span>
@@ -1344,6 +1345,8 @@ handled specially:
 | \`ctrl+c\` | **Rejected.** Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning. |
 | \`esc\`, \`ctrl+x\`, \`pgup\`, \`pgdown\`, \`ctrl+home\`, \`ctrl+end\`, \`shift+tab\`, \`enter\`, \`tab\`, \`up\`, \`down\` | **Accepted with a warning.** The shortcut wins, shadowing Kit's built-in behaviour. |
 
+\`Ctrl+Alt+A\` opens the built-in [subagent run picker](/advanced/subagents#inspecting-subagent-conversations) before extension shortcuts are consulted while composing a prompt or while the parent agent works, when no modal or leader chord is active. Registration does not reject this binding, but an extension handler cannot override the picker in those states. Use a different key for extension shortcuts.
+
 An armed \`Ctrl+X\` leader chord takes precedence over shortcuts, so binding a
 chord suffix such as \`"s"\` does not break \`Ctrl+X s\`.
 
@@ -1532,7 +1535,7 @@ With \`Blocking: false\` (the default), the subagent runs in a background gorout
 
 Subagent sessions are persisted and linked to the host session by default. Set \`SessionID\` to a previous run's \`SubagentResult.SessionID\` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
-The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with \`/subagents\` without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension \`Context\`.
+The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with \`/subagents\` without adding a monitoring widget. \`/subagents\` is reserved for the built-in inspector and cannot be overridden by an extension command. See [command compatibility](/advanced/subagents#command-compatibility) if your extension previously used that name. The snapshot methods are Go SDK APIs, not fields on the extension \`Context\`.
 
 ### Monitoring subagents spawned by the main agent
 

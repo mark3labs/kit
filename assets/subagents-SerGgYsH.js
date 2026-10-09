@@ -52,9 +52,39 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 )
 </code></pre>
 <p>Subagents run as separate in-process Kit instances and inherit the parent's active tools minus <code>subagent</code> (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
+<h3 id="subagent-status-bar"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagent-status-bar"><span class="icon icon-link"></span></a>Subagent status bar</h3>
+<p>The TUI shows a compact status bar above the parent activity line, so you can check child runs without opening their conversations. It includes in-process runs started by the LLM, extensions, or direct SDK calls, not separate Kit subprocesses.</p>
+<table>
+<thead>
+<tr>
+<th>Indicator</th>
+<th>Run status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Blinking <code>●</code></td>
+<td>Starting or running</td>
+</tr>
+<tr>
+<td><code>✓</code></td>
+<td>Completed</td>
+</tr>
+<tr>
+<td><code>✗</code></td>
+<td>Failed or timed out</td>
+</tr>
+<tr>
+<td><code>■</code></td>
+<td>Stopped</td>
+</tr>
+</tbody>
+</table>
+<p>Each indicator shows the agent name, or <code>agent</code> when no name is set. Finished runs remain in the bar for 10 seconds after they end. The bar disappears when there are no active or recent runs. This display limit does not remove retained history: older runs remain available in the picker until history retention removes them.</p>
 <h3 id="inspecting-subagent-conversations"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#inspecting-subagent-conversations"><span class="icon icon-link"></span></a>Inspecting subagent conversations</h3>
-<p>The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run <code>/subagents</code> to open the inspector on the newest retained run. Press <code>Ctrl+Alt+A</code> to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.</p>
-<p>The view opens on the newest retained run and shows siblings with the same <code>ParentSessionID</code> as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.</p>
+<p>The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run <code>/subagents</code> to open the inspector on the newest retained run.</p>
+<p>To choose a different run, press <code>Ctrl+Alt+A</code> while composing a prompt or while the parent agent works. The picker lists active and retained finished runs with their agent name, status, model, and first prompt line when available. Use Up/Down to choose a run and Enter to inspect it. Esc closes the picker without cancelling the parent turn. The status bar shows the shortcut when space permits, but the shortcut also works when the bar is hidden.</p>
+<p>The inspector opens on the chosen run and shows siblings with the same <code>ParentSessionID</code>. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors. If no runs are retained, Kit shows <code>No retained subagent runs.</code> instead of opening the picker or inspector.</p>
 <table>
 <thead>
 <tr>
@@ -90,6 +120,9 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 </tbody>
 </table>
 <p>The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.</p>
+<h3 id="command-compatibility"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#command-compatibility"><span class="icon icon-link"></span></a>Command compatibility</h3>
+<p><code>/subagent-sessions</code> and its alias <code>/agents</code> have been removed. Use <code>/subagents</code> or <code>Ctrl+Alt+A</code> instead. <code>/subagents</code> always opens the built-in inspector; an extension registered under that name no longer takes precedence.</p>
+<p>The <code>subagent-monitor.go</code> example now uses <code>/subagent-monitor</code> for its transcript overlay. Its <code>Ctrl+Alt+S</code> shortcut is unchanged. Custom extensions that used <code>/subagents</code> must choose a different command name to remain accessible.</p>
 <h3 id="killing-a-running-subagent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#killing-a-running-subagent"><span class="icon icon-link"></span></a>Killing a running subagent</h3>
 <p>In the TUI, run <code>/kill-subagent</code> (alias <code>/ks</code>) while subagents run. A picker shows each running subagent with its agent name, run time, model and task. Select one and press Enter to stop it. The <code>subagent</code> tool call then returns this result to the parent agent:</p>
 <pre><code>Subagent was killed by the user after 28s. It did not complete its task. Do not start it again unless the user asks you to.
@@ -369,7 +402,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for <a href="#retained-run-snapshots">run snapshots</a> and the <a href="#inspecting-subagent-conversations">native inspector</a>.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Inspecting subagent conversations`,id:`inspecting-subagent-conversations`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Retained run snapshots`,id:`retained-run-snapshots`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
+<p>If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for <a href="#retained-run-snapshots">run snapshots</a> and the <a href="#inspecting-subagent-conversations">native inspector</a>.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Subagent status bar`,id:`subagent-status-bar`},{depth:3,text:`Inspecting subagent conversations`,id:`inspecting-subagent-conversations`},{depth:3,text:`Command compatibility`,id:`command-compatibility`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Retained run snapshots`,id:`retained-run-snapshots`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.
@@ -416,11 +449,26 @@ subagent(
 
 Subagents run as separate in-process Kit instances and inherit the parent's active tools minus \`subagent\` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
 
+### Subagent status bar
+
+The TUI shows a compact status bar above the parent activity line, so you can check child runs without opening their conversations. It includes in-process runs started by the LLM, extensions, or direct SDK calls, not separate Kit subprocesses.
+
+| Indicator | Run status |
+|-----------|------------|
+| Blinking \`●\` | Starting or running |
+| \`✓\` | Completed |
+| \`✗\` | Failed or timed out |
+| \`■\` | Stopped |
+
+Each indicator shows the agent name, or \`agent\` when no name is set. Finished runs remain in the bar for 10 seconds after they end. The bar disappears when there are no active or recent runs. This display limit does not remove retained history: older runs remain available in the picker until history retention removes them.
+
 ### Inspecting subagent conversations
 
-The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run \`/subagents\` to open the inspector on the newest retained run. Press \`Ctrl+Alt+A\` to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.
+The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run \`/subagents\` to open the inspector on the newest retained run.
 
-The view opens on the newest retained run and shows siblings with the same \`ParentSessionID\` as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.
+To choose a different run, press \`Ctrl+Alt+A\` while composing a prompt or while the parent agent works. The picker lists active and retained finished runs with their agent name, status, model, and first prompt line when available. Use Up/Down to choose a run and Enter to inspect it. Esc closes the picker without cancelling the parent turn. The status bar shows the shortcut when space permits, but the shortcut also works when the bar is hidden.
+
+The inspector opens on the chosen run and shows siblings with the same \`ParentSessionID\`. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors. If no runs are retained, Kit shows \`No retained subagent runs.\` instead of opening the picker or inspector.
 
 | Key | Action |
 |-----|--------|
@@ -432,6 +480,12 @@ The view opens on the newest retained run and shows siblings with the same \`Par
 | Ctrl+K | Stop the selected run if it is still active |
 
 The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.
+
+### Command compatibility
+
+\`/subagent-sessions\` and its alias \`/agents\` have been removed. Use \`/subagents\` or \`Ctrl+Alt+A\` instead. \`/subagents\` always opens the built-in inspector; an extension registered under that name no longer takes precedence.
+
+The \`subagent-monitor.go\` example now uses \`/subagent-monitor\` for its transcript overlay. Its \`Ctrl+Alt+S\` shortcut is unchanged. Custom extensions that used \`/subagents\` must choose a different command name to remain accessible.
 
 ### Killing a running subagent
 
