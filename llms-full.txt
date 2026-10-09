@@ -772,7 +772,7 @@ allowlist is shared).
 
 # Subagents
 
-Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
+Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.
 
 ## Subprocess pattern
 
@@ -818,7 +818,7 @@ Subagents run as separate in-process Kit instances and inherit the parent's acti
 
 ### Inspecting subagent conversations
 
-The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run `/subagent-sessions` (alias `/agents`) to open it; `/subagents` opens the same view unless an extension registers that command. In that case, the extension command takes precedence, and `/subagent-sessions` still opens the native view.
+The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run `/subagents` to open the inspector on the newest retained run. Press `Ctrl+Alt+A` to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.
 
 The view opens on the newest retained run and shows siblings with the same `ParentSessionID` as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.
 
@@ -1431,8 +1431,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
 | `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
 | `/compact [focus]` | Summarize older messages to free context |
-| `/subagents` | Open the [read-only subagent inspector](/advanced/subagents#inspecting-subagent-conversations). A registered extension command with this name takes precedence. |
-| `/subagent-sessions` | Open the native subagent inspector even when an extension provides `/subagents`. Alias: `/agents`. |
+| `/subagents` | Open the [read-only subagent inspector](/advanced/subagents#inspecting-subagent-conversations). |
 | `/kill-subagent` | Open a picker of the running subagents and stop the selected one. The parent agent is told that the user killed it. Alias: `/ks`. |
 | `/clear` | Clear conversation |
 | `/clear-queue` | Clear queued messages |
@@ -2887,7 +2886,7 @@ With `Blocking: false` (the default), the subagent runs in a background goroutin
 
 Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
-The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with `/subagent-sessions` (alias `/agents`) without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension `Context`.
+The [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) also shows retained runs started by extensions. Users can open it with `/subagents` without adding a monitoring widget. The new snapshot methods are Go SDK APIs, not fields on the extension `Context`.
 
 ### Monitoring subagents spawned by the main agent
 
@@ -3312,7 +3311,7 @@ These examples demonstrate the new bridged SDK APIs that give extensions access 
 | [`subagent-widget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [`subagent-test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
 
-For retained child output without an extension, use the [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) with `/subagent-sessions` (alias `/agents`). The `subagent-monitor.go` example retains its custom `/subagents` command and overlay; that command takes precedence over the native `/subagents` command.
+For retained child output without an extension, use the [native subagent inspector](/advanced/subagents#inspecting-subagent-conversations) with `/subagents`. The `subagent-monitor.go` example provides `/subagent-monitor` to open its own transcript overlay.
 
 ## Development
 
@@ -6547,7 +6546,7 @@ Each line in the session file is a JSON entry representing a message, tool call,
 
 When a [subagent](/advanced/subagents) is spawned from a persisted parent session, the child records its parent in the file header (`parent_session_id`, `parent_session`, and the originating `subagent_task`), so delegated work can be traced back to the session that spawned it.
 
-Use `/subagent-sessions` (alias `/agents`) to [inspect retained child conversations](/advanced/subagents#inspecting-subagent-conversations) without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the `subagent` tool's `session_id` parameter instead.
+Use `/subagents` to [inspect retained child conversations](/advanced/subagents#inspecting-subagent-conversations) without changing the parent conversation. This view uses in-memory run history; it does not load saved JSONL transcripts or restore history after a restart. Resume a child session through the `subagent` tool's `session_id` parameter instead.
 
 ## Compaction
 

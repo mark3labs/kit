@@ -1,5 +1,5 @@
 var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration with Kit subagents.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagents"><span class="icon icon-link"></span></a>Subagents</h1>
-<p>Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.</p>
+<p>Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.</p>
 <h2 id="subprocess-pattern"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subprocess-pattern"><span class="icon icon-link"></span></a>Subprocess pattern</h2>
 <p>Spawn Kit as a subprocess for isolated agent execution:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Analyze codebase"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
@@ -53,7 +53,7 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 </code></pre>
 <p>Subagents run as separate in-process Kit instances and inherit the parent's active tools minus <code>subagent</code> (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
 <h3 id="inspecting-subagent-conversations"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#inspecting-subagent-conversations"><span class="icon icon-link"></span></a>Inspecting subagent conversations</h3>
-<p>The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run <code>/subagent-sessions</code> (alias <code>/agents</code>) to open it; <code>/subagents</code> opens the same view unless an extension registers that command. In that case, the extension command takes precedence, and <code>/subagent-sessions</code> still opens the native view.</p>
+<p>The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run <code>/subagents</code> to open the inspector on the newest retained run. Press <code>Ctrl+Alt+A</code> to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.</p>
 <p>The view opens on the newest retained run and shows siblings with the same <code>ParentSessionID</code> as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.</p>
 <table>
 <thead>
@@ -372,7 +372,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <p>If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for <a href="#retained-run-snapshots">run snapshots</a> and the <a href="#inspecting-subagent-conversations">native inspector</a>.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Inspecting subagent conversations`,id:`inspecting-subagent-conversations`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Retained run snapshots`,id:`retained-run-snapshots`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
 # Subagents
 
-Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
+Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.
 
 ## Subprocess pattern
 
@@ -418,7 +418,7 @@ Subagents run as separate in-process Kit instances and inherit the parent's acti
 
 ### Inspecting subagent conversations
 
-The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run \`/subagent-sessions\` (alias \`/agents\`) to open it; \`/subagents\` opens the same view unless an extension registers that command. In that case, the extension command takes precedence, and \`/subagent-sessions\` still opens the native view.
+The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run \`/subagents\` to open the inspector on the newest retained run. Press \`Ctrl+Alt+A\` to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.
 
 The view opens on the newest retained run and shows siblings with the same \`ParentSessionID\` as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.
 

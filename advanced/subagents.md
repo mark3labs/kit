@@ -1,7 +1,7 @@
 
 # Subagents
 
-Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
+Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.
 
 ## Subprocess pattern
 
@@ -47,7 +47,7 @@ Subagents run as separate in-process Kit instances and inherit the parent's acti
 
 ### Inspecting subagent conversations
 
-The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run `/subagent-sessions` (alias `/agents`) to open it; `/subagents` opens the same view unless an extension registers that command. In that case, the extension command takes precedence, and `/subagent-sessions` still opens the native view.
+The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run `/subagents` to open the inspector on the newest retained run. Press `Ctrl+Alt+A` to open a picker of active and retained runs. The subagent status bar shows this shortcut when space permits. Use Up/Down to choose a run, Enter to inspect it, and Esc to return to the parent. The inspector keeps the selected run's parent context; use Left/Right to switch between sibling runs.
 
 The view opens on the newest retained run and shows siblings with the same `ParentSessionID` as that run. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors.
 

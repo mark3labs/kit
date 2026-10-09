@@ -88,7 +88,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 2447
+      "wordCount": 2493
     },
     {
       "id": "advanced/testing",
@@ -135,7 +135,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4104
+      "wordCount": 4078
     },
     {
       "id": "cli/flags",
@@ -248,7 +248,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4310
+      "wordCount": 4308
     },
     {
       "id": "extensions/examples",
@@ -268,7 +268,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 617
+      "wordCount": 607
     },
     {
       "id": "extensions/loading",
@@ -546,7 +546,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 933
+      "wordCount": 931
     },
     {
       "id": "themes",
