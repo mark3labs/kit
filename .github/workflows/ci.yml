@@ -25,7 +25,7 @@ jobs:
         with:
           go-version: "1.27"
 
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # Must be built with Go >= the version targeted in go.mod (1.27),
           # otherwise golangci-lint refuses to load the config with
