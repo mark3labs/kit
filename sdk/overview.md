@@ -168,7 +168,15 @@ The SDK provides several prompt variants:
 | `PromptResultWithOptions(ctx, message, opts)` | Per-call options variant that returns the full `TurnResult` |
 | `PromptResultWithFiles(ctx, message, files)` | Multimodal with file attachments |
 | `Steer(ctx, instruction)` | System-level steering without user message |
-| `FollowUp(ctx, text)` | Continue without new user input |
+| `FollowUp(ctx, text)` | Send a follow-up user message (`"Continue."` if empty) |
+| `ContinueResult(ctx)` | Generate from saved conversation without adding a user message; returns full `TurnResult` |
+
+`ContinueResult` uses the installed session's current branch. Empty or system-only
+conversations return an error. Normal hooks, events, checkpoints, streaming, and
+cancellation apply. `BeforeTurn` receives an empty prompt; prompt replacements
+have no effect, but explicit message injections still apply. The host must resolve
+pending tool calls and verify uncertain external effects before continuation.
+Saved tool calls are not replayed; new model-generated tool calls run normally.
 
 ### Per-call overrides
 

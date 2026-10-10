@@ -248,10 +248,20 @@ no external synchronization required.</p>
 </tr>
 <tr>
 <td><code>FollowUp(ctx, text)</code></td>
-<td>Continue without new user input</td>
+<td>Send a follow-up user message (<code>"Continue."</code> if empty)</td>
+</tr>
+<tr>
+<td><code>ContinueResult(ctx)</code></td>
+<td>Generate from saved conversation without adding a user message; returns full <code>TurnResult</code></td>
 </tr>
 </tbody>
 </table>
+<p><code>ContinueResult</code> uses the installed session's current branch. Empty or system-only
+conversations return an error. Normal hooks, events, checkpoints, streaming, and
+cancellation apply. <code>BeforeTurn</code> receives an empty prompt; prompt replacements
+have no effect, but explicit message injections still apply. The host must resolve
+pending tool calls and verify uncertain external effects before continuation.
+Saved tool calls are not replayed; new model-generated tool calls run normally.</p>
 <h3 id="per-call-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#per-call-overrides"><span class="icon icon-link"></span></a>Per-call overrides</h3>
 <p><code>PromptOptions</code> scopes configuration to a <strong>single call</strong> and restores the
 agent's prior state afterwards — no need to rebuild a <code>*Kit</code> per request. This
@@ -1128,7 +1138,15 @@ The SDK provides several prompt variants:
 | \`PromptResultWithOptions(ctx, message, opts)\` | Per-call options variant that returns the full \`TurnResult\` |
 | \`PromptResultWithFiles(ctx, message, files)\` | Multimodal with file attachments |
 | \`Steer(ctx, instruction)\` | System-level steering without user message |
-| \`FollowUp(ctx, text)\` | Continue without new user input |
+| \`FollowUp(ctx, text)\` | Send a follow-up user message (\`"Continue."\` if empty) |
+| \`ContinueResult(ctx)\` | Generate from saved conversation without adding a user message; returns full \`TurnResult\` |
+
+\`ContinueResult\` uses the installed session's current branch. Empty or system-only
+conversations return an error. Normal hooks, events, checkpoints, streaming, and
+cancellation apply. \`BeforeTurn\` receives an empty prompt; prompt replacements
+have no effect, but explicit message injections still apply. The host must resolve
+pending tool calls and verify uncertain external effects before continuation.
+Saved tool calls are not replayed; new model-generated tool calls run normally.
 
 ### Per-call overrides
 
