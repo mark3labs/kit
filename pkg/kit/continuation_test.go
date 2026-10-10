@@ -137,7 +137,7 @@ func TestContinueResultRestoredConversation(t *testing.T) {
 }
 
 func TestContinueResultRequiresConversation(t *testing.T) {
-	for _, messages := range [][]LLMMessage{nil, {fantasy.NewSystemMessage("system only")}, {{Role: fantasy.MessageRoleUser}}, {fantasy.NewUserMessage("")}, {fantasy.NewUserMessage("  ")}} {
+	for _, messages := range [][]LLMMessage{nil, {fantasy.NewSystemMessage("system only")}, {{Role: fantasy.MessageRoleUser}}, {fantasy.NewUserMessage("")}, {fantasy.NewUserMessage("  ")}, {{Role: fantasy.MessageRoleUser, Content: []fantasy.MessagePart{&fantasy.TextPart{Text: " "}}}}} {
 		model := &continuationModel{provider: "offline", model: "m"}
 		sm := &failingWrites{messages: messages, failAt: 100}
 		k := newProviderTestKit(t, &Options{Model: "offline/m", SessionManager: sm,

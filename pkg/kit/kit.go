@@ -3519,7 +3519,7 @@ func (m *Kit) ContinueResult(ctx context.Context) (*TurnResult, error) {
 			continue
 		}
 		for _, part := range message.Content {
-			if text, ok := part.(fantasy.TextPart); ok && strings.TrimSpace(text.Text) == "" {
+			if text, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && strings.TrimSpace(text.Text) == "" {
 				continue
 			}
 			return m.runTurn(ctx, "[continue]", "", nil)
