@@ -648,7 +648,15 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `IsGenerating()` - True while an agent turn is in progress
 - `DrainSteer()` - Drain unconsumed `[]SteerMessage` (after a turn completes,
   or messages injected while idle)
-- `FollowUp(ctx, text)` - Continue without new user input
+- `FollowUp(ctx, text)` - Send a follow-up user message (`"Continue."` if empty)
+- `ContinueResult(ctx)` - Generate from the installed session's current branch
+  without adding a user message; returns the full `TurnResult`. Returns an error
+  for an empty or system-only conversation. Normal hooks, events, streaming,
+  checkpoints, and cancellation apply. `BeforeTurn` receives an empty prompt;
+  prompt replacements have no effect, but explicit message injections apply.
+  The host must resolve pending tool calls and verify uncertain external effects
+  before continuation. Saved tool calls are not replayed; new model-generated
+  tool calls run normally.
 - `ExecuteCompletion(ctx, CompleteRequest)` - One-shot LLM completion
   independent of the agent loop (optional model override, streaming via OnChunk)
 - `SetModel(ctx, model)` - Switch model at runtime
