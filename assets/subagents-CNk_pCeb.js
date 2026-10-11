@@ -131,17 +131,22 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 <h2 id="session-linking-and-resuming"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-linking-and-resuming"><span class="icon icon-link"></span></a>Session linking and resuming</h2>
 <p>Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:</p>
 <ul>
-<li><strong>Parent → child</strong>: every successful <code>subagent</code> tool call returns the child's session ID as <code>subagent_session_id</code> in the tool-response metadata (also <code>SubagentResult.SessionID</code> in the SDK).</li>
+<li><strong>Parent → child</strong>: every successful <code>subagent</code> tool call returns the child's session ID as a <code>subagent_session_id: &lt;id&gt;</code> line in the tool-result text and as <code>subagent_session_id</code> in client metadata (also <code>SubagentResult.SessionID</code> in the SDK).</li>
 <li><strong>Child → parent</strong>: when the parent is running with a persisted session, the child session's header records <code>parent_session_id</code> (the parent's session UUID), <code>parent_session</code> (the parent's file path), and <code>subagent_task</code> (the original task prompt), so viewers can navigate delegated work as a session tree.</li>
 </ul>
 <p>Passing a previous run's <code>subagent_session_id</code> back via the <code>session_id</code> parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:</p>
 <pre><code>subagent(task: "Research how session persistence works")
-→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+→ Subagent completed successfully in 12s.
+  subagent_session_id: abc123...
+
+  Result:
+  ...
 
 subagent(task: "Now check how it handles errors", session_id: "abc123...")
 → follow-up runs in the same child session, reusing its context
 </code></pre>
-<p>Resumed sessions keep their original parent link; an unknown <code>session_id</code> is an error. Resuming is incompatible with ephemeral (<code>NoSession</code>) runs.</p>
+<p>Copy the exact returned ID into <code>session_id</code>; do not use a run ID or tool call ID. The ID line appears before the result body, so truncating a long child response does not remove it. Client metadata is available to the UI and SDK, but is not sent to the model. Including the ID in the text lets the model resume the child and keeps the ID in saved parent conversation history after Kit restarts. Existing metadata consumers and SDK calls are unchanged.</p>
+<p>Resumed sessions keep their original parent link; an unknown <code>session_id</code> is an error and fails before the child starts. If an older saved tool result has no ID line, use the child session's header ID or a previously recorded <code>SubagentResult.SessionID</code>; do not guess an ID. Resuming requires the saved child session to remain available and is incompatible with ephemeral (<code>NoSession</code>) runs.</p>
 <h2 id="named-agents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#named-agents"><span class="icon icon-link"></span></a>Named agents</h2>
 <p>Named agents are reusable subagent presets defined in markdown files. They are advertised in the <code>subagent</code> tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.</p>
 <h3 id="definition-files"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#definition-files"><span class="icon icon-link"></span></a>Definition files</h3>
@@ -501,20 +506,26 @@ The parent turn continues. Esc closes the picker and does not cancel the turn. T
 
 Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:
 
-- **Parent → child**: every successful \`subagent\` tool call returns the child's session ID as \`subagent_session_id\` in the tool-response metadata (also \`SubagentResult.SessionID\` in the SDK).
+- **Parent → child**: every successful \`subagent\` tool call returns the child's session ID as a \`subagent_session_id: <id>\` line in the tool-result text and as \`subagent_session_id\` in client metadata (also \`SubagentResult.SessionID\` in the SDK).
 - **Child → parent**: when the parent is running with a persisted session, the child session's header records \`parent_session_id\` (the parent's session UUID), \`parent_session\` (the parent's file path), and \`subagent_task\` (the original task prompt), so viewers can navigate delegated work as a session tree.
 
 Passing a previous run's \`subagent_session_id\` back via the \`session_id\` parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:
 
 \`\`\`
 subagent(task: "Research how session persistence works")
-→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+→ Subagent completed successfully in 12s.
+  subagent_session_id: abc123...
+
+  Result:
+  ...
 
 subagent(task: "Now check how it handles errors", session_id: "abc123...")
 → follow-up runs in the same child session, reusing its context
 \`\`\`
 
-Resumed sessions keep their original parent link; an unknown \`session_id\` is an error. Resuming is incompatible with ephemeral (\`NoSession\`) runs.
+Copy the exact returned ID into \`session_id\`; do not use a run ID or tool call ID. The ID line appears before the result body, so truncating a long child response does not remove it. Client metadata is available to the UI and SDK, but is not sent to the model. Including the ID in the text lets the model resume the child and keeps the ID in saved parent conversation history after Kit restarts. Existing metadata consumers and SDK calls are unchanged.
+
+Resumed sessions keep their original parent link; an unknown \`session_id\` is an error and fails before the child starts. If an older saved tool result has no ID line, use the child session's header ID or a previously recorded \`SubagentResult.SessionID\`; do not guess an ID. Resuming requires the saved child session to remain available and is incompatible with ephemeral (\`NoSession\`) runs.
 
 ## Named agents
 
