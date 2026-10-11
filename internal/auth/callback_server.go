@@ -1,89 +1,82 @@
 package auth
 
 import (
-	"context"
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
-// CallbackServer holds the local HTTP server and channel used to receive an
-// OAuth authorization-code callback from the browser.
+// CallbackServer receives an OAuth callback on a loopback listener.
 type CallbackServer struct {
-	Server   *http.Server
-	CodeChan chan string
-	State    string
+	Server    *http.Server
+	CodeChan  chan string
+	ErrorChan chan error
+	State     string
+	listener  net.Listener
 }
 
-// Close shuts down the callback server.
+// Close closes the listener and all active connections.
 func (cs *CallbackServer) Close() {
 	if cs.Server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = cs.Server.Shutdown(ctx)
+		_ = cs.Server.Close()
+	}
+	if cs.listener != nil {
+		_ = cs.listener.Close()
 	}
 }
 
-// StartOpenAICallbackServer starts a local HTTP server on 127.0.0.1:1455 to
-// receive the OpenAI OAuth callback. The received authorization code is sent
-// on CodeChan after the state parameter is validated against expectedState.
+// StartOpenAICallbackServer binds the provider-required loopback port 1455.
+// State is validated before either codes or provider errors are accepted.
 func StartOpenAICallbackServer(expectedState string) (*CallbackServer, error) {
-	codeChan := make(chan string, 1)
-
-	mux := http.NewServeMux()
-	server := &http.Server{
-		Addr:    "127.0.0.1:1455",
-		Handler: mux,
+	if expectedState == "" {
+		return nil, errors.New("OAuth state must not be empty")
 	}
-
-	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
-		// Check state
-		state := r.URL.Query().Get("state")
-		if state != expectedState {
-			http.Error(w, "State mismatch", http.StatusBadRequest)
-			return
-		}
-
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "Missing authorization code", http.StatusBadRequest)
-			return
-		}
-
-		// Send code to channel
-		select {
-		case codeChan <- code:
-		default:
-		}
-
-		// Return success page
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>Authentication Successful</title></head>
-<body style="font-family: sans-serif; text-align: center; padding: 50px;">
-<h1>&#10003; Authentication Successful</h1>
-<p>You can close this window and return to the terminal.</p>
-</body>
-</html>`)
-	})
-
-	// Try to start server
 	listener, err := net.Listen("tcp", "127.0.0.1:1455")
 	if err != nil {
-		return nil, fmt.Errorf("port 1455 not available: %w", err)
+		return nil, fmt.Errorf("bind OAuth callback port 1455: %w", err)
 	}
-	_ = listener.Close()
-
+	cs := &CallbackServer{CodeChan: make(chan string, 1), ErrorChan: make(chan error, 1), State: expectedState}
+	mux := http.NewServeMux()
+	cs.Server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	var once sync.Once
+	fail := func(err error) { once.Do(func() { cs.ErrorChan <- err }) }
+	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(expectedState)) != 1 {
+			http.Error(w, "State mismatch", http.StatusBadRequest)
+			fail(errors.New("OAuth callback state mismatch"))
+			return
+		}
+		if q.Get("error") != "" {
+			http.Error(w, "Authorization denied", http.StatusBadRequest)
+			fail(errors.New("OAuth authorization denied"))
+			return
+		}
+		code := q.Get("code")
+		if code == "" {
+			http.Error(w, "Missing authorization code", http.StatusBadRequest)
+			fail(errors.New("OAuth callback missing authorization code"))
+			return
+		}
+		once.Do(func() { cs.CodeChan <- code })
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("Authentication received. You can close this window."))
+	})
+	// Serve owns the already-bound listener; there is no close/rebind race.
 	go func() {
-		_ = server.ListenAndServe()
+		if err := cs.Server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fail(fmt.Errorf("OAuth callback server failed: %w", err))
+		}
 	}()
-
-	return &CallbackServer{
-		Server:   server,
-		CodeChan: codeChan,
-		State:    expectedState,
-	}, nil
+	// Close must also release the listener if Serve has not started yet.
+	cs.listener = listener
+	return cs, nil
 }

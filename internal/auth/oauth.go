@@ -530,11 +530,15 @@ func (c *OpenAIOAuthClient) GetAuthorizationURL() (*AuthData, error) {
 // The verifier parameter must be the same PKCE verifier generated during GetAuthorizationURL.
 // Returns OpenAICredentials containing the tokens, expiration, and account ID.
 func (c *OpenAIOAuthClient) ExchangeCode(code, verifier string) (*OpenAICredentials, error) {
-	return c.exchangeAuthorizationCode(code, verifier, c.RedirectURI)
+	return c.ExchangeCodeContext(context.Background(), code, verifier)
 }
 
-// exchangeAuthorizationCode performs the token exchange with the OAuth server
-func (c *OpenAIOAuthClient) exchangeAuthorizationCode(code, verifier, redirectUri string) (*OpenAICredentials, error) {
+// ExchangeCodeContext exchanges a code with cancellation support.
+func (c *OpenAIOAuthClient) ExchangeCodeContext(ctx context.Context, code, verifier string) (*OpenAICredentials, error) {
+	return c.exchangeAuthorizationCodeContext(ctx, code, verifier, c.RedirectURI)
+}
+
+func (c *OpenAIOAuthClient) exchangeAuthorizationCodeContext(ctx context.Context, code, verifier, redirectUri string) (*OpenAICredentials, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"client_id":     {c.ClientID},
@@ -543,14 +547,17 @@ func (c *OpenAIOAuthClient) exchangeAuthorizationCode(code, verifier, redirectUr
 		"redirect_uri":  {redirectUri},
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.TokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.TokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make token request: %w", err)
@@ -558,8 +565,7 @@ func (c *OpenAIOAuthClient) exchangeAuthorizationCode(code, verifier, redirectUr
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("token exchange failed: %s", string(body))
+		return nil, fmt.Errorf("token exchange failed: HTTP %d", resp.StatusCode)
 	}
 
 	var tokenResp struct {
@@ -570,7 +576,11 @@ func (c *OpenAIOAuthClient) exchangeAuthorizationCode(code, verifier, redirectUr
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return nil, fmt.Errorf("failed to decode token response: %w", err)
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("read token response: %w", ctx.Err())
+		}
+		// Do not include response content or decoder details in login errors.
+		return nil, fmt.Errorf("failed to decode token response")
 	}
 
 	if tokenResp.AccessToken == "" || tokenResp.RefreshToken == "" {
