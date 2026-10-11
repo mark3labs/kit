@@ -2161,9 +2161,9 @@ type SubagentConfig struct {
 	// SessionID resumes an existing subagent session instead of creating a
 	// new one. Set it to the SessionID returned by a previous Subagent call
 	// (SubagentResult.SessionID, also surfaced as subagent_session_id in the
-	// subagent tool's response metadata) so follow-up prompts reuse the
-	// subagent's accumulated context instead of re-establishing it from
-	// scratch. Mutually exclusive with NoSession. An unknown ID is an error.
+	// subagent tool's result text and client metadata) so follow-up prompts
+	// reuse the subagent's accumulated context instead of re-establishing it
+	// from scratch. Mutually exclusive with NoSession. An unknown ID is an error.
 	SessionID string
 
 	// ParentSessionID overrides the parent session UUID recorded in the

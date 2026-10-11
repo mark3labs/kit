@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,42 @@ func TestExecuteSubagent_ForwardsSessionID(t *testing.T) {
 	}
 	if captured.Prompt != "follow-up question" {
 		t.Errorf("spawner Prompt = %q, want %q", captured.Prompt, "follow-up question")
+	}
+}
+
+func TestExecuteSubagent_ReturnsSessionIDInTextAndMetadata(t *testing.T) {
+	for _, sessionID := range []string{"sess-123", ""} {
+		t.Run("session="+sessionID, func(t *testing.T) {
+			ctx := WithSubagentSpawner(context.Background(), func(context.Context, SubagentSpawnRequest) (*SubagentSpawnResult, error) {
+				return &SubagentSpawnResult{
+					Response:  strings.Repeat("x", 13000),
+					SessionID: sessionID,
+				}, nil
+			})
+			resp, err := executeSubagent(ctx, fantasy.ToolCall{ID: "tc1", Input: `{"task":"test"}`})
+			if err != nil {
+				t.Fatalf("executeSubagent: %v", err)
+			}
+			if resp.IsError {
+				t.Fatalf("unexpected error response: %s", resp.Content)
+			}
+			if sessionID == "" {
+				if strings.Contains(resp.Content, "subagent_session_id:") || resp.Metadata != "" {
+					t.Fatal("response must not advertise an absent session ID")
+				}
+				return
+			}
+			if !strings.Contains(resp.Content, "\nsubagent_session_id: "+sessionID+"\n\nResult:") {
+				t.Fatal("model-visible response must include the session ID before the truncated result")
+			}
+			var metadata map[string]string
+			if err := json.Unmarshal([]byte(resp.Metadata), &metadata); err != nil {
+				t.Fatalf("decode metadata: %v", err)
+			}
+			if metadata["subagent_session_id"] != sessionID {
+				t.Errorf("metadata session ID = %q, want %q", metadata["subagent_session_id"], sessionID)
+			}
+		})
 	}
 }
 

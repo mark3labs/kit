@@ -265,12 +265,16 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	if result.InputTokens > 0 || result.OutputTokens > 0 {
 		response += fmt.Sprintf(" (tokens: %d in / %d out)", result.InputTokens, result.OutputTokens)
 	}
+	// Client metadata is not sent to the model. Include the resumable ID in
+	// the text too, so it remains available in saved conversation history.
+	if result.SessionID != "" {
+		response += fmt.Sprintf("\nsubagent_session_id: %s", result.SessionID)
+	}
 	response += fmt.Sprintf("\n\nResult:\n%s", truncateResponse(result.Response, 12000))
 
 	resp := fantasy.NewTextResponse(response)
 
-	// Attach subagent session ID as metadata when available. The LLM can
-	// pass this back via session_id to resume the subagent.
+	// Keep the session ID in client metadata for UI and SDK consumers too.
 	if result.SessionID != "" {
 		resp = fantasy.WithResponseMetadata(resp, map[string]any{
 			"subagent_session_id": result.SessionID,
