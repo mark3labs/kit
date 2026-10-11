@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// TestCallbackLoopbackFamilies checks state rejection, valid callbacks, and cleanup on each loopback family.
 func TestCallbackLoopbackFamilies(t *testing.T) {
 	for _, address := range []string{"127.0.0.1:1455", "[::1]:1455"} {
 		t.Run(address, func(t *testing.T) {
@@ -57,6 +58,7 @@ func TestCallbackLoopbackFamilies(t *testing.T) {
 	}
 }
 
+// TestCallbackSingleFamilyFallback checks startup and cleanup when only one loopback family is available.
 func TestCallbackSingleFamilyFallback(t *testing.T) {
 	for _, occupied := range []string{"127.0.0.1:1455", "[::1]:1455"} {
 		t.Run(occupied, func(t *testing.T) {

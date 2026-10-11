@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/kit/pkg/kit"
 )
 
+// TestLoginProviderValidation checks unsupported providers and missing host callbacks.
 func TestLoginProviderValidation(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	for _, providerID := range []string{"anthropic", "copilot", "unknown"} {
@@ -33,6 +34,7 @@ func TestLoginProviderValidation(t *testing.T) {
 	}
 }
 
+// TestLoginProviderCanceledContext checks cancellation before any host interaction.
 func TestLoginProviderCanceledContext(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -49,6 +51,7 @@ func TestLoginProviderCanceledContext(t *testing.T) {
 	}
 }
 
+// TestLoginProviderAuthorization checks host instructions, callback errors, and credential preservation.
 func TestLoginProviderAuthorization(t *testing.T) {
 	// The provider requires a fixed port. Do not run these cases in parallel.
 	listener, err := net.Listen("tcp", "127.0.0.1:1455")
@@ -126,6 +129,7 @@ func TestLoginProviderAuthorization(t *testing.T) {
 	}
 }
 
+// TestLoginProviderBusyPort checks failure when no callback address can bind.
 func TestLoginProviderBusyPort(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	listener, err := net.Listen("tcp", "127.0.0.1:1455")

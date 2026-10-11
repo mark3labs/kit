@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/kit/pkg/kit"
 )
 
+// ExampleLoginProvider shows host-controlled URL display and the standard credential store.
 func ExampleLoginProvider() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

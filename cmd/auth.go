@@ -556,6 +556,7 @@ func logoutAnthropic() error {
 		"You will need to use environment variables or command-line flags for authentication.")
 }
 
+// loginOpenAI runs the shared SDK login flow with CLI browser presentation.
 func loginOpenAI(ctx context.Context) error {
 	cm, err := newCredentialManager()
 	if err != nil {

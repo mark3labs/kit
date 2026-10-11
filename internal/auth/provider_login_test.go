@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+// TestProviderLoginFlow checks credential storage and failure handling with a fake token endpoint.
 func TestProviderLoginFlow(t *testing.T) {
 	// The production provider requires a fixed port. Package tests must not run in parallel.
 	l, err := net.Listen("tcp", "127.0.0.1:1455")

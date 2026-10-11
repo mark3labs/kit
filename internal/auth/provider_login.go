@@ -25,6 +25,7 @@ func LoginProvider(ctx context.Context, providerID string, options LoginOptions)
 	return loginProvider(ctx, providerID, options, NewOpenAIOAuthClient())
 }
 
+// loginProvider coordinates authorization, exchange, and persistent credential storage.
 // The client is private so SDK callers cannot redirect credentials to another endpoint.
 func loginProvider(ctx context.Context, providerID string, options LoginOptions, client *OpenAIOAuthClient) error {
 	if ctx == nil {

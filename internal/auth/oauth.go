@@ -538,6 +538,7 @@ func (c *OpenAIOAuthClient) ExchangeCodeContext(ctx context.Context, code, verif
 	return c.exchangeAuthorizationCodeContext(ctx, code, verifier, c.RedirectURI)
 }
 
+// exchangeAuthorizationCodeContext exchanges a code without following redirects or disclosing response content.
 func (c *OpenAIOAuthClient) exchangeAuthorizationCodeContext(ctx context.Context, code, verifier, redirectUri string) (*OpenAICredentials, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
