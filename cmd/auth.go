@@ -6,14 +6,14 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"charm.land/huh/v2"
+	"github.com/spf13/cobra"
+
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
-	"github.com/spf13/cobra"
 )
 
 // authCmd represents the auth command for managing AI provider authentication.
@@ -172,7 +172,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	case "anthropic":
 		return loginAnthropic()
 	case "openai":
-		return loginOpenAI()
+		return loginOpenAI(cmd.Context())
 	case "copilot", "github-copilot":
 		return loginCopilot(cmd.Context())
 	default:
@@ -556,7 +556,8 @@ func logoutAnthropic() error {
 		"You will need to use environment variables or command-line flags for authentication.")
 }
 
-func loginOpenAI() error {
+// loginOpenAI runs the shared SDK login flow with CLI browser presentation.
+func loginOpenAI(ctx context.Context) error {
 	cm, err := newCredentialManager()
 	if err != nil {
 		return err
@@ -570,97 +571,30 @@ func loginOpenAI() error {
 		}
 	}
 
-	// Create OAuth client
-	client := auth.NewOpenAIOAuthClient()
-
-	// Generate authorization URL
 	fmt.Println("🔐 Starting OAuth authentication with OpenAI (ChatGPT/Codex)...")
 	fmt.Println("This will open your browser to authenticate with your ChatGPT account.")
 	fmt.Println()
 
-	authData, err := client.GetAuthorizationURL()
-	if err != nil {
-		return fmt.Errorf("failed to generate authorization URL: %w", err)
-	}
-
-	// Start local callback server
-	callbackServer, err := auth.StartOpenAICallbackServer(authData.State)
-	if err != nil {
-		fmt.Printf("⚠️  Could not start local callback server: %v\n", err)
-		fmt.Println("Falling back to manual code entry.")
-	}
-	if callbackServer != nil {
-		defer callbackServer.Close()
-	}
-
-	// Display URL and try to open browser
-	fmt.Println("📱 Opening your browser for authentication...")
-	fmt.Println("If the browser doesn't open automatically, please visit this URL:")
-	fmt.Printf("\n%s\n\n", authData.URL)
-
-	// Try to open browser
-	auth.TryOpenBrowser(authData.URL)
-
-	// Wait for callback or manual input
-	var code string
-	if callbackServer != nil {
-		fmt.Println("Waiting for browser authentication...")
-		select {
-		case callbackCode := <-callbackServer.CodeChan:
-			if callbackCode != "" {
-				code = callbackCode
-				fmt.Println("✓ Received authorization code from browser callback.")
+	if err := kit.LoginProvider(ctx, "openai", kit.LoginOptions{
+		CredentialManager: cm,
+		OnAuthorization: func(ctx context.Context, instructions kit.LoginInstructions) error {
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		case <-time.After(2 * time.Minute):
-			fmt.Println("\n⏱️  Timeout waiting for browser callback.")
-			callbackServer.Close()
-		}
+			fmt.Println("📱 Opening your browser for authentication...")
+			fmt.Println("If the browser doesn't open automatically, please visit this URL:")
+			fmt.Printf("\n%s\n\n", instructions.URL)
+			auth.TryOpenBrowser(instructions.URL)
+			fmt.Println("Waiting for browser authentication...")
+			return ctx.Err()
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to authenticate with OpenAI: %w", err)
 	}
 
-	// If no code from callback, prompt for manual entry
-	if code == "" {
-		fmt.Println("\nAfter authorizing, paste the callback URL or authorization code below.")
-		fmt.Println("(The callback URL will look like: http://localhost:1455/auth/callback?code=...&state=...)")
-		fmt.Println()
-
-		var input string
-		err = huh.NewInput().
-			Title("Callback URL or Code").
-			Description("Paste the full callback URL or just the authorization code").
-			Value(&input).
-			Run()
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
-		}
-		input = strings.TrimSpace(input)
-
-		if input == "" {
-			return fmt.Errorf("authorization code cannot be empty")
-		}
-
-		// Parse the input (could be full URL or just code)
-		parsedCode, parsedState := auth.ParseOpenAIAuthorizationInput(input)
-		if parsedCode == "" {
-			return fmt.Errorf("could not extract authorization code from input")
-		}
-
-		// Validate state if provided
-		if parsedState != "" && parsedState != authData.State {
-			return fmt.Errorf("state mismatch - possible security issue")
-		}
-		code = parsedCode
-	}
-
-	// Exchange code for tokens
-	fmt.Println("\n🔄 Exchanging authorization code for access token...")
-	creds, err := client.ExchangeCode(code, authData.Verifier)
+	creds, err := cm.GetOpenAICredentials()
 	if err != nil {
-		return fmt.Errorf("failed to exchange authorization code: %w", err)
-	}
-
-	// Store the credentials
-	if err := cm.SetOpenAIOAuthCredentials(creds); err != nil {
-		return fmt.Errorf("failed to store credentials: %w", err)
+		return fmt.Errorf("failed to read stored OpenAI credentials: %w", err)
 	}
 
 	return finishLogin(cm, "openai", "OpenAI (ChatGPT/Codex)", "OpenAI",
