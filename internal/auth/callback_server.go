@@ -16,7 +16,7 @@ type CallbackServer struct {
 	CodeChan  chan string
 	ErrorChan chan error
 	State     string
-	listener  net.Listener
+	listeners []net.Listener
 }
 
 // Close closes the listener and all active connections.
@@ -24,8 +24,8 @@ func (cs *CallbackServer) Close() {
 	if cs.Server != nil {
 		_ = cs.Server.Close()
 	}
-	if cs.listener != nil {
-		_ = cs.listener.Close()
+	for _, listener := range cs.listeners {
+		_ = listener.Close()
 	}
 }
 
@@ -35,13 +35,22 @@ func StartOpenAICallbackServer(expectedState string) (*CallbackServer, error) {
 	if expectedState == "" {
 		return nil, errors.New("OAuth state must not be empty")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:1455")
-	if err != nil {
-		return nil, fmt.Errorf("bind OAuth callback port 1455: %w", err)
+	var listeners []net.Listener
+	var bindErrs []error
+	for _, address := range []string{"127.0.0.1:1455", "[::1]:1455"} {
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			bindErrs = append(bindErrs, err)
+			continue
+		}
+		listeners = append(listeners, listener)
 	}
-	cs := &CallbackServer{CodeChan: make(chan string, 1), ErrorChan: make(chan error, 1), State: expectedState}
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("bind OAuth callback port 1455: %w", errors.Join(bindErrs...))
+	}
+	cs := &CallbackServer{CodeChan: make(chan string, 1), ErrorChan: make(chan error, 1), State: expectedState, listeners: listeners}
 	mux := http.NewServeMux()
-	cs.Server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	cs.Server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 10 * time.Second}
 	var once sync.Once
 	fail := func(err error) { once.Do(func() { cs.ErrorChan <- err }) }
 	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +61,6 @@ func StartOpenAICallbackServer(expectedState string) (*CallbackServer, error) {
 		q := r.URL.Query()
 		if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(expectedState)) != 1 {
 			http.Error(w, "State mismatch", http.StatusBadRequest)
-			fail(errors.New("OAuth callback state mismatch"))
 			return
 		}
 		if q.Get("error") != "" {
@@ -70,13 +78,13 @@ func StartOpenAICallbackServer(expectedState string) (*CallbackServer, error) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("Authentication received. You can close this window."))
 	})
-	// Serve owns the already-bound listener; there is no close/rebind race.
-	go func() {
-		if err := cs.Server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fail(fmt.Errorf("OAuth callback server failed: %w", err))
-		}
-	}()
-	// Close must also release the listener if Serve has not started yet.
-	cs.listener = listener
+	// Serve owns the already-bound listeners; there is no close/rebind race.
+	for _, listener := range listeners {
+		go func() {
+			if err := cs.Server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				fail(fmt.Errorf("OAuth callback server failed: %w", err))
+			}
+		}()
+	}
 	return cs, nil
 }

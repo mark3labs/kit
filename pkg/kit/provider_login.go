@@ -34,10 +34,10 @@ type LoginOptions struct {
 // authentication, not OAuth for the general OpenAI API. Anthropic and Copilot
 // login are not yet supported by this function.
 //
-// OpenAI login requires a fixed loopback listener at 127.0.0.1:1455 and uses
+// OpenAI login uses loopback listeners at 127.0.0.1:1455 and [::1]:1455 and uses
 // the redirect URI http://localhost:1455/auth/callback. The browser must be
 // able to reach this listener. There is no manual code-entry fallback; login
-// fails if the port is not available. On a remote or headless host, arrange
+// fails if neither address can bind the port. On a remote or headless host, arrange
 // loopback port forwarding from the browser machine to the login host before
 // login. Without a reachable callback, the flow ends at its deadline.
 //

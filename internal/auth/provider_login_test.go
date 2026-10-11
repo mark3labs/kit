@@ -104,9 +104,27 @@ func TestProviderLoginFlow(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				return resp.Body.Close()
+				if err := resp.Body.Close(); err != nil {
+					return err
+				}
+				if scenario == "wrong_state" {
+					if resp.StatusCode != http.StatusBadRequest {
+						t.Error("invalid state was not rejected")
+					}
+					query.Set("state", q.Get("state"))
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:1455/auth/callback?"+query.Encode(), nil)
+					if err != nil {
+						return err
+					}
+					resp, err := http.DefaultClient.Do(req)
+					if err != nil {
+						return err
+					}
+					return resp.Body.Close()
+				}
+				return nil
 			}}, client)
-			if scenario == "success" {
+			if scenario == "success" || scenario == "wrong_state" {
 				if err != nil {
 					t.Fatal(err)
 				}

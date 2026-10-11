@@ -137,6 +137,10 @@ func TestLoginProviderBusyPort(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+	ipv6, ipv6Err := net.Listen("tcp", "[::1]:1455")
+	if ipv6Err == nil {
+		defer func() { _ = ipv6.Close() }()
+	}
 	called := false
 	err = kit.LoginProvider(context.Background(), "openai", kit.LoginOptions{
 		OnAuthorization: func(context.Context, kit.LoginInstructions) error {
