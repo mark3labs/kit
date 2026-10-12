@@ -25,8 +25,25 @@ func TestModelsDBModeParsingAndCost(t *testing.T) {
 	base := costFrom(db["p"].Models["m"].Cost)
 	cost := modeCostFrom(mode.Cost, db["p"].Models["m"].Cost)
 	info := ModelInfo{Cost: base, Modes: []ModelMode{{Name: "fast", Cost: cost}}}
-	if got := info.EffectiveCost("fast"); !got.Published || got.Input != 1.5 || got.Output != 4 || *got.CacheRead != 0.2 || *got.CacheWrite != 0.3 || len(got.Tiers) != 1 {
+	if got := info.EffectiveCost("fast"); !got.Published || got.Input != 1.5 || got.Output != 4 || *got.CacheRead != 0.2 || *got.CacheWrite != 0.3 || len(got.Tiers) != 0 {
 		t.Fatalf("unexpected effective mode cost: %#v", got)
+	}
+}
+
+func TestModeCostContextPricing(t *testing.T) {
+	base := &modelsDBCost{Input: 2, Output: 10, ContextOver200K: &modelsDBRates{Input: 4, Output: 15}}
+	input, output := 12.0, 60.0
+	mode := &modelsDBModeCost{Input: &input, Output: &output}
+	cost := modeCostFrom(mode, base)
+	if rates := cost.RatesFor(300000); rates.Input != 12 || rates.Output != 60 {
+		t.Fatalf("large prompt uses base tiers: %#v", rates)
+	}
+	mode.ContextOver200K = &modelsDBRates{Input: 24, Output: 90}
+	if rates := modeCostFrom(mode, base).RatesFor(300000); rates.Input != 24 || rates.Output != 90 {
+		t.Fatalf("explicit mode tier was lost: %#v", rates)
+	}
+	if rates := modeCostFrom(nil, base).RatesFor(300000); rates.Input != 4 || rates.Output != 15 {
+		t.Fatalf("default mode must preserve base tiers: %#v", rates)
 	}
 }
 

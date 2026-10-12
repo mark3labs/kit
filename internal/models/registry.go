@@ -119,6 +119,10 @@ func modeCostFrom(c *modelsDBModeCost, base *modelsDBCost) Cost {
 	if c.CacheWrite != nil {
 		out.CacheWrite = c.CacheWrite
 	}
+	if (c.Input != nil || c.Output != nil) && c.ContextOver200K == nil && len(c.Tiers) == 0 {
+		// Base context tiers do not describe overridden mode rates.
+		out.Tiers = nil
+	}
 	if c.ContextOver200K != nil || len(c.Tiers) > 0 {
 		partial := &modelsDBCost{Input: out.Input, Output: out.Output, CacheRead: out.CacheRead, CacheWrite: out.CacheWrite, ContextOver200K: c.ContextOver200K, Tiers: c.Tiers}
 		tiers := costFrom(partial).Tiers
