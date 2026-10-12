@@ -76,6 +76,13 @@ func retryableRequestError(err error) bool {
 		if pe.IsRetryable() {
 			return true
 		}
+		// Some compatible providers omit the transient error type in SSE
+		// errors. Match this known overload message only when no HTTP failure
+		// status is available. Do not turn validation or auth errors into retries.
+		if (pe.StatusCode == 0 || pe.StatusCode == http.StatusOK) &&
+			strings.EqualFold(strings.TrimSpace(pe.Message), "Our servers are currently overloaded. Please try again later.") {
+			return true
+		}
 		var timeout net.Error
 		return errors.As(pe.Cause, &timeout) && timeout != context.DeadlineExceeded && timeout.Timeout()
 	}

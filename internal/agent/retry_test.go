@@ -149,12 +149,42 @@ func TestRetryStreamIncompleteAndConsumerStop(t *testing.T) {
 	}
 }
 
+func TestRetryStreamOverloadMessage(t *testing.T) {
+	failure := &fantasy.ProviderError{Title: "stream error", Message: "Our servers are currently overloaded. Please try again later."}
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial=%t", partial), func(t *testing.T) {
+			calls := 0
+			model := &retryTestModel{stream: func(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
+				calls++
+				if partial {
+					return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, Delta: "partial"}, fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure}), nil
+				}
+				return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure}), nil
+			}}
+			m := &retryModel{LanguageModel: model, policy: fastRetryPolicy()}
+			parts := collectRetryStream(t, m, context.Background())
+			wantCalls, wantParts := m.policy.MaxAttempts, 1
+			if partial {
+				wantCalls, wantParts = 1, 2
+			}
+			if calls != wantCalls || len(parts) != wantParts || !errors.Is(parts[len(parts)-1].Error, failure) {
+				t.Fatalf("calls=%d parts=%v", calls, parts)
+			}
+		})
+	}
+}
+
 func TestRetryClassification(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
 		want bool
 	}{
 		{retryTestError(), true}, {&fantasy.ProviderError{StatusCode: 503}, true},
+		{&fantasy.ProviderError{Message: "Our servers are currently overloaded. Please try again later."}, true},
+		{&fantasy.ProviderError{StatusCode: 200, Message: "Our servers are currently overloaded. Please try again later."}, true},
+		{&fantasy.ProviderError{StatusCode: 400, Message: "Our servers are currently overloaded. Please try again later."}, false},
+		{&fantasy.ProviderError{AuthError: true, Message: "Our servers are currently overloaded. Please try again later."}, false},
+		{&fantasy.ProviderError{Message: "Please try again later."}, false},
 		{fmt.Errorf("wrapped: %w", retryTestError()), true},
 		{&fantasy.ProviderError{StatusCode: 401, TransientError: true}, false},
 		{&fantasy.ProviderError{StatusCode: 429, AuthError: true}, false},
