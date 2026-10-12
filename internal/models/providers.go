@@ -175,7 +175,9 @@ func ParseThinkingLevel(s string) ThinkingLevel {
 
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
-	ModelString    string
+	ModelString string
+	// ModelMode selects a catalog-defined model mode. Empty selects the provider default.
+	ModelMode      string
 	SystemPrompt   string
 	ProviderAPIKey string
 	ProviderURL    string
@@ -350,6 +352,27 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// was too narrow — it didn't account for stored credentials (e.g.
 	// OAuth tokens from 'kit auth login') and blocked valid auth paths.
 
+	// A requested mode must be known and safely representable by its provider adapter.
+	if config.ModelMode != "" {
+		if hasFactory {
+			return nil, fmt.Errorf("model mode %q cannot be applied by a custom provider factory", config.ModelMode)
+		}
+		compatibleWire := (provider == "openai" && config.ProviderWire == "openai") || (provider == "anthropic" && config.ProviderWire == "anthropic")
+		if config.ProviderWire != "" && !compatibleWire {
+			return nil, fmt.Errorf("model mode %q is unsupported with wire override %q", config.ModelMode, config.ProviderWire)
+		}
+		if modelInfo == nil {
+			return nil, fmt.Errorf("model mode %q is unsupported: model metadata is unavailable", config.ModelMode)
+		}
+		_, ok := modelInfo.Mode(config.ModelMode)
+		if !ok {
+			return nil, fmt.Errorf("model %q does not support mode %q", modelName, config.ModelMode)
+		}
+		if reason := ModeUnsupportedReason(config.ModelString, config.ModelMode, modelInfo); reason != "" {
+			return nil, fmt.Errorf("%s", reason)
+		}
+	}
+
 	// Validate config against known model limits when metadata is available
 	if modelInfo != nil {
 		validateModelConfig(config, modelInfo)
@@ -407,6 +430,30 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 
 	if createErr != nil {
 		return nil, createErr
+	}
+
+	// Anthropic's pinned SDK exposes ExtraBody, so mode options can be sent
+	// without changing the HTTP transport. Other adapters reject these above.
+	if config.ModelMode != "" && len(modelInfo.Modes) > 0 {
+		mode, _ := modelInfo.Mode(config.ModelMode)
+		if len(mode.Options) > 0 && provider == "openai" {
+			if err := applyOpenAIModeOptions(result, mode); err != nil {
+				return nil, fmt.Errorf("model mode %q: %w", config.ModelMode, err)
+			}
+		} else if len(mode.Options) > 0 {
+			var opts *anthropic.ProviderOptions
+			if existing, ok := result.ProviderOptions[anthropic.Name].(*anthropic.ProviderOptions); ok {
+				copy := *existing
+				opts = &copy
+			} else {
+				opts = &anthropic.ProviderOptions{}
+			}
+			opts.ExtraBody = maps.Clone(mode.Options)
+			if result.ProviderOptions == nil {
+				result.ProviderOptions = fantasy.ProviderOptions{}
+			}
+			result.ProviderOptions[anthropic.Name] = opts
+		}
 	}
 
 	// AUTOMATICALLY ENABLE CACHING for supported models (unless disabled).

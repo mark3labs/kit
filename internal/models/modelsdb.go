@@ -42,6 +42,36 @@ type modelsDBModel struct {
 	// Absent when the catalog publishes no reasoning metadata, which is
 	// distinct from an empty list ("takes no reasoning options").
 	ReasoningOptions []modelsDBReasoningOption `json:"reasoning_options,omitempty"`
+
+	// Experimental contains preview catalog features, including model modes.
+	Experimental modelsDBExperimental `json:"experimental"`
+}
+
+type modelsDBExperimental struct {
+	Modes map[string]modelsDBMode `json:"modes,omitempty"`
+}
+
+// modelsDBMode describes a named model mode and its request overrides.
+type modelsDBMode struct {
+	Provider modelsDBModeProvider `json:"provider"`
+	// Options is retained for compatibility with older catalog snapshots.
+	Options map[string]any    `json:"options,omitempty"`
+	Cost    *modelsDBModeCost `json:"cost,omitempty"`
+}
+
+type modelsDBModeProvider struct {
+	Body    map[string]any    `json:"body,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// mode cost rates are pointers so omitted prices do not erase base rates.
+type modelsDBModeCost struct {
+	Input           *float64           `json:"input,omitempty"`
+	Output          *float64           `json:"output,omitempty"`
+	CacheRead       *float64           `json:"cache_read,omitempty"`
+	CacheWrite      *float64           `json:"cache_write,omitempty"`
+	ContextOver200K *modelsDBRates     `json:"context_over_200k,omitempty"`
+	Tiers           []modelsDBCostTier `json:"tiers,omitempty"`
 }
 
 // modelsDBModalities is the modalities block of a models.dev model entry,

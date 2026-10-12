@@ -83,6 +83,11 @@ var SlashCommands = []SlashCommand{
 		// No Complete function: /connect opens a modal picker (like /model).
 	},
 	{
+		Name:        "/mode",
+		Description: "Select a model mode",
+		Category:    "System",
+	},
+	{
 		Name:        "/thinking",
 		Description: "Set thinking/reasoning level (off, none, minimal, low, medium, high)",
 		Category:    "System",

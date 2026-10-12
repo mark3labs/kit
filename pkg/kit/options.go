@@ -55,6 +55,9 @@ func WithStreaming(b bool) Option {
 // value; a non-zero value pins it and suppresses automatic right-sizing.
 func WithMaxTokens(n int) Option { return func(o *Options) { o.MaxTokens = n } }
 
+// WithModelMode selects a named mode for the selected model. Empty selects its default.
+func WithModelMode(mode string) Option { return func(o *Options) { o.ModelMode = mode } }
+
 // WithThinkingLevel sets the reasoning effort for models that support extended
 // thinking. Valid values: "off", "none", "minimal", "low", "medium", "high".
 // An empty string lets the precedence chain resolve a level.

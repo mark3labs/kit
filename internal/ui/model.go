@@ -67,6 +67,9 @@ const (
 	// stateThinkingLevelSelector means the /thinking selector overlay is active.
 	stateThinkingLevelSelector
 
+	// stateModelModeSelector means the /mode selector overlay is active.
+	stateModelModeSelector
+
 	// stateThemeSelector means the /theme selector overlay is active.
 	stateThemeSelector
 
@@ -634,10 +637,15 @@ type AppModelOptions struct {
 
 	// ThinkingLevel is the initial thinking level (e.g. "off", "medium").
 	ThinkingLevel string
+	// ModelMode is the active catalog mode. Empty selects the model default.
+	ModelMode string
+	// ModelModes lists catalog modes; unsupported entries include a reason.
+	ModelModes []ModelModeOption
 	// IsReasoningModel is true when the current model supports reasoning.
 	IsReasoningModel bool
 	// SetThinkingLevel changes the thinking level on the agent/provider.
 	SetThinkingLevel func(level string) error
+	SetModelMode     func(mode string) error
 
 	// GetMCPResources, if non-nil, returns FileSuggestion entries for all
 	// MCP resources available from connected servers. Used by the @
@@ -892,6 +900,9 @@ type AppModel struct {
 
 	// thinkingLevel is the current extended thinking level.
 	thinkingLevel string
+	modelMode     string
+	modelModes    []ModelModeOption
+	setModelMode  func(mode string) error
 	// thinkingVisible controls whether reasoning blocks are shown or collapsed.
 	thinkingVisible bool
 	// isReasoningModel is true when the current model supports reasoning.
@@ -949,6 +960,7 @@ type AppModel struct {
 	// thinkingLevelSelector is the reasoning-effort picker, active in
 	// stateThinkingLevelSelector.
 	thinkingLevelSelector *ThinkingLevelSelectorComponent
+	modelModeSelector     *ModelModeSelectorComponent
 
 	// killSubagentSelector is the /kill-subagent picker. It is not tied to
 	// an appState: subagents run while the agent works, so the state stays
@@ -1237,6 +1249,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitTurnStateChange = opts.EmitTurnStateChange
 	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
+	m.modelMode = opts.ModelMode
+	m.modelModes = opts.ModelModes
+	m.setModelMode = opts.SetModelMode
 
 	m.thinkingVisible = true // default to showing thinking blocks
 	m.isReasoningModel = opts.IsReasoningModel
@@ -1971,6 +1986,27 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	case ModelModeSelectedMsg:
+		m.modelModeSelector = nil
+		m.state = stateInput
+		return m, m.applyModelMode(msg.Mode)
+	case modelModeUpdateMsg:
+		if msg.Err != nil {
+			m.printSystemMessage(fmt.Sprintf("Could not set model mode: %v", msg.Err))
+			return m, nil
+		}
+		m.modelMode = msg.Mode
+		label := msg.Mode
+		if label == "" {
+			label = "Default"
+		}
+		m.printSystemMessage("Model mode set to: " + label)
+		return m, nil
+	case ModelModeSelectorCancelledMsg:
+		m.modelModeSelector = nil
+		m.state = stateInput
+		return m, nil
+
 	// ── Kill-subagent selector events ───────────────────────────────────
 	// The state is not changed here: the picker does not own an appState.
 	case KillSubagentSelectedMsg:
@@ -2310,6 +2346,13 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
 			updated, cmd := m.thinkingLevelSelector.Update(msg)
 			m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.state == stateModelModeSelector && m.modelModeSelector != nil {
+			updated, cmd := m.modelModeSelector.Update(msg)
+			m.modelModeSelector = updated.(*ModelModeSelectorComponent)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -3769,6 +3812,9 @@ func (m *AppModel) View() tea.View {
 	if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
 		finalContent = compositeCentered(finalContent, m.thinkingLevelSelector.RenderOverlay(), m.width, m.height)
 	}
+	if m.state == stateModelModeSelector && m.modelModeSelector != nil {
+		finalContent = compositeCentered(finalContent, m.modelModeSelector.RenderOverlay(), m.width, m.height)
+	}
 
 	// Kill-subagent selector.
 	if m.killSubagentOpen() {
@@ -3912,6 +3958,9 @@ func (m *AppModel) renderStatusBar() string {
 	var middleParts []string
 	if m.isReasoningModel && m.thinkingLevel != "" && m.thinkingLevel != "off" {
 		middleParts = append(middleParts, veryMuted.Render("thinking: "+m.thinkingLevel))
+	}
+	if m.modelMode != "" {
+		middleParts = append(middleParts, veryMuted.Render("mode: "+m.modelMode))
 	}
 	if m.getStatusBarEntries != nil {
 		for _, e := range m.getStatusBarEntries() {
@@ -4768,6 +4817,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleRefreshCommand()
 	case "/thinking":
 		return m.handleThinkingCommand(args)
+	case "/mode":
+		return m.handleModelModeCommand(args)
 	case "/subagents":
 		return m.openSubagentInspector()
 	case "/kill-subagent":
@@ -6074,14 +6125,16 @@ func (m *AppModel) switchModel(modelString string) {
 		return
 	}
 
-	// A working provider is installed now.
+	// A working provider is installed now. Model changes always reset to default mode.
 	m.providerError = nil
+	m.modelMode = ""
 
 	// Update display state directly (cannot use prog.Send from Update).
 	if parts := strings.SplitN(modelString, "/", 2); len(parts) == 2 {
 		m.providerName = parts[0]
 		m.modelName = parts[1]
 	}
+	m.modelModes = modelModesFor(m.providerName, m.modelName)
 
 	m.printSystemMessage(fmt.Sprintf("Switched to %s", modelString))
 
@@ -6317,6 +6370,51 @@ func (m *AppModel) refreshTheme() {
 		m.scrollList.InvalidateHeights()
 	}
 	m.layoutDirty = true
+}
+
+// --------------------------------------------------------------------------
+// Model mode command handler
+// --------------------------------------------------------------------------
+
+func (m *AppModel) handleModelModeCommand(args string) tea.Cmd {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		m.modelModeSelector = NewModelModeSelector(m.modelModes, m.modelMode, m.width, m.height)
+		m.state = stateModelModeSelector
+		return nil
+	}
+	if name != "default" && name != "off" {
+		found := false
+		for _, option := range m.modelModes {
+			if strings.EqualFold(option.Name, name) {
+				name = option.Name
+				found = true
+				if !option.Supported {
+					m.printSystemMessage(fmt.Sprintf("Mode %q is unavailable: %s", name, option.Reason))
+					return nil
+				}
+				break
+			}
+		}
+		if !found {
+			m.printSystemMessage(fmt.Sprintf("Unknown model mode %q", name))
+			return nil
+		}
+	}
+	if name == "default" || name == "off" {
+		name = ""
+	}
+	return m.applyModelMode(name)
+}
+
+func (m *AppModel) applyModelMode(mode string) tea.Cmd {
+	if m.setModelMode == nil {
+		return func() tea.Msg {
+			return modelModeUpdateMsg{Mode: mode, Err: fmt.Errorf("model mode changes are not available")}
+		}
+	}
+	setter := m.setModelMode
+	return func() tea.Msg { return modelModeUpdateMsg{Mode: mode, Err: setter(mode)} }
 }
 
 // --------------------------------------------------------------------------

@@ -159,6 +159,9 @@ func applyOptionOverrides(v *viper.Viper, opts *Options) {
 	if opts.ThinkingLevel != "" {
 		v.Set("thinking-level", opts.ThinkingLevel)
 	}
+	if opts.ModelMode != "" {
+		v.Set("model_mode", opts.ModelMode)
+	}
 	if opts.Temperature != nil {
 		v.Set("temperature", *opts.Temperature)
 	}
@@ -385,6 +388,15 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 		providerConfig.MaxTokens = sdkDefaultMaxTokens
 	}
 	providerConfig.ProviderFactories = providers
+	if providerConfig.ModelMode != "" {
+		info := models.LookupModelForSettings(providerConfig.ModelString)
+		if reason := models.ModeUnsupportedReason(providerConfig.ModelString, providerConfig.ModelMode, info); reason != "" {
+			return fmt.Errorf("%w: %s", ErrUnsupportedModelMode, reason)
+		}
+		if len(providers) > 0 {
+			return fmt.Errorf("%w: custom provider factories cannot apply catalog modes", ErrUnsupportedModelMode)
+		}
+	}
 	rc.providerConfig = providerConfig
 
 	rc.modelString = v.GetString("model")

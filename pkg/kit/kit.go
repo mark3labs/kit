@@ -90,6 +90,7 @@ type Kit struct {
 	// activeModelFromFactory is true when the active model was built by a
 	// ProviderFactory. Set in New and SetModel.
 	activeModelFromFactory bool
+	modelMode              string
 	mcpConfig              *config.Config // loaded MCP/server config, shared with subagents
 
 	// v is this Kit instance's isolated configuration store. Each Kit owns its
@@ -790,6 +791,13 @@ func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.Message
 // Returns an error if the model string is invalid or the provider cannot
 // be created.
 func (m *Kit) SetModel(ctx context.Context, modelString string) error {
+	m.promptOptsMu.Lock()
+	defer m.promptOptsMu.Unlock()
+	return m.setModelLocked(ctx, modelString)
+}
+
+// setModelLocked rebuilds the provider while promptOptsMu is held.
+func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 	// Validate the model string first.
 	if _, _, err := ParseModelString(modelString); err != nil {
 		return err
@@ -819,12 +827,17 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 
 	// With message-level caching, thinking and caching can work together.
 	// No need to disable caching when thinking is enabled.
+	mode := m.modelMode
+	if modelString != m.modelString {
+		mode = ""
+	}
 	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
 		MaxTokens:      m.v.GetInt("max-tokens"),
 		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
+		ModelMode:      mode,
 		DisableCaching: false, // Caching enabled by default, works with thinking
 		ConfigStore:    m.v,
 		SessionIDFunc:  m.GetSessionID,
@@ -852,12 +865,18 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	}
 
 	fromFactory := m.factoryBacked(modelString)
+	previousModelString := m.modelString
 	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
 
 	m.modelString = modelString
 	m.activeModelFromFactory = fromFactory
+	// Keep the selected mode during a same-model provider rebuild. A model
+	// switch uses the new model's default mode.
+	if modelString != previousModelString {
+		m.modelMode = ""
+	}
 
 	// Update extension context's Model field.
 	if m.extRunner != nil {
@@ -1215,6 +1234,7 @@ type Options struct {
 	SystemPrompt string // Override system prompt
 	ConfigFile   string // Override config file path
 	MaxSteps     int    // Override max steps (0 = use default)
+	ModelMode    string // Model mode to select (empty selects the model default)
 
 	// Streaming enables or disables streaming output. It is a pointer so the
 	// SDK can distinguish "unset" (nil) from an explicit choice, mirroring the
@@ -1760,6 +1780,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		session:               sessionManager,
 		modelString:           rc.modelString,
 		endpointProvider:      endpointProviderFor(v, rc.modelString),
+		modelMode:             v.GetString("model_mode"),
 		shell:                 append([]string(nil), rc.shell...),
 		workDir:               opts.WorkDir,
 		coreToolOptions:       append([]ToolOption(nil), opts.CoreToolOptions...),
