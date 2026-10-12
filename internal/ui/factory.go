@@ -63,6 +63,21 @@ func UpdateUsageTrackerForModel(t *UsageTracker, modelString string, isOAuth boo
 	t.UpdateModelInfo(modelInfo, provider, isOAuth)
 }
 
+// UpdateUsageTrackerForMode refreshes tracker pricing for the selected mode.
+// It copies catalog metadata and does not change the global registry.
+func UpdateUsageTrackerForMode(t *UsageTracker, modelString, mode string, isOAuth bool) {
+	if t == nil {
+		return
+	}
+	info, provider := lookupTrackableModel(modelString)
+	if info == nil {
+		return
+	}
+	clone := *info
+	clone.Cost = info.EffectiveCost(mode)
+	t.UpdateModelInfo(&clone, provider, isOAuth)
+}
+
 // lookupTrackableModel resolves a model string to registry metadata, returning
 // nil for models without usage tracking support (unknown or ollama models).
 func lookupTrackableModel(modelString string) (*models.ModelInfo, string) {

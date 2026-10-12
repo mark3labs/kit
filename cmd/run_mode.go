@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/ui"
 	"github.com/mark3labs/kit/internal/ui/commands"
@@ -63,6 +64,8 @@ type startupSnapshot struct {
 	mcpPrompts               []ui.MCPPromptInfo
 	isReasoningModel         bool
 	thinkingLevel            string
+	modelMode                string
+	modelModes               []ui.ModelModeOption
 	startupExtensionMessages []string // interactive only
 	providerError            error    // non-nil when the model has no usable credentials
 }
@@ -103,6 +106,7 @@ type uiActions struct {
 	emitTerminalResize      func(int, int)
 	emitTurnStateChange     func(string, string)
 	setThinkingLevel        func(string) error
+	setModelMode            func(string) error
 	switchSession           func(string) error
 	reloadExtensions        func() error
 	killHostedSession       func() error
@@ -177,6 +181,7 @@ func buildKitOptions(mcpConfig *config.Config, authHandler *kit.CLIMCPAuthHandle
 		Quiet:             suppressChrome(),
 		Debug:             debugMode,
 		NoSession:         viper.GetBool("no-session"),
+		ModelMode:         viper.GetString("model_mode"),
 		Continue:          continueFlag,
 		SessionPath:       sessionPath,
 		AutoCompact:       autoCompactFlag,
@@ -276,6 +281,7 @@ func newRunApp(k *kit.Kit, cli *ui.CLI, mcpConfig *config.Config, modelName stri
 		usageTracker = cli.GetUsageTracker()
 	} else {
 		usageTracker = ui.CreateUsageTracker(viper.GetString("model"), k.IsOAuth())
+		ui.UpdateUsageTrackerForMode(usageTracker, viper.GetString("model"), k.CurrentModelMode(), k.IsOAuth())
 	}
 	if usageTracker != nil {
 		appOpts.UsageTracker = usageTracker
@@ -535,6 +541,20 @@ func killHostedSessionForUI() error {
 
 // buildUIActions wires the callbacks the TUI invokes to change state or emit
 // extension events.
+func modelModeOptions(_ *kit.Kit, modelString string) []ui.ModelModeOption {
+	info := models.LookupModelForSettings(modelString)
+	if info == nil {
+		return nil
+	}
+	options := make([]ui.ModelModeOption, 0, len(info.Modes))
+	for _, descriptor := range info.Modes {
+		reason := models.ModeUnsupportedReason(modelString, descriptor.Name, info)
+		cost := info.EffectiveCost(descriptor.Name)
+		options = append(options, ui.ModelModeOption{Name: descriptor.Name, Supported: reason == "", Reason: reason, InputCost: cost.Input, OutputCost: cost.Output, Experimental: true})
+	}
+	return options
+}
+
 func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTracker) uiActions {
 	return uiActions{
 		expandMCPPrompt:         expandMCPPromptForUI(k),
@@ -572,6 +592,13 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 		emitTurnStateChange: k.Extensions().EmitTurnStateChange,
 		setThinkingLevel: func(level string) error {
 			return k.SetThinkingLevel(context.Background(), level)
+		},
+		setModelMode: func(mode string) error {
+			if err := k.SetModelMode(context.Background(), mode); err != nil {
+				return err
+			}
+			ui.UpdateUsageTrackerForMode(usageTracker, k.GetModelString(), mode, k.IsOAuth())
+			return nil
 		},
 		// switchSession opens a JSONL session file and replaces the active
 		// tree session on both the Kit SDK and App layer.

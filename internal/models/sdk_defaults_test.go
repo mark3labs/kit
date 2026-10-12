@@ -63,7 +63,6 @@ func TestResolveProviderBaseURL_SDKDefaultFallback(t *testing.T) {
 		"togetherai": "https://api.together.xyz/v1",
 		"deepinfra":  "https://api.deepinfra.com/v1/openai",
 		"cohere":     "https://api.cohere.com/compatibility/v1",
-		"v0":         "https://api.v0.dev/v1",
 		"aihubmix":   "https://aihubmix.com/v1",
 		"venice":     "https://api.venice.ai/api/v1",
 		"openrouter": "https://openrouter.ai/api/v1",

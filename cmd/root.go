@@ -63,6 +63,7 @@ var (
 	presencePenalty  float32
 	stopSequences    []string
 	thinkingLevel    string
+	modelMode        string
 
 	// Ollama-specific parameters
 	numGPU  int32
@@ -491,6 +492,7 @@ func init() {
 	flags.Float32Var(&presencePenalty, "presence-penalty", 0.0, "penalizes tokens based on whether they have appeared (0.0-2.0)")
 	flags.StringSliceVar(&stopSequences, "stop-sequences", nil, "custom stop sequences (comma-separated)")
 	flags.StringVar(&thinkingLevel, "thinking-level", "off", "extended thinking level: off, none, minimal, low, medium, high")
+	flags.StringVar(&modelMode, "model-mode", "", "catalog model mode (empty selects the model default)")
 
 	// Ollama-specific parameters
 	flags.Int32Var(&numGPU, "num-gpu-layers", -1, "number of model layers to offload to GPU for Ollama models (-1 for auto-detect)")
@@ -517,6 +519,7 @@ func init() {
 	_ = viper.BindPFlag("presence-penalty", rootCmd.PersistentFlags().Lookup("presence-penalty"))
 	_ = viper.BindPFlag("stop-sequences", rootCmd.PersistentFlags().Lookup("stop-sequences"))
 	_ = viper.BindPFlag("thinking-level", rootCmd.PersistentFlags().Lookup("thinking-level"))
+	_ = viper.BindPFlag("model_mode", rootCmd.PersistentFlags().Lookup("model-mode"))
 	_ = viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))
 	_ = viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
 	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
@@ -1155,6 +1158,8 @@ func runNormalMode(ctx context.Context) error {
 			mcpPrompts:               mcpPromptsForUI(kitInstance),
 			isReasoningModel:         kitInstance.IsReasoningModel(),
 			thinkingLevel:            kitInstance.GetThinkingLevel(),
+			modelMode:                kitInstance.CurrentModelMode(),
+			modelModes:               modelModeOptions(kitInstance, parsedProvider+"/"+modelName),
 			startupExtensionMessages: startupExtensionMessages,
 			providerError:            kitInstance.ProviderError(),
 		},
@@ -1449,6 +1454,9 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		ReadTerminalCapabilities: sessionTerminalCapabilityReader(),
 		EmitTurnStateChange:      act.emitTurnStateChange,
 		ThinkingLevel:            snap.thinkingLevel,
+		ModelMode:                snap.modelMode,
+		ModelModes:               snap.modelModes,
+		SetModelMode:             act.setModelMode,
 		IsReasoningModel:         snap.isReasoningModel,
 		SetThinkingLevel:         act.setThinkingLevel,
 		SwitchSession:            act.switchSession,

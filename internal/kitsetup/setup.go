@@ -158,6 +158,7 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 
 	cfg := &models.ProviderConfig{
 		ModelString:    v.GetString("model"),
+		ModelMode:      v.GetString("model_mode"),
 		SystemPrompt:   systemPrompt,
 		ProviderAPIKey: v.GetString("provider-api-key"),
 		ProviderURL:    v.GetString("provider-url"),

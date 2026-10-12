@@ -60,6 +60,79 @@ type ModelInfo struct {
 	// exhaustive list. False means either no metadata, or a toggle/budget
 	// model that accepts any level Kit maps onto a token budget.
 	ReasoningIsGraded bool
+
+	// Modes contains the catalog's selectable operating modes. Mode data is experimental.
+	Modes []ModelMode
+}
+
+// ModelMode describes one model mode published by the catalog.
+type ModelMode struct {
+	Name    string
+	Headers map[string]string
+	Options map[string]any
+	Cost    Cost
+}
+
+// SupportsMode reports whether a named mode is present in the model catalog.
+func (m *ModelInfo) SupportsMode(name string) bool {
+	for _, mode := range m.Modes {
+		if strings.EqualFold(mode.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// Mode returns the named mode descriptor, if present.
+func (m *ModelInfo) Mode(name string) (ModelMode, bool) {
+	for _, mode := range m.Modes {
+		if strings.EqualFold(mode.Name, name) {
+			return mode, true
+		}
+	}
+	return ModelMode{}, false
+}
+
+// EffectiveCost returns mode-specific pricing when the selected mode supplies it.
+func (m *ModelInfo) EffectiveCost(mode string) Cost {
+	if descriptor, ok := m.Mode(mode); ok && descriptor.Cost.Published {
+		return descriptor.Cost
+	}
+	return m.Cost
+}
+
+func modeCostFrom(c *modelsDBModeCost, base *modelsDBCost) Cost {
+	out := costFrom(base)
+	if c == nil {
+		return out
+	}
+	out.Published = true
+	if c.Input != nil {
+		out.Input = *c.Input
+	}
+	if c.Output != nil {
+		out.Output = *c.Output
+	}
+	if c.CacheRead != nil {
+		out.CacheRead = c.CacheRead
+	}
+	if c.CacheWrite != nil {
+		out.CacheWrite = c.CacheWrite
+	}
+	if c.ContextOver200K != nil || len(c.Tiers) > 0 {
+		partial := &modelsDBCost{Input: out.Input, Output: out.Output, CacheRead: out.CacheRead, CacheWrite: out.CacheWrite, ContextOver200K: c.ContextOver200K, Tiers: c.Tiers}
+		tiers := costFrom(partial).Tiers
+		for i := range tiers {
+			if tiers[i].CacheRead == nil {
+				tiers[i].CacheRead = out.CacheRead
+			}
+			if tiers[i].CacheWrite == nil {
+				tiers[i].CacheWrite = out.CacheWrite
+			}
+		}
+		out.Tiers = tiers
+	}
+	return out
 }
 
 // Model lifecycle markers published by the catalog.
@@ -361,6 +434,15 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				providerNPM = dm.Provider.NPM
 			}
 			reasoningLevels, reasoningGraded := reasoningFrom(dm.ReasoningOptions)
+			modes := make([]ModelMode, 0, len(dm.Experimental.Modes))
+			for name, mode := range dm.Experimental.Modes {
+				body := mode.Provider.Body
+				if len(body) == 0 {
+					body = mode.Options
+				}
+				modes = append(modes, ModelMode{Name: name, Headers: mode.Provider.Headers, Options: body, Cost: modeCostFrom(mode.Cost, dm.Cost)})
+			}
+			slices.SortFunc(modes, func(a, b ModelMode) int { return strings.Compare(a.Name, b.Name) })
 			var inputModalities []string
 			if dm.Modalities != nil {
 				// Keep a non-nil slice even when empty, so "no inputs
@@ -384,6 +466,7 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				Status:            dm.Status,
 				ReasoningLevels:   reasoningLevels,
 				ReasoningIsGraded: reasoningGraded,
+				Modes:             modes,
 			}
 		}
 
