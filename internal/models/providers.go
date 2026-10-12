@@ -357,7 +357,8 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		if hasFactory {
 			return nil, fmt.Errorf("model mode %q cannot be applied by a custom provider factory", config.ModelMode)
 		}
-		if config.ProviderWire != "" && !(provider == "openai" && config.ProviderWire == "openai") && !(provider == "anthropic" && config.ProviderWire == "anthropic") {
+		compatibleWire := (provider == "openai" && config.ProviderWire == "openai") || (provider == "anthropic" && config.ProviderWire == "anthropic")
+		if config.ProviderWire != "" && !compatibleWire {
 			return nil, fmt.Errorf("model mode %q is unsupported with wire override %q", config.ModelMode, config.ProviderWire)
 		}
 		if modelInfo == nil {

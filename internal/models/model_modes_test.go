@@ -74,7 +74,11 @@ func TestModeUnsupportedReasonOpenAIUltrafastRestrictions(t *testing.T) {
 func TestOpenAIUltrafastModeSerializedOnGenerateAndStream(t *testing.T) {
 	requests := make(chan map[string]any, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				t.Errorf("close request body: %v", err)
+			}
+		}()
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode request: %v", err)
