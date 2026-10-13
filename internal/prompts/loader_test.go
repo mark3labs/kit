@@ -9,6 +9,8 @@ import (
 func TestLoadAll_Integration(t *testing.T) {
 	// Create a temp directory for testing
 	tempDir := t.TempDir()
+	// Isolate from the real ~/.config/kit/prompts on the host machine.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempDir, ".config"))
 
 	// Create the .kit/prompts subdirectory structure
 	promptsDir := filepath.Join(tempDir, ".kit", "prompts")

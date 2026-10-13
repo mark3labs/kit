@@ -161,7 +161,6 @@ func TestStepResumeSkipsPermanentErrors(t *testing.T) {
 	for name, failure := range map[string]error{
 		"validation": &fantasy.ProviderError{StatusCode: 400, Message: "bad request"},
 		"auth":       &fantasy.ProviderError{StatusCode: 401, Message: "Our servers are currently overloaded. Please try again later."},
-		"tool":       &fantasy.ToolExecutionError{ToolName: "work", Err: overloadError()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := &resumeHarness{}

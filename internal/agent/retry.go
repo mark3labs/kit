@@ -110,9 +110,6 @@ func retryableRequestError(err error) bool {
 	if err == nil || err == context.DeadlineExceeded || errors.Is(err, context.Canceled) {
 		return false
 	}
-	if _, ok := errors.AsType[*fantasy.ToolExecutionError](err); ok {
-		return false
-	}
 	streamMessage := retryableStreamMessage(err.Error())
 	if pe, ok := errors.AsType[*fantasy.ProviderError](err); ok {
 		if pe.AuthError || pe.StatusCode == http.StatusUnauthorized || pe.StatusCode == http.StatusForbidden {
