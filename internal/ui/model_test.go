@@ -1442,3 +1442,47 @@ func TestRetryResetsTransientStreamAndKeepsTurn(t *testing.T) {
 		t.Fatal("retry removed completed messages")
 	}
 }
+
+// A step resume removes the failed step's streamed text and reasoning, keeps
+// completed steps and other items, and prints one notice.
+func TestStepResumeDiscardsFailedStepOutput(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, stream, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+	m.printAssistantMessage("completed step")
+	m = sendMsg(m, app.StepStartedEvent{StepNumber: 1})
+	m = sendMsg(m, app.ReasoningChunkEvent{Delta: "thinking"})
+	m = sendMsg(m, app.StreamChunkEvent{Content: "partial answer"})
+	m.flushPendingStreamChunks()
+	m.printSystemMessage("unrelated notice")
+	m = sendMsg(m, app.StreamChunkEvent{Content: "buffered"})
+	m = sendMsg(m, app.StepResumeEvent{StepNumber: 1, Resume: 1, Error: errors.New("overloaded"), Delay: 5 * time.Second})
+	if m.state != stateWorking {
+		t.Fatalf("resume changed state: %v", m.state)
+	}
+	if stream.resetCalled == 0 {
+		t.Fatal("stream component was not reset")
+	}
+	if len(m.pendingStreamChunks) != 0 {
+		t.Fatal("buffered chunks of the failed step remain")
+	}
+	var roles []string
+	for _, item := range m.messages {
+		if _, ok := item.(*StreamingMessageItem); ok {
+			t.Fatalf("failed step output remains: %#v", item)
+		}
+		roles = append(roles, fmt.Sprintf("%T", item))
+	}
+	if len(m.messages) != 3 {
+		t.Fatalf("messages = %v", roles)
+	}
+
+	// The restarted step streams again from a new mark.
+	m = sendMsg(m, app.StepStartedEvent{StepNumber: 1})
+	m = sendMsg(m, app.StreamChunkEvent{Content: "full answer"})
+	m.flushPendingStreamChunks()
+	last, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem)
+	if !ok || !strings.Contains(last.RawContent(), "full answer") || strings.Contains(last.RawContent(), "partial") {
+		t.Fatalf("restarted step output wrong: %#v", m.messages[len(m.messages)-1])
+	}
+}

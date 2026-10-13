@@ -135,6 +135,11 @@ const (
 	// transient error.
 	Retry EventType = "retry"
 
+	// StepResume fires when a failed streaming step is restarted from the
+	// last completed step after a transient error. The failed step's
+	// streamed output is discarded.
+	StepResume EventType = "step_resume"
+
 	// PrepareStep fires between steps within a multi-step agent turn,
 	// after steering messages are injected and before messages are sent
 	// to the LLM. Handlers can replace the context window for this step.
@@ -159,7 +164,7 @@ func AllEventTypes() []EventType {
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 		SubagentStart, SubagentChunk, SubagentEnd,
 		StepStart, StepFinish, ReasoningStart, Warnings, Source, Error, Retry,
-		PrepareStep, LLMUsage,
+		StepResume, PrepareStep, LLMUsage,
 	}
 }
 

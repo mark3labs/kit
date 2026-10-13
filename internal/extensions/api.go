@@ -1324,6 +1324,7 @@ type API struct {
 	onSource                  func(func(SourceEvent, Context))
 	onError                   func(func(ErrorEvent, Context))
 	onRetry                   func(func(RetryEvent, Context))
+	onStepResume              func(func(StepResumeEvent, Context))
 	onPrepareStep             func(func(PrepareStepEvent, Context) *PrepareStepResult)
 	onLLMUsage                func(func(LLMUsageEvent, Context))
 }
@@ -1651,6 +1652,12 @@ func (a *API) OnError(handler func(ErrorEvent, Context)) {
 // retried after a transient error.
 func (a *API) OnRetry(handler func(RetryEvent, Context)) {
 	a.onRetry(handler)
+}
+
+// OnStepResume registers a handler that fires when a failed streaming step
+// is restarted from the last completed step after a transient error.
+func (a *API) OnStepResume(handler func(StepResumeEvent, Context)) {
+	a.onStepResume(handler)
 }
 
 // OnPrepareStep registers a handler that fires between steps within a
@@ -2765,6 +2772,8 @@ type SubagentChunkEvent struct {
 	//   "tool_execution_end"   — tool finished executing (read ToolName)
 	//   "turn_start"           — subagent turn began
 	//   "turn_end"             — subagent turn ended
+	//   "step_resume"          — subagent restarted a failed step; drop the
+	//                            text received since the last tool_result
 	ChunkType string
 	// Content carries text for "text" and "reasoning" chunk types.
 	Content string
@@ -2863,6 +2872,23 @@ type RetryEvent struct {
 }
 
 func (e RetryEvent) Type() EventType { return Retry }
+
+// StepResumeEvent fires when a streaming step failed with a transient
+// provider error and is restarted from the last completed step after Delay.
+// The failed step may already have streamed output (message updates,
+// reasoning, tool input). That output is discarded and is not saved.
+// Completed steps and tool results are kept, and no tool runs again. A
+// StepStart event with the same StepNumber follows when the step restarts.
+type StepResumeEvent struct {
+	// StepNumber is the turn-wide number of the step that restarts.
+	StepNumber int
+	// Resume is the resume number in this turn, starting at 1.
+	Resume int
+	Error  string
+	Delay  time.Duration
+}
+
+func (e StepResumeEvent) Type() EventType { return StepResume }
 
 // PrepareStepEvent fires between steps within a multi-step agent turn,
 // after steering messages are injected and before messages are sent to

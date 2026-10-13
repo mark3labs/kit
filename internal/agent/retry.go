@@ -18,16 +18,29 @@ import (
 // initial request. Zero delays use defaults; MaxAttempts=1 disables retries.
 // MaxElapsed bounds retry scheduling, not the duration of an active request.
 // The caller's context bounds active requests.
+//
+// MaxResumes limits step resumes for each turn. A resume restarts a failed
+// streaming step from the last completed step after a transient error, also
+// when the step already sent partial output. Zero uses the default; a negative
+// value disables resumes. Resume delays start at ResumeInitialDelay and double
+// up to ResumeMaxDelay.
 type RetryPolicy struct {
-	MaxAttempts  int
-	InitialDelay time.Duration
-	MaxDelay     time.Duration
-	MaxElapsed   time.Duration
+	MaxAttempts        int
+	InitialDelay       time.Duration
+	MaxDelay           time.Duration
+	MaxElapsed         time.Duration
+	MaxResumes         int
+	ResumeInitialDelay time.Duration
+	ResumeMaxDelay     time.Duration
 }
 
-// DefaultRetryPolicy returns bounded defaults with three retries.
+// DefaultRetryPolicy returns bounded defaults with three retries and five
+// step resumes for each turn (about 5, 10, 20, 40 and 80 seconds apart).
 func DefaultRetryPolicy() RetryPolicy {
-	return RetryPolicy{MaxAttempts: 4, InitialDelay: time.Second, MaxDelay: 30 * time.Second, MaxElapsed: 2 * time.Minute}
+	return RetryPolicy{
+		MaxAttempts: 4, InitialDelay: time.Second, MaxDelay: 30 * time.Second, MaxElapsed: 2 * time.Minute,
+		MaxResumes: 5, ResumeInitialDelay: 5 * time.Second, ResumeMaxDelay: 80 * time.Second,
+	}
 }
 
 func normalizeRetryPolicy(p *RetryPolicy) RetryPolicy {
@@ -47,19 +60,50 @@ func normalizeRetryPolicy(p *RetryPolicy) RetryPolicy {
 	if p.MaxElapsed > 0 {
 		d.MaxElapsed = p.MaxElapsed
 	}
+	// After normalization, zero MaxResumes means "disabled".
+	switch {
+	case p.MaxResumes > 0:
+		d.MaxResumes = p.MaxResumes
+	case p.MaxResumes < 0:
+		d.MaxResumes = 0
+	}
+	if p.ResumeInitialDelay > 0 {
+		d.ResumeInitialDelay = p.ResumeInitialDelay
+	}
+	if p.ResumeMaxDelay > 0 {
+		d.ResumeMaxDelay = p.ResumeMaxDelay
+	}
 	d.InitialDelay = min(d.InitialDelay, d.MaxDelay)
+	d.ResumeInitialDelay = min(d.ResumeInitialDelay, d.ResumeMaxDelay)
 	return d
+}
+
+// resumeDelay returns the wait before step resume number resume (1-based).
+// It uses the same jitter and server retry hints as request retries. A hint
+// above ResumeMaxDelay stops the resume.
+func resumeDelay(p RetryPolicy, resume int, err error, now time.Time) (time.Duration, bool) {
+	return retryDelay(RetryPolicy{InitialDelay: p.ResumeInitialDelay, MaxDelay: p.ResumeMaxDelay}, resume, err, now)
 }
 
 type retryNotification func(attempt int, err error, delay time.Duration)
 type retryContextKey struct{}
 
 // retryModel retries only model requests, never tool execution or agent steps.
-// Once a stream part has reached the agent it cannot be replayed safely. Such
-// failures are returned unchanged, so partial text and tool calls are not repeated.
+// Once content has reached the agent it cannot be replayed safely. Such failures
+// are returned unchanged, so partial text and tool calls are not repeated.
+// Start events and warnings are buffered until content arrives.
 type retryModel struct {
 	fantasy.LanguageModel
 	policy RetryPolicy
+}
+
+// retryableStreamMessage matches known transient failures, not general retry
+// advice. The processing error suffix can contain a different request ID.
+func retryableStreamMessage(message string) bool {
+	message = strings.ToLower(strings.Join(strings.Fields(message), " "))
+	return strings.Contains(message, "stream transport error: internal_error (received from peer)") ||
+		strings.Contains(message, "our servers are currently overloaded. please try again later.") ||
+		strings.Contains(message, "an error occurred while processing your request. you can retry your request, or contact us through our help center at help.openai.com if the error persists.")
 }
 
 func retryableRequestError(err error) bool {
@@ -69,6 +113,7 @@ func retryableRequestError(err error) bool {
 	if _, ok := errors.AsType[*fantasy.ToolExecutionError](err); ok {
 		return false
 	}
+	streamMessage := retryableStreamMessage(err.Error())
 	if pe, ok := errors.AsType[*fantasy.ProviderError](err); ok {
 		if pe.AuthError || pe.StatusCode == http.StatusUnauthorized || pe.StatusCode == http.StatusForbidden {
 			return false
@@ -77,10 +122,10 @@ func retryableRequestError(err error) bool {
 			return true
 		}
 		// Some compatible providers omit the transient error type in SSE
-		// errors. Match this known overload message only when no HTTP failure
+		// errors. Match known transient messages only when no HTTP failure
 		// status is available. Do not turn validation or auth errors into retries.
 		if (pe.StatusCode == 0 || pe.StatusCode == http.StatusOK) &&
-			strings.EqualFold(strings.TrimSpace(pe.Message), "Our servers are currently overloaded. Please try again later.") {
+			retryableStreamMessage(pe.Message) {
 			return true
 		}
 		var timeout net.Error
@@ -90,9 +135,9 @@ func retryableRequestError(err error) bool {
 		// Some providers return temporary DNS errors without wrapping them.
 		// Keep that legacy signal alongside timeout and transport classification.
 		//nolint:staticcheck // SA1019: needed for temporary, non-timeout DNS failures.
-		return ne != context.DeadlineExceeded && (ne.Timeout() || ne.Temporary() || fantasy.IsTransportError(err))
+		return ne != context.DeadlineExceeded && (ne.Timeout() || ne.Temporary() || fantasy.IsTransportError(err) || streamMessage)
 	}
-	return !errors.Is(err, context.DeadlineExceeded) && fantasy.IsTransportError(err)
+	return !errors.Is(err, context.DeadlineExceeded) && (fantasy.IsTransportError(err) || streamMessage)
 }
 
 // retryAfter accepts case-insensitive HTTP headers and rejects unsafe numeric
@@ -201,7 +246,8 @@ func (m *retryModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.Str
 		started := time.Now()
 		for attempt := 1; ; attempt++ {
 			err := ctx.Err()
-			emitted, finished, stopped := false, false, false
+			emitted, finished := false, false
+			var pending []fantasy.StreamPart
 			if err == nil {
 				var stream fantasy.StreamResponse
 				stream, err = m.LanguageModel.Stream(ctx, call)
@@ -215,17 +261,34 @@ func (m *retryModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.Str
 							err = part.Error
 							break
 						}
+						// These events do not deliver content. Hold them until the
+						// attempt succeeds or sends content, so a retry does not
+						// repeat start callbacks or warnings from a failed attempt.
+						switch part.Type {
+						case fantasy.StreamPartTypeKeepalive:
+							if !yield(part) {
+								return
+							}
+							continue
+						case fantasy.StreamPartTypeWarnings, fantasy.StreamPartTypeTextStart, fantasy.StreamPartTypeReasoningStart, fantasy.StreamPartTypeToolInputStart:
+							if !emitted {
+								pending = append(pending, part)
+								continue
+							}
+						}
+						for _, buffered := range pending {
+							if !yield(buffered) {
+								return
+							}
+						}
+						pending = nil
 						emitted = true
 						if part.Type == fantasy.StreamPartTypeFinish {
 							finished = true
 						}
 						if !yield(part) {
-							stopped = true
-							break
+							return
 						}
-					}
-					if stopped {
-						return
 					}
 					if err == nil && !finished {
 						err = fantasy.NewIncompleteStreamError()

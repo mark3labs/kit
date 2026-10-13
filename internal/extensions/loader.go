@@ -666,6 +666,7 @@ func initExtension(path string, initFn func(API)) (*LoadedExtension, error) {
 		onSource:         notifyReg[SourceEvent](reg, Source),
 		onError:          notifyReg[ErrorEvent](reg, Error),
 		onRetry:          notifyReg[RetryEvent](reg, Retry),
+		onStepResume:     notifyReg[StepResumeEvent](reg, StepResume),
 		onPrepareStep:    resultReg[PrepareStepEvent, PrepareStepResult](reg, PrepareStep),
 		onLLMUsage:       notifyReg[LLMUsageEvent](reg, LLMUsage),
 	}

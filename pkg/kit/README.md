@@ -767,7 +767,8 @@ k, err := kit.NewAgent(ctx,
 ```
 
 You can also set `Options.RetryPolicy` when you use `kit.New`. Nil uses the
-built-in defaults. Zero or negative policy fields use their default values.
+built-in defaults. Zero policy fields use their default values. Negative
+fields also use defaults, except `MaxResumes` (see below).
 Set `MaxAttempts: 1` to disable retries. Server `Retry-After` and
 `retry-after-ms` hints are respected. A server delay above `MaxDelay` stops
 retries instead of sending a request before the server permits it.
@@ -777,12 +778,42 @@ retries instead of sending a request before the server permits it.
 wait. Cancellation can stop the wait, so an event does not guarantee that the
 next request will start. Extension retry events also include the delay.
 
-For safety, streaming retries are permitted only before **any stream part** is
-delivered, including text-start, reasoning, and tool-call parts. A failure after
-that point is returned without replay. The TUI resets transient stream state
-on a retry event and keeps completed messages. Retries do not repeat completed
-steps or tool execution. The underlying agent library's retries are disabled
-on these agent calls to prevent a second retry layer.
+For safety, streaming retries are permitted only before content is delivered.
+Warnings, keepalives and start parts (text, reasoning, tool input) are held
+until content arrives, so they do not prevent a retry. A failure after content
+was delivered is handled by step resume (below). The TUI resets transient
+stream state on a retry event and keeps completed messages. Retries do not
+repeat completed steps or tool execution. The underlying agent library's
+retries are disabled on these agent calls to prevent a second retry layer.
+
+### Step resume
+
+When a streaming step fails with a transient error after it streamed output,
+or after its request retries are used up, Kit restarts that step from the last
+completed step. This is like resuming a failed run from its saved conversation.
+The default policy permits five resumes for each turn, about 5, 10, 20, 40 and
+80 seconds apart (`MaxResumes`, `ResumeInitialDelay`, `ResumeMaxDelay`). Set
+`MaxResumes: -1` to disable resumes.
+
+Safety rules:
+
+- Local tools run only after a step stream ends without error, so the failed
+  step ran no tools. Completed steps and tool results are never repeated.
+- The failed step's partial output is discarded and is not saved to the session.
+- Only transient errors are resumed. Auth, validation, cancellation, deadline
+  and tool errors are not. A failed session write stops resumes.
+- The `MaxSteps` limit applies to the whole turn, also across resumes.
+- A wait that would pass the context deadline is not started.
+
+`OnStepResume` receives a `StepResumeEvent` before the wait. Remove the output
+of the failed step (message, reasoning and tool input deltas since the last
+`StepStartEvent`) from your display. `TurnResult.Stream` already excludes it. A
+`StepStartEvent` with the same `StepNumber` follows when the step restarts.
+Extension handlers can use `OnStepResume` too.
+
+A resume sends a new provider request, which uses tokens again for the
+conversation so far. Provider-side tools (for example web search) in the failed
+step can run again on the provider.
 
 ### Partial results and session write errors
 

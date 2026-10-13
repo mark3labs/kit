@@ -2736,6 +2736,9 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		return sr, err
 	})
 
+	// inThinkTag is the <think> tag parser state of OnStreamingResponse. A
+	// step resume discards the failed step's text, so it resets this too.
+	var inThinkTag bool
 	return m.agent.GenerateWithCallbacks(ctx, messages, agent.GenerateCallbacks{
 		OnToolCall: func(toolCallID, toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{
@@ -2779,7 +2782,6 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				thinkOpen  = "<think>"
 				thinkClose = "</think>"
 			)
-			var inThinkTag bool
 			return func(chunk string) {
 				remaining := chunk
 				for remaining != "" {
@@ -2898,6 +2900,9 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 
 		// New callbacks for previously unwired agent lifecycle events.
 		OnStepStart: func(stepNumber int) {
+			// Output from here on belongs to this step. A step resume
+			// removes it from TurnResult.Stream.
+			collector.markStep()
 			m.events.emit(StepStartEvent{StepNumber: stepNumber})
 		},
 		OnStepFinish: func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage) {
@@ -2939,6 +2944,11 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 		OnRetryScheduled: func(attempt int, err error, delay time.Duration) {
 			m.events.emit(RetryEvent{Attempt: attempt, Error: err, Delay: delay})
+		},
+		OnStepResume: func(stepNumber, resume int, err error, delay time.Duration) {
+			collector.discardStep()
+			inThinkTag = false
+			m.events.emit(StepResumeEvent{StepNumber: stepNumber, Resume: resume, Error: err, Delay: delay})
 		},
 		// PrepareStep hook — compose with steering (handled in agent layer)
 		// and then run SDK consumer hooks.

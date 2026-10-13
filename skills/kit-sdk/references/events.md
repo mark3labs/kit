@@ -82,6 +82,12 @@ host.OnRetry(func(e kit.RetryEvent) {
     log.Printf("retrying (attempt %d): %v", e.Attempt, e.Error)
 })
 
+host.OnStepResume(func(e kit.StepResumeEvent) {
+    // A failed step restarts from the last completed step after e.Delay.
+    // Remove the step's streamed output (since the last StepStartEvent).
+    log.Printf("resuming step %d (resume %d): %v", e.StepNumber, e.Resume, e.Error)
+})
+
 host.OnTextStart(func(e kit.TextStartEvent) {
     // e.ID — content block ID
 })
@@ -164,7 +170,8 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `source` | `SourceEvent` | `SourceType`, `ID`, `URL`, `Title` |
 | `stream_finish` | `StreamFinishEvent` | `Usage`, `FinishReason` |
 | `error` | `ErrorEvent` | `Error` |
-| `retry` | `RetryEvent` | `Attempt`, `Error` |
+| `retry` | `RetryEvent` | `Attempt`, `Error`, `Delay` |
+| `step_resume` | `StepResumeEvent` | `StepNumber`, `Resume`, `Error`, `Delay` |
 | `password_prompt` | `PasswordPromptEvent` | `Prompt`, `ResponseCh` |
 
 **Tool call streaming lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional, repeated) → `ToolExecutionEndEvent` → `ToolResultEvent`

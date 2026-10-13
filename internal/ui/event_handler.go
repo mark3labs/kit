@@ -153,6 +153,15 @@ func (h *CLIEventHandler) Handle(msg app.Event) {
 		}
 		h.startSpinner()
 
+	case app.StepResumeEvent:
+		// Text already printed to stdout cannot be removed. End the stream
+		// and tell the user that the partial output above is discarded.
+		h.stopSpinner()
+		h.endStream()
+		h.lastDisplayed = ""
+		h.cli.DisplayInfo(stepResumeNotice(e))
+		h.startSpinner()
+
 	case app.StepCompleteEvent:
 		h.stopSpinner()
 

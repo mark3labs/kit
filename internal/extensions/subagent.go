@@ -76,7 +76,11 @@ type SubagentConfig struct {
 type SubagentEvent struct {
 	// Type identifies the event: "text", "reasoning", "tool_call",
 	// "tool_result", "tool_execution_start", "tool_execution_end",
-	// "turn_start", "turn_end".
+	// "turn_start", "turn_end", "step_resume".
+	//
+	// "step_resume" means the subagent restarted a failed step: drop the
+	// "text" and "reasoning" content received since the last "tool_result"
+	// or "turn_start". Content carries the error text.
 	Type string
 
 	// Content carries text for "text" and "reasoning" events.

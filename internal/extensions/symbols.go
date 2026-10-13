@@ -203,6 +203,7 @@ func Symbols() interp.Exports {
 			"SourceEvent":         reflect.ValueOf((*SourceEvent)(nil)),
 			"ErrorEvent":          reflect.ValueOf((*ErrorEvent)(nil)),
 			"RetryEvent":          reflect.ValueOf((*RetryEvent)(nil)),
+			"StepResumeEvent":     reflect.ValueOf((*StepResumeEvent)(nil)),
 			"PrepareStepEvent":    reflect.ValueOf((*PrepareStepEvent)(nil)),
 			"PrepareStepResult":   reflect.ValueOf((*PrepareStepResult)(nil)),
 			"LLMUsageEvent":       reflect.ValueOf((*LLMUsageEvent)(nil)),

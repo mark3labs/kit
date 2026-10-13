@@ -1254,6 +1254,10 @@ func (a *App) subscribeSDKEvents(sendFn func(Event), stepUsageSeen *atomic.Bool,
 			sendFn(ToolCallContentEvent{Content: ev.Content})
 		case kit.RetryEvent:
 			sendFn(RetryEvent{Attempt: ev.Attempt, Error: ev.Error, Delay: ev.Delay})
+		case kit.StepStartEvent:
+			sendFn(StepStartedEvent{StepNumber: ev.StepNumber})
+		case kit.StepResumeEvent:
+			sendFn(StepResumeEvent{StepNumber: ev.StepNumber, Resume: ev.Resume, Error: ev.Error, Delay: ev.Delay})
 		case kit.ResponseEvent:
 			sendFn(ResponseCompleteEvent{Content: ev.Content})
 		case kit.MessageUpdateEvent:

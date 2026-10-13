@@ -16,6 +16,32 @@ type streamCollectorKey struct{}
 type streamCollector struct {
 	mu     sync.Mutex
 	events []StreamEvent
+	// stepStart is the length of events when the current step started.
+	stepStart int
+}
+
+// markStep records that a new step starts at the current position.
+func (c *streamCollector) markStep() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.stepStart = len(c.events)
+	c.mu.Unlock()
+}
+
+// discardStep removes the events of the current step. A step resume calls
+// it, because the failed step's output is not part of the turn.
+func (c *streamCollector) discardStep() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.stepStart <= len(c.events) {
+		clear(c.events[c.stepStart:])
+		c.events = c.events[:c.stepStart]
+	}
+	c.mu.Unlock()
 }
 
 func (c *streamCollector) add(e StreamEvent) {

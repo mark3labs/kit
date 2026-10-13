@@ -85,6 +85,9 @@ const (
 	// EventRetry fires when the LLM provider request is retried after a
 	// transient error.
 	EventRetry EventType = "retry"
+	// EventStepResume fires when a failed streaming step is restarted from
+	// the last completed step after a transient error.
+	EventStepResume EventType = "step_resume"
 )
 
 // ---------------------------------------------------------------------------
@@ -513,6 +516,27 @@ type RetryEvent struct {
 // EventType implements Event.
 func (e RetryEvent) EventType() EventType { return EventRetry }
 
+// StepResumeEvent fires when a streaming step failed with a transient
+// provider error and is restarted from the last completed step after Delay.
+// Unlike RetryEvent, the failed step may already have streamed output.
+// That output (MessageUpdateEvent, ReasoningDeltaEvent, ToolCallStartEvent
+// and ToolCallDeltaEvent since the last StepStartEvent) is discarded and is
+// not saved to the session: consumers should remove it from their display.
+// Completed steps and tool results are kept, and no tool runs again. A
+// StepStartEvent with the same StepNumber follows when the step restarts.
+type StepResumeEvent struct {
+	// StepNumber is the turn-wide number of the step that restarts.
+	StepNumber int
+	// Resume is the resume number in this turn, starting at 1.
+	Resume int
+	Error  error
+	// Delay is the scheduled wait before the step restarts.
+	Delay time.Duration
+}
+
+// EventType implements Event.
+func (e StepResumeEvent) EventType() EventType { return EventStepResume }
+
 // PasswordPromptEvent fires when a sudo command needs a password.
 // The TUI should display a password prompt and send the result back via ResponseCh.
 type PasswordPromptEvent struct {
@@ -802,6 +826,12 @@ func (m *Kit) OnError(handler func(ErrorEvent)) func() {
 // OnRetry registers a handler that fires only for RetryEvent.
 // Returns an unsubscribe function.
 func (m *Kit) OnRetry(handler func(RetryEvent)) func() {
+	return subscribeTyped(m, handler)
+}
+
+// OnStepResume registers a handler that fires only for StepResumeEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnStepResume(handler func(StepResumeEvent)) func() {
 	return subscribeTyped(m, handler)
 }
 

@@ -169,6 +169,10 @@ const Error = internalext.Error
 // transient error.
 const Retry = internalext.Retry
 
+// StepResume fires when a failed streaming step is restarted from the last
+// completed step after a transient error.
+const StepResume = internalext.StepResume
+
 // PrepareStep fires between steps within a multi-step agent turn,
 // after steering messages are injected and before messages are sent
 // to the LLM. Handlers can replace the context window for this step.
@@ -693,6 +697,10 @@ type ErrorEvent = internalext.ErrorEvent
 // RetryEvent fires when the LLM provider request is retried after a
 // transient error.
 type RetryEvent = internalext.RetryEvent
+
+// StepResumeEvent fires when a failed streaming step is restarted from the
+// last completed step. The failed step's streamed output is discarded.
+type StepResumeEvent = internalext.StepResumeEvent
 
 // PrepareStepEvent fires between steps within a multi-step agent turn,
 // after steering messages are injected and before messages are sent to

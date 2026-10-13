@@ -467,3 +467,24 @@ type RetryEvent struct {
 }
 
 func (RetryEvent) isAppEvent() {}
+
+// StepStartedEvent reports that an agent step starts. Output events that
+// follow belong to this step until the next StepStartedEvent.
+type StepStartedEvent struct {
+	StepNumber int
+}
+
+func (StepStartedEvent) isAppEvent() {}
+
+// StepResumeEvent reports that a step failed with a transient error and
+// restarts from the last completed step after Delay. The output that the
+// failed step streamed since its StepStartedEvent is discarded: displays
+// should remove it. Completed steps and tool results stay.
+type StepResumeEvent struct {
+	StepNumber int
+	Resume     int
+	Error      error
+	Delay      time.Duration
+}
+
+func (StepResumeEvent) isAppEvent() {}

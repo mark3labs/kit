@@ -239,6 +239,11 @@ func (m *Kit) bridgeSubagentEvents(runner *extensions.Runner) {
 						chunk.ChunkType = "turn_start"
 					case TurnEndEvent:
 						chunk.ChunkType = "turn_end"
+					case StepResumeEvent:
+						chunk.ChunkType = "step_resume"
+						if ce.Error != nil {
+							chunk.Content = ce.Error.Error()
+						}
 					case ToolCallEvent:
 						chunk.ChunkType = "tool_call"
 						chunk.ToolName = ce.ToolName
@@ -425,6 +430,14 @@ func (m *Kit) bridgeStepEvents(runner *extensions.Runner) {
 			Delay:   ev.Delay,
 			Error:   ev.Error.Error(),
 		}
+	})
+
+	bridgeObserve(m, runner, extensions.StepResume, func(ev StepResumeEvent) extensions.Event {
+		e := extensions.StepResumeEvent{StepNumber: ev.StepNumber, Resume: ev.Resume, Delay: ev.Delay}
+		if ev.Error != nil {
+			e.Error = ev.Error.Error()
+		}
+		return e
 	})
 }
 

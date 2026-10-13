@@ -461,6 +461,15 @@ func (a *Agent) subscribeEvents(ctx context.Context, sess *acpSession, sessionID
 			u := acp.UpdateAgentThoughtText(ev.Delta)
 			update = &u
 
+		case kit.StepResumeEvent:
+			// ACP cannot remove text that was already sent. Mark the point
+			// where the failed step's partial output ends, so the user knows
+			// that the text before it is replaced by the restarted step.
+			u := acp.UpdateAgentMessageText(fmt.Sprintf(
+				"\n\n_[Provider stream failed. The partial answer above is discarded; restarting the step in %s.]_\n\n",
+				ev.Delay.Round(100*time.Millisecond)))
+			update = &u
+
 		case kit.ToolCallEvent:
 			tcID := sess.toolIDs.start(ev.ToolCallID)
 			if ev.ToolName == planToolName {

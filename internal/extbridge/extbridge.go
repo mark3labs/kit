@@ -47,6 +47,15 @@ func SDKEventToSubagentEvent(e kit.Event) extensions.SubagentEvent {
 		return extensions.SubagentEvent{Type: "turn_start"}
 	case kit.TurnEndEvent:
 		return extensions.SubagentEvent{Type: "turn_end"}
+	case kit.StepResumeEvent:
+		// The subagent discarded the text and reasoning of its failed
+		// step. Consumers that collect "text" events should drop the text
+		// received since the last "tool_result" or "turn_start".
+		ev2 := extensions.SubagentEvent{Type: "step_resume"}
+		if ev.Error != nil {
+			ev2.Content = ev.Error.Error()
+		}
+		return ev2
 	default:
 		return extensions.SubagentEvent{}
 	}

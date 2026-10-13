@@ -146,6 +146,9 @@ func childRunItems(r kit.SubagentRun, renderer Renderer) []MessageItem {
 		switch e := event.(type) {
 		case kit.MessageUpdateEvent:
 			text.WriteString(e.Chunk)
+		case kit.StepResumeEvent:
+			// The failed step's text is discarded by the child agent.
+			text.Reset()
 		case kit.ToolCallEvent:
 			flush(false)
 			active[e.ToolCallID] = e

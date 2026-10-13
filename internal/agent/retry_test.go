@@ -106,7 +106,7 @@ func TestRetryStreamPreOutputBudget(t *testing.T) {
 }
 
 func TestRetryStreamNeverReplaysDeliveredParts(t *testing.T) {
-	for _, typ := range []fantasy.StreamPartType{fantasy.StreamPartTypeTextStart, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeToolCall} {
+	for _, typ := range []fantasy.StreamPartType{fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeToolCall} {
 		t.Run(string(typ), func(t *testing.T) {
 			calls := 0
 			failure := retryTestError()
@@ -134,7 +134,7 @@ func TestRetryStreamIncompleteAndConsumerStop(t *testing.T) {
 	calls = 0
 	model.stream = func(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
 		calls++
-		return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextStart}), nil
+		return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, Delta: "partial"}), nil
 	}
 	stream, _ := m.Stream(context.Background(), fantasy.Call{})
 	for range stream {
@@ -174,12 +174,89 @@ func TestRetryStreamOverloadMessage(t *testing.T) {
 	}
 }
 
+func TestRetryStreamTransientMessages(t *testing.T) {
+	for _, message := range []string{
+		"stream transport error: INTERNAL_ERROR (received from peer)",
+		"stream error: " + retryProcessingMessage + " Please include the request ID 7406c945-9ae6-45ff-8149-6711956a14f7 in your message.",
+	} {
+		for _, partial := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/partial=%t", message, partial), func(t *testing.T) {
+				failure := errors.New(message)
+				calls, retries := 0, 0
+				model := &retryTestModel{stream: func(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
+					calls++
+					if partial {
+						return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, Delta: "partial"}, fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure}), nil
+					}
+					return retryParts(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure}), nil
+				}}
+				m := &retryModel{LanguageModel: model, policy: fastRetryPolicy()}
+				ctx := context.WithValue(context.Background(), retryContextKey{}, retryNotification(func(attempt int, err error, delay time.Duration) {
+					retries++
+					if err != failure || delay < m.policy.InitialDelay/2 || delay > m.policy.MaxDelay {
+						t.Errorf("bad retry event: %d %v %v", attempt, err, delay)
+					}
+				}))
+				parts := collectRetryStream(t, m, ctx)
+				wantCalls, wantParts := m.policy.MaxAttempts, 1
+				if partial {
+					wantCalls, wantParts = 1, 2
+				}
+				if calls != wantCalls || retries != wantCalls-1 || len(parts) != wantParts || !errors.Is(parts[len(parts)-1].Error, failure) {
+					t.Fatalf("calls=%d retries=%d parts=%v", calls, retries, parts)
+				}
+			})
+		}
+	}
+
+}
+
+const retryProcessingMessage = "An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists."
+
+func TestRetryProcessingMessageClassification(t *testing.T) {
+	for _, suffix := range []string{"", " Please include the request ID first in your message.", " Please include the request ID second in your message."} {
+		message := retryProcessingMessage + suffix
+		for _, tc := range []struct {
+			err  error
+			want bool
+		}{
+			{errors.New("stream error: " + message), true},
+			{fmt.Errorf("wrapped: %w", errors.New(message)), true},
+			{&fantasy.ProviderError{Message: message}, true},
+			{&fantasy.ProviderError{StatusCode: 200, Message: message}, true},
+			{&fantasy.ProviderError{StatusCode: 400, Message: message}, false},
+			{&fantasy.ProviderError{AuthError: true, Message: message}, false},
+			{fmt.Errorf("%s: %w", message, context.Canceled), false},
+			{fmt.Errorf("%s: %w", message, context.DeadlineExceeded), false},
+			{errors.New("You can retry your request."), false},
+			{errors.New("An error occurred while processing your request."), false},
+		} {
+			if got := retryableRequestError(tc.err); got != tc.want {
+				t.Errorf("%v: got %v want %v", tc.err, got, tc.want)
+			}
+		}
+	}
+	if !retryableStreamMessage("stream error: AN ERROR occurred while processing your request. You can retry your request, or contact us through our help\n center at help.openai.com if the error persists.") {
+		t.Fatal("case and line breaks prevented message matching")
+	}
+}
+
 func TestRetryClassification(t *testing.T) {
+	peerError := errors.New("stream transport error: INTERNAL_ERROR (received from peer)")
 	for _, tc := range []struct {
 		err  error
 		want bool
 	}{
 		{retryTestError(), true}, {&fantasy.ProviderError{StatusCode: 503}, true},
+		{peerError, true},
+		{fmt.Errorf("wrapped: %w", peerError), true},
+		{&url.Error{Op: "Post", URL: "https://example.com", Err: peerError}, true},
+		{&fantasy.ProviderError{Message: peerError.Error()}, true},
+		{&fantasy.ProviderError{StatusCode: 200, Message: peerError.Error()}, true},
+		{&fantasy.ProviderError{StatusCode: 400, Message: peerError.Error()}, false},
+		{&fantasy.ProviderError{AuthError: true, Message: peerError.Error()}, false},
+		{fmt.Errorf("%s: %w", peerError, context.Canceled), false},
+		{fmt.Errorf("%s: %w", peerError, context.DeadlineExceeded), false},
 		{&fantasy.ProviderError{Message: "Our servers are currently overloaded. Please try again later."}, true},
 		{&fantasy.ProviderError{StatusCode: 200, Message: "Our servers are currently overloaded. Please try again later."}, true},
 		{&fantasy.ProviderError{StatusCode: 400, Message: "Our servers are currently overloaded. Please try again later."}, false},

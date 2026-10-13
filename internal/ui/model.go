@@ -740,6 +740,11 @@ type AppModel struct {
 	// concatenated in place.
 	pendingStreamChunks []pendingStreamChunk
 
+	// stepMessageMark is len(m.messages) when the current agent step
+	// started. A step resume removes the streaming items that the failed
+	// step added after this index.
+	stepMessageMark int
+
 	// streamFlushPending is true while a coalescing flush tick is scheduled,
 	// preventing duplicate tick commands.
 	streamFlushPending bool
@@ -3052,6 +3057,26 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.layoutDirty = true
 
+	case app.StepStartedEvent:
+		// Buffered chunks of the previous step were applied before this
+		// handler ran, so items from this index on belong to this step.
+		m.stepMessageMark = len(m.messages)
+
+	case app.StepResumeEvent:
+		// The failed step's output is discarded by the agent and is not
+		// saved. Remove it from the display, so the restarted step does
+		// not show the same text twice. Completed steps stay.
+		m.discardStepStreamingItems()
+		m.pendingStreamChunks = m.pendingStreamChunks[:0]
+		if m.stream != nil {
+			m.stream.Reset()
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		m.printSystemMessage(stepResumeNotice(msg))
+		m.layoutDirty = true
+
 	case app.ResponseCompleteEvent:
 		// This event fires for both streaming and non-streaming paths.
 		// In streaming mode, mark the StreamingMessageItem as complete.
@@ -4875,6 +4900,36 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
 	}
 	return nil
+}
+
+// discardStepStreamingItems removes the streaming text and reasoning items
+// that the current step added to the ScrollList. Other items (for example
+// system or steering messages) stay.
+func (m *AppModel) discardStepStreamingItems() {
+	mark := m.stepMessageMark
+	if mark < 0 || mark > len(m.messages) {
+		return
+	}
+	kept := m.messages[:mark]
+	for _, item := range m.messages[mark:] {
+		if _, ok := item.(*StreamingMessageItem); ok {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	clear(m.messages[len(kept):])
+	m.messages = kept
+	m.refreshContent()
+}
+
+// stepResumeNotice is the system message for a step resume.
+func stepResumeNotice(e app.StepResumeEvent) string {
+	reason := "transient provider error"
+	if e.Error != nil {
+		reason = e.Error.Error()
+	}
+	return fmt.Sprintf("Provider stream failed: %s\nRestarting the step in %s (resume %d). Partial output of the step was discarded; completed steps are kept.",
+		reason, e.Delay.Round(100*time.Millisecond), e.Resume)
 }
 
 // printSystemMessage renders a system-level message into the ScrollList.

@@ -36,3 +36,31 @@ func TestRetryEventCarriesDelay(t *testing.T) {
 		t.Fatalf("event = %v", got)
 	}
 }
+
+func TestStreamCollectorDiscardStep(t *testing.T) {
+	c := &streamCollector{}
+	c.markStep()
+	c.add(StreamEvent{Kind: StreamEventTextDelta, Text: "step 0"})
+	c.markStep()
+	c.add(StreamEvent{Kind: StreamEventTextDelta, Text: "partial"})
+	c.add(StreamEvent{Kind: StreamEventReasoningDelta, Reasoning: "r"})
+	c.discardStep()
+	c.markStep()
+	c.add(StreamEvent{Kind: StreamEventTextDelta, Text: "full"})
+	got := c.drain()
+	if len(got) != 2 || got[0].Text != "step 0" || got[1].Text != "full" {
+		t.Fatalf("events = %+v", got)
+	}
+	var nilCollector *streamCollector
+	nilCollector.markStep()
+	nilCollector.discardStep()
+}
+
+func TestStepResumeEventType(t *testing.T) {
+	if (StepResumeEvent{}).EventType() != EventStepResume {
+		t.Fatal("wrong event type")
+	}
+	if got := DefaultRetryPolicy(); got.MaxResumes != 5 || got.ResumeInitialDelay != 5*time.Second || got.ResumeMaxDelay != 80*time.Second {
+		t.Fatalf("resume defaults = %+v", got)
+	}
+}
