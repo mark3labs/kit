@@ -2041,6 +2041,12 @@ mcpServers:
     tasksMode: always  # always run tools/call as async tasks (Phase 1 MVP)
 ```
 
+During startup, failed mandatory tool discovery releases only that server's
+connection. Other successfully loaded servers remain available. If all configured
+servers fail, loading returns the existing aggregate error. Optional prompts and
+resources discovery remains best-effort. For retry, zero-tool removal, and
+absent-name error behavior, see [Dynamic MCP servers](/sdk/overview#dynamic-mcp-servers).
+
 ### MCP server fields
 
 | Field | Type | Description |
@@ -6092,11 +6098,25 @@ Add and remove MCP servers at runtime:
 n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
     Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
 })
+if err != nil {
+    return err
+}
 fmt.Printf("Loaded %d tools\n", n)
 
-err = host.RemoveMCPServer("github")
+if err := host.RemoveMCPServer("github"); err != nil {
+    return err
+}
 servers := host.ListMCPServers() // []kit.MCPServerStatus
 ```
+
+If mandatory tool discovery fails, `AddMCPServer` returns zero tools and an error.
+Kit automatically closes and removes only the failed connection; no new
+registrations remain. Healthy servers stay available, so you do not need
+`Kit.Close` to clean up a failed add. You can retry with the same name.
+Removing an absent server (including one removed by this rollback) returns an
+error. A successful add with no tools, including fully filtered tools, remains
+listed with `ToolCount: 0` and can be removed. Optional prompts and resources
+discovery is best-effort and does not fail the add.
 
 ### In-process MCP servers
 

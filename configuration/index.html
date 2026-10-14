@@ -6,7 +6,7 @@
 <title>Configuration | Kit</title>
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-Bwekzw9h.js"></script>
+<script type="module" src="/assets/index-0YMpr-Zn.js"></script>
 <link rel="canonical" href="https://go-kit.dev/configuration" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -136,6 +136,12 @@ mcpServers:
     url: "https://builds.mcp.example.com"
     tasksMode: always  # always run tools/call as async tasks (Phase 1 MVP)
 ```
+
+During startup, failed mandatory tool discovery releases only that server's
+connection. Other successfully loaded servers remain available. If all configured
+servers fail, loading returns the existing aggregate error. Optional prompts and
+resources discovery remains best-effort. For retry, zero-tool removal, and
+absent-name error behavior, see [Dynamic MCP servers](/sdk/overview#dynamic-mcp-servers).
 
 ### MCP server fields
 
