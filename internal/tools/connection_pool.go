@@ -652,6 +652,15 @@ func (p *MCPConnectionPool) GetClients() map[string]client.MCPClient {
 	return clients
 }
 
+// HasConnection reports membership, including unhealthy connections, without
+// checking health or creating a client.
+func (p *MCPConnectionPool) HasConnection(serverName string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	_, exists := p.connections[serverName]
+	return exists
+}
+
 // RemoveConnection closes and removes a single connection from the pool.
 // Returns an error if the connection does not exist or if closing fails.
 // Thread-safe for concurrent use.

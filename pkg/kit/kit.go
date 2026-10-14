@@ -411,6 +411,12 @@ type MCPServerStatus struct {
 // server name (e.g. "myserver__tool_name") to avoid naming conflicts, matching
 // the behaviour of servers loaded at initialization.
 //
+// If mandatory tool discovery fails, returns zero tools and an error, and
+// automatically closes and removes the failed connection without registering
+// tools. Other servers remain available; retry with the same name is safe.
+// Optional prompts and resources discovery is best-effort. A successful add
+// with zero tools remains listed and can be removed.
+//
 // Returns the number of tools loaded from the server.
 //
 // AddMCPServer is safe to call while the agent is idle. If a turn is in
@@ -470,12 +476,16 @@ func (m *Kit) AddInProcessMCPServer(ctx context.Context, name string, srv *MCPSe
 // progress, the tools are removed at the next LLM step. Any in-flight tool
 // calls to the removed server will fail gracefully.
 //
-// Returns an error if the named server is not currently loaded.
+// Connected servers with zero tools can also be removed. All owned tools,
+// prompts, resources, and subscriptions are removed.
+// Returns an error if the named server is not currently loaded, including
+// after automatic cleanup of a failed add.
 func (m *Kit) RemoveMCPServer(name string) error {
 	return m.agent.RemoveMCPServer(name)
 }
 
-// ListMCPServers returns the status of all currently loaded MCP servers.
+// ListMCPServers returns the status of all currently loaded MCP servers,
+// including successful zero-tool attachments (ToolCount is zero).
 // The returned slice is a snapshot; it is safe to read concurrently.
 func (m *Kit) ListMCPServers() []MCPServerStatus {
 	names := m.agent.GetLoadedServerNames()
@@ -483,16 +493,11 @@ func (m *Kit) ListMCPServers() []MCPServerStatus {
 		return nil
 	}
 
-	// Build a tool count per server by scanning tool names for the prefix.
-	toolNames := m.GetToolNames()
+	// Use recorded ownership; server names can themselves contain "__".
 	countByServer := make(map[string]int, len(names))
-	for _, tn := range toolNames {
-		for _, sn := range names {
-			prefix := sn + "__"
-			if len(tn) > len(prefix) && tn[:len(prefix)] == prefix {
-				countByServer[sn]++
-				break
-			}
+	if manager := m.agent.GetMCPToolManager(); manager != nil {
+		for _, tool := range manager.GetTools() {
+			countByServer[tool.ServerName]++
 		}
 	}
 

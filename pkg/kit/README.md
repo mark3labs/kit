@@ -201,9 +201,11 @@ Add, remove, and list MCP servers at runtime:
 ```go
 // Add an MCP server at runtime
 n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
-    Command: "npx",
-    Args:    []string{"-y", "@modelcontextprotocol/server-github"},
+    Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
 })
+if err != nil {
+    return err
+}
 fmt.Printf("Loaded %d tools from MCP server\n", n)
 
 // List connected MCP servers
@@ -212,8 +214,19 @@ for _, s := range host.ListMCPServers() {
 }
 
 // Disconnect a server and remove its tools
-host.RemoveMCPServer("github")
+if err := host.RemoveMCPServer("github"); err != nil {
+    return err
+}
 ```
+
+If mandatory tool discovery fails, `AddMCPServer` returns zero tools and an error.
+Kit automatically closes and removes only the failed connection; no new
+registrations remain. Healthy servers stay available, so you do not need
+`Kit.Close` to clean up a failed add. You can retry with the same name.
+Removing an absent server (including one removed by this rollback) returns an
+error. A successful add with no tools, including fully filtered tools, remains
+listed with `ToolCount: 0` and can be removed. Optional prompts and resources
+discovery is best-effort and does not fail the add.
 
 ### In-Process MCP Servers
 

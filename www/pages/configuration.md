@@ -112,6 +112,12 @@ mcpServers:
     tasksMode: always  # always run tools/call as async tasks (Phase 1 MVP)
 ```
 
+During startup, failed mandatory tool discovery releases only that server's
+connection. Other successfully loaded servers remain available. If all configured
+servers fail, loading returns the existing aggregate error. Optional prompts and
+resources discovery remains best-effort. For retry, zero-tool removal, and
+absent-name error behavior, see [Dynamic MCP servers](/sdk/overview#dynamic-mcp-servers).
+
 ### MCP server fields
 
 | Field | Type | Description |
