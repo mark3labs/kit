@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -264,5 +265,48 @@ func TestExactOwnershipAdd(t *testing.T) {
 	}
 	if len(m.tools) != 1 || m.tools[0].ServerName != "remote__child" {
 		t.Fatal("removed child tools")
+	}
+}
+
+func TestToolKeyCollisionRollback(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		t.Run(fmt.Sprint(reverse), func(t *testing.T) {
+			m := lifecycleManager(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			names := []string{"a", "a__b"}
+			tools := []string{"b__x", "x"}
+			if reverse {
+				slices.Reverse(names)
+				slices.Reverse(tools)
+			}
+			original := server.NewMCPServer("original", "1", server.WithToolCapabilities(true))
+			original.AddTool(mcp.NewTool(tools[0]), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return mcp.NewToolResultText("original"), nil
+			})
+			if n, err := m.AddServer(ctx, names[0], config.MCPServerConfig{Type: "inprocess", InProcessServer: original}); err != nil || n != 1 {
+				t.Fatalf("original: %d %v", n, err)
+			}
+			// Stage another key first to prove a collision publishes nothing.
+			conflicting := &lifecycleClient{tools: []mcp.Tool{mcp.NewTool("staged"), mcp.NewTool(tools[1])}}
+			seedLifecycleClient(m, names[1], conflicting)
+			_, err := m.loadServerTools(ctx, names[1], config.MCPServerConfig{})
+			if err == nil || !strings.Contains(err.Error(), "conflicts") {
+				t.Fatalf("collision: %v", err)
+			}
+			if conflicting.closes != 1 || m.connectionPool.HasConnection(names[1]) {
+				t.Fatal("collision connection was not rolled back")
+			}
+			if len(m.tools) != 1 || len(m.toolMap) != 1 || m.toolMap["a__b__x"].serverName != names[0] {
+				t.Fatal("collision changed original routing")
+			}
+			if err := m.RemoveServer(names[1]); err == nil {
+				t.Fatal("rejected server must be absent")
+			}
+			result, err := m.ExecuteTool(ctx, "a__b__x", "{}")
+			if err != nil || !strings.Contains(result.Content, "original") {
+				t.Fatalf("original remains callable: %+v %v", result, err)
+			}
+		})
 	}
 }

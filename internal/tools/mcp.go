@@ -574,8 +574,15 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		})
 	}
 
-	// Merge into the manager under the lock.
+	// Check routing keys and merge atomically. Exact server ownership alone
+	// cannot prevent collisions when server and tool names contain "__".
 	m.mu.Lock()
+	for key := range localMap {
+		if existing, ok := m.toolMap[key]; ok {
+			m.mu.Unlock()
+			return -1, fmt.Errorf("MCP tool %q conflicts with server %q", key, existing.serverName)
+		}
+	}
 	maps.Copy(m.toolMap, localMap)
 	m.tools = append(m.tools, localTools...)
 	m.mu.Unlock()
