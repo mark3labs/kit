@@ -100,10 +100,15 @@ n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
     Command:     []string{"npx", "-y", "@modelcontextprotocol/server-github"},
     Environment: map[string]string{"GITHUB_TOKEN": os.Getenv("GITHUB_TOKEN")},
 })
+if err != nil {
+    return err
+}
 fmt.Printf("Loaded %d tools from github server\n", n)
 
 // Remove an MCP server — its tools are no longer available
-err = host.RemoveMCPServer("github")
+if err := host.RemoveMCPServer("github"); err != nil {
+    return err
+}
 
 // List all currently loaded MCP servers
 servers := host.ListMCPServers()
@@ -111,6 +116,15 @@ for _, s := range servers {
     fmt.Printf("Server %s: %d tools\n", s.Name, s.ToolCount)
 }
 ```
+
+If mandatory tool discovery fails, `AddMCPServer` returns zero tools and an error.
+Kit automatically closes and removes only the failed connection; no new
+registrations remain. Healthy servers stay available, so you do not need
+`Kit.Close` to clean up a failed add. You can retry with the same name.
+Removing an absent server (including one removed by this rollback) returns an
+error. A successful add with no tools, including fully filtered tools, remains
+listed with `ToolCount: 0` and can be removed. Optional prompts and resources
+discovery is best-effort and does not fail the add.
 
 `AddMCPServer` is safe to call while the agent is idle. If a turn is in progress, new tools are visible starting from the next LLM step. Tool names are prefixed with the server name (e.g. `"github__create_issue"`).
 

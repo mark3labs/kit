@@ -244,18 +244,10 @@ func (m *MCPToolManager) SetTaskConfig(cfg MCPTaskConfig) {
 // the connection or tool loading fails.
 func (m *MCPToolManager) AddServer(ctx context.Context, name string, cfg config.MCPServerConfig) (int, error) {
 	m.mu.Lock()
-	// Check for duplicate.
-	if _, exists := m.toolMap[name+"__"]; exists {
+	// Pool membership includes connected servers with no tools or unhealthy clients.
+	if m.hasServerLocked(name) {
 		m.mu.Unlock()
 		return 0, fmt.Errorf("MCP server %q is already loaded", name)
-	}
-	// More thorough duplicate check: scan toolMap for any key with the server prefix.
-	prefix := name + "__"
-	for k := range m.toolMap {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-			m.mu.Unlock()
-			return 0, fmt.Errorf("MCP server %q is already loaded", name)
-		}
 	}
 	m.mu.Unlock()
 
@@ -278,32 +270,13 @@ func (m *MCPToolManager) AddServer(ctx context.Context, name string, cfg config.
 	return count, nil
 }
 
-// RemoveServer disconnects an MCP server and removes all its tools and prompts.
+// RemoveServer disconnects an MCP server and removes all its owned catalogs
+// and subscriptions, including attachments with no tools.
 // After this call the agent will no longer see or be able to call tools from
 // the named server. Returns an error if the server is not loaded.
 func (m *MCPToolManager) RemoveServer(name string) error {
-	prefix := name + "__"
-
 	m.mu.Lock()
-
-	// Check the server actually has tools or prompts loaded.
-	found := false
-	for k := range m.toolMap {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-			found = true
-			break
-		}
-	}
-	if !found {
-		// Also check prompts — a server might expose only prompts.
-		for _, p := range m.prompts {
-			if p.ServerName == name {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
+	if !m.hasServerLocked(name) {
 		m.mu.Unlock()
 		return fmt.Errorf("MCP server %q is not loaded", name)
 	}
@@ -311,15 +284,15 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 	// Remove tools belonging to this server.
 	newTools := make([]MCPTool, 0, len(m.tools))
 	for _, t := range m.tools {
-		if len(t.Name) < len(prefix) || t.Name[:len(prefix)] != prefix {
+		if t.ServerName != name {
 			newTools = append(newTools, t)
 		}
 	}
 	m.tools = newTools
 
 	// Remove tool mappings.
-	for k := range m.toolMap {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+	for k, mapping := range m.toolMap {
+		if mapping.serverName == name {
 			delete(m.toolMap, k)
 		}
 	}
@@ -338,12 +311,14 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 	for _, r := range m.resources {
 		if r.ServerName != name {
 			newResources = append(newResources, r)
-		} else {
-			// Clean up any active subscription for this resource.
-			delete(m.subscriptions, r.URI)
 		}
 	}
 	m.resources = newResources
+	for uri, serverName := range m.subscriptions {
+		if serverName == name {
+			delete(m.subscriptions, uri)
+		}
+	}
 
 	m.mu.Unlock()
 
@@ -357,6 +332,40 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 	}
 
 	return nil
+}
+
+// hasServerLocked checks exact catalog ownership and pool membership.
+// The caller must hold m.mu; this does not perform network operations.
+func (m *MCPToolManager) hasServerLocked(name string) bool {
+	if m.connectionPool != nil && m.connectionPool.HasConnection(name) {
+		return true
+	}
+	for _, tool := range m.tools {
+		if tool.ServerName == name {
+			return true
+		}
+	}
+	for _, mapping := range m.toolMap {
+		if mapping.serverName == name {
+			return true
+		}
+	}
+	for _, prompt := range m.prompts {
+		if prompt.ServerName == name {
+			return true
+		}
+	}
+	for _, resource := range m.resources {
+		if resource.ServerName == name {
+			return true
+		}
+	}
+	for _, serverName := range m.subscriptions {
+		if serverName == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureConnectionPool lazily creates a connection pool if one does not exist.
@@ -460,15 +469,25 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	// Get connection from pool
 	conn, err := m.connectionPool.GetConnection(ctx, serverName, serverConfig)
 	if err != nil {
-		return -1, fmt.Errorf("failed to get connection from pool: %v", err)
+		return -1, fmt.Errorf("failed to get connection from pool: %w", err)
 	}
+
+	// Mandatory discovery must finish before this attachment can be retained.
+	loaded := false
+	defer func() {
+		if !loaded {
+			if err := m.connectionPool.RemoveConnection(serverName); err != nil {
+				log.Warn("Failed to close MCP connection after discovery failure", "server", serverName, "error", err)
+			}
+		}
+	}()
 
 	// Get tools from this server
 	listResults, err := conn.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		// Handle connection error
 		m.connectionPool.HandleConnectionError(serverName, err)
-		return -1, fmt.Errorf("failed to list tools: %v", err)
+		return -1, fmt.Errorf("failed to list tools: %w", err)
 	}
 
 	// Create name set for allowed tools
@@ -567,6 +586,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	// Also load resources from this server (best-effort, non-blocking).
 	m.loadServerResources(ctx, serverName, conn)
 
+	loaded = true
 	return len(localTools), nil
 }
 
