@@ -303,7 +303,13 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 			}
 		}
 	}
-	if !found {
+	// A pooled connection with zero tools (empty catalog, or a failed
+	// discovery that left a connection behind) must still be removable.
+	hasConnection := false
+	if !found && m.connectionPool != nil {
+		_, hasConnection = m.connectionPool.GetClients()[name]
+	}
+	if !found && !hasConnection {
 		m.mu.Unlock()
 		return fmt.Errorf("MCP server %q is not loaded", name)
 	}
@@ -466,8 +472,12 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	// Get tools from this server
 	listResults, err := conn.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		// Handle connection error
+		// Handle connection error and roll back the pooled connection.
+		// GetConnection publishes the connection before discovery; leaving
+		// it behind makes RemoveServer report "not loaded" while
+		// ListMCPServers still lists the failed server.
 		m.connectionPool.HandleConnectionError(serverName, err)
+		_ = m.connectionPool.RemoveConnection(serverName)
 		return -1, fmt.Errorf("failed to list tools: %v", err)
 	}
 
@@ -501,6 +511,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		// Convert MCP InputSchema to map[string]any
 		marshaledSchema, err := json.Marshal(mcpTool.InputSchema)
 		if err != nil {
+			_ = m.connectionPool.RemoveConnection(serverName)
 			return -1, fmt.Errorf("conv mcp tool input schema fail(marshal): %w, tool name: %s", err, mcpTool.Name)
 		}
 
@@ -510,6 +521,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		// Parse into map[string]any
 		var schemaMap map[string]any
 		if err := json.Unmarshal(marshaledSchema, &schemaMap); err != nil {
+			_ = m.connectionPool.RemoveConnection(serverName)
 			return -1, fmt.Errorf("conv mcp tool input schema fail(unmarshal): %w, tool name: %s", err, mcpTool.Name)
 		}
 
