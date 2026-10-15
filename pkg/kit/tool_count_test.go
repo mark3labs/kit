@@ -95,8 +95,8 @@ func TestExtensionToolCount_ExcludesSDKExtraTools(t *testing.T) {
 	host.AddTools(newEchoTool("sdk_tool_a"), newEchoTool("sdk_tool_b"))
 
 	// Premise guard: the tools really were added to the agent.
-	if got := len(host.GetExtraTools()); got != 2 {
-		t.Fatalf("premise failed: want 2 extra tools, got %d", got)
+	if got := len(host.GetExtraTools()); got != 3 {
+		t.Fatalf("premise failed: want 2 native tools plus the latent managed tool, got %d", got)
 	}
 	if got := host.GetExtensionToolCount(); got != 0 {
 		t.Errorf("SDK-supplied tools counted as extensions: want 0, got %d", got)

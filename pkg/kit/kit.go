@@ -330,16 +330,7 @@ func (m *Kit) GetExtraTools() []Tool {
 	if len(m.runtimeExtraTools) == 0 {
 		return nil
 	}
-	var out []Tool
-	for _, t := range m.runtimeExtraTools {
-		if dynamic, ok := t.(interface{ Snapshot() fantasy.AgentTool }); ok {
-			t = dynamic.Snapshot()
-		}
-		if t != nil {
-			out = append(out, t)
-		}
-	}
-	return out
+	return append([]Tool(nil), m.runtimeExtraTools...)
 }
 
 // recomposeExtraTools rebuilds the agent's extra-tool list from extension

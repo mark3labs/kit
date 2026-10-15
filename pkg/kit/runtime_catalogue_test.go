@@ -111,3 +111,30 @@ func TestManagedSkillToolNativeControl(t *testing.T) {
 		})
 	}
 }
+
+// TestExtraToolRoundTrip preserves latent state and dynamic selection, rather
+// than freezing a current request definition into the registered tool set.
+func TestExtraToolRoundTrip(t *testing.T) {
+	host := activationHost(t, &activationModel{})
+	for _, phase := range []string{"empty", "loaded"} {
+		host.SetExtraTools(host.GetExtraTools()...)
+		if err := host.AddSkill(&Skill{Name: "demo", Description: "metadata", Content: phase}); err != nil {
+			t.Fatal(err)
+		}
+		_, tools := host.agentSnapshotForTest()
+		found := false
+		for _, tool := range tools {
+			if tool.Info().Name != "activate_skill" {
+				continue
+			}
+			found = true
+			response, err := tool.Run(context.Background(), fantasy.ToolCall{Input: `{"name":"demo"}`})
+			if err != nil || !strings.Contains(response.Content, phase) {
+				t.Fatalf("phase=%s response=%s error=%v", phase, response.Content, err)
+			}
+		}
+		if !found {
+			t.Fatal("round trip removed managed activation")
+		}
+	}
+}
