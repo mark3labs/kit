@@ -98,7 +98,7 @@ func TestCopilotRefreshToken(t *testing.T) {
 		if r.Header.Get("Authorization") != "token github-token" {
 			t.Fatalf("unexpected authorization header: %q", r.Header.Get("Authorization"))
 		}
-		if r.Header.Get("User-Agent") != "kit" {
+		if r.Header.Get("User-Agent") != "KIT" {
 			t.Fatalf("unexpected user agent: %q", r.Header.Get("User-Agent"))
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/httpclient"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,6 +20,7 @@ import (
 // ConnectionPoolConfig defines configuration parameters for the MCP connection pool.
 // It controls connection lifecycle, health checking, and error handling behaviors.
 type ConnectionPoolConfig struct {
+	UserAgent           string
 	MaxIdleTime         time.Duration // Maximum time a connection can remain idle before being marked unhealthy
 	MaxRetries          int           // Maximum number of retry attempts for failed operations
 	HealthCheckInterval time.Duration // Interval between background health checks of all connections
@@ -81,6 +84,8 @@ func NewMCPConnectionPool(config *ConnectionPoolConfig, debug bool, authHandler 
 		config = DefaultConnectionPoolConfig()
 	}
 
+	snapshot := *config
+	config = &snapshot
 	ctx, cancel := context.WithCancel(context.Background())
 	pool := &MCPConnectionPool{
 		connections:       make(map[string]*MCPConnection),
@@ -367,6 +372,7 @@ func (p *MCPConnectionPool) buildOAuthConfig(serverConfig config.MCPServerConfig
 		return nil, fmt.Errorf("failed to create token store: %w", err)
 	}
 	cfg := &transport.OAuthConfig{
+		HTTPClient:  httpclient.WithUserAgent(&http.Client{Timeout: 30 * time.Second}, p.config.UserAgent),
 		RedirectURI: p.oauthFlow.handler.RedirectURI(),
 		PKCEEnabled: true,
 		TokenStore:  tokenStore,
@@ -384,7 +390,7 @@ func (p *MCPConnectionPool) buildOAuthConfig(serverConfig config.MCPServerConfig
 }
 
 func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
-	var options []transport.ClientOption
+	options := []transport.ClientOption{transport.WithHTTPClient(httpclient.WithUserAgent(nil, p.config.UserAgent))}
 
 	if headers := parseHeaders(serverConfig.Headers); headers != nil {
 		options = append(options, transport.WithHeaders(headers))
@@ -416,7 +422,7 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 
 // createStreamableClient creates a Streamable client
 func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
-	var options []transport.StreamableHTTPCOption
+	options := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(httpclient.WithUserAgent(nil, p.config.UserAgent))}
 
 	if headers := parseHeaders(serverConfig.Headers); headers != nil {
 		options = append(options, transport.WithHTTPHeaders(headers))

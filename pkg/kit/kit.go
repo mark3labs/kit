@@ -1117,6 +1117,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 	} else {
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
+			UserAgent:     m.v.GetString("internal-user-agent"),
 			ModelString:   req.Model,
 			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
 			ConfigStore:   m.v,
@@ -1235,6 +1236,10 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 // through to the precedence chain (env → .kit.yml → per-model defaults)
 // resolved within the instance's own store.
 type Options struct {
+	// UserAgent identifies Kit-controlled HTTP requests. Empty means "KIT".
+	// Codex and Copilot inference retain their fixed compatibility identities.
+	UserAgent string
+
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
 	ConfigFile   string // Override config file path
@@ -2247,6 +2252,7 @@ func inheritProviderConfig(child *Options, v *viper.Viper) {
 	if child == nil || v == nil {
 		return
 	}
+	child.UserAgent = v.GetString("internal-user-agent")
 	child.ProviderAPIKey = v.GetString("provider-api-key")
 	child.ProviderURL = v.GetString("provider-url")
 	child.ProviderWire = v.GetString("provider-wire")

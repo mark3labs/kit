@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/mark3labs/kit/internal/httpclient"
 )
 
 // LoginInstructions describes the browser authorization step.
@@ -16,6 +18,8 @@ type LoginInstructions struct {
 
 // LoginOptions configures host interaction and credential storage.
 type LoginOptions struct {
+	// UserAgent identifies login HTTP requests independently of any Kit instance. Empty means "KIT".
+	UserAgent         string
 	CredentialManager *CredentialManager
 	OnAuthorization   func(context.Context, LoginInstructions) error
 }
@@ -28,6 +32,13 @@ func LoginProvider(ctx context.Context, providerID string, options LoginOptions)
 // loginProvider coordinates authorization, exchange, and persistent credential storage.
 // The client is private so SDK callers cannot redirect credentials to another endpoint.
 func loginProvider(ctx context.Context, providerID string, options LoginOptions, client *OpenAIOAuthClient) error {
+	identity, err := httpclient.ResolveUserAgent(options.UserAgent)
+	if err != nil {
+		return err
+	}
+	clientCopy := *client
+	client = &clientCopy
+	client.UserAgent = identity
 	if ctx == nil {
 		return errors.New("login context is required")
 	}

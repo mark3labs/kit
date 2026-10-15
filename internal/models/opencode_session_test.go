@@ -180,9 +180,9 @@ func TestAutoRouteHTTPClient_OpencodeGetsSessionTransport(t *testing.T) {
 		t.Fatalf("expected *sessionHeaderRoundTripper transport, got %T", client.Transport)
 	}
 
-	// Non-opencode provider with no TLS/header config stays nil (SDK default).
-	if client := autoRouteHTTPClient(config, &ProviderInfo{ID: "groq"}); client != nil {
-		t.Errorf("expected nil client for plain non-opencode provider, got %T", client.Transport)
+	// Every provider gets an owned client to enforce HTTP identity.
+	if client := autoRouteHTTPClient(config, &ProviderInfo{ID: "groq"}); client == nil {
+		t.Error("expected identity client for plain non-opencode provider")
 	}
 }
 

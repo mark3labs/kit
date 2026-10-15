@@ -17,6 +17,8 @@ type LoginInstructions struct {
 
 // LoginOptions configures a provider OAuth login.
 type LoginOptions struct {
+	// UserAgent identifies login HTTP requests independently of any Kit instance. Empty means "KIT".
+	UserAgent string
 	// CredentialManager selects the credential store. If nil, login uses the
 	// standard store at $XDG_CONFIG_HOME/.kit/credentials.json, or
 	// ~/.config/.kit/credentials.json when XDG_CONFIG_HOME is not set.
@@ -53,7 +55,7 @@ type LoginOptions struct {
 // provider after login. Call SetModel or create a new Kit instance to use the
 // stored credentials.
 func LoginProvider(ctx context.Context, providerID string, options LoginOptions) error {
-	internalOptions := auth.LoginOptions{CredentialManager: options.CredentialManager}
+	internalOptions := auth.LoginOptions{CredentialManager: options.CredentialManager, UserAgent: options.UserAgent}
 	if options.OnAuthorization != nil {
 		internalOptions.OnAuthorization = func(ctx context.Context, instructions auth.LoginInstructions) error {
 			return options.OnAuthorization(ctx, LoginInstructions{

@@ -131,6 +131,7 @@ type MCPResourceContent struct {
 // pooling, health checks, tool name prefixing to avoid conflicts, and OAuth re-authorization.
 // Thread-safe for concurrent tool invocations.
 type MCPToolManager struct {
+	userAgent         string
 	connectionPool    *MCPConnectionPool
 	tools             []MCPTool
 	toolMap           map[string]*toolMapping // maps prefixed tool names to their server and original name
@@ -381,7 +382,7 @@ func (m *MCPToolManager) ensureConnectionPool() {
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), debug, m.authHandler, m.tokenStoreFactory)
+	m.connectionPool = NewMCPConnectionPool(m.poolConfig(), debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 }
 
@@ -406,7 +407,7 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 			log.Warn("Failed to close previous MCP connection pool", "error", err)
 		}
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), cfg.Debug, m.authHandler, m.tokenStoreFactory)
+	m.connectionPool = NewMCPConnectionPool(m.poolConfig(), cfg.Debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 
 	// Load all servers in parallel. Each server connection (subprocess
@@ -1368,4 +1369,13 @@ func convertSchemaRecursive(schema map[string]any) {
 	if not, ok := schema["not"].(map[string]any); ok {
 		convertSchemaRecursive(not)
 	}
+}
+
+// SetUserAgent sets identity before loading or adding servers.
+func (m *MCPToolManager) SetUserAgent(value string) { m.userAgent = value }
+
+func (m *MCPToolManager) poolConfig() *ConnectionPoolConfig {
+	cfg := DefaultConnectionPoolConfig()
+	cfg.UserAgent = m.userAgent
+	return cfg
 }

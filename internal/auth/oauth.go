@@ -13,12 +13,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mark3labs/kit/internal/httpclient"
 )
 
 // OAuthClient handles OAuth 2.0 authentication flow with Anthropic using the
 // PKCE (Proof Key for Code Exchange) extension for enhanced security in public clients.
 // It manages the authorization URL generation, code exchange, and token refresh operations.
 type OAuthClient struct {
+	UserAgent    string
 	ClientID     string
 	AuthorizeURL string
 	TokenURL     string
@@ -158,7 +161,7 @@ func (c *OAuthClient) makeTokenRequest(body map[string]any) (*AnthropicCredentia
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpclient.WithUserAgent(client, c.UserAgent).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make token request: %w", err)
 	}
@@ -205,6 +208,7 @@ func (c *OAuthClient) parseCodeAndState(code string) (parsedCode, parsedState st
 // OpenAIOAuthClient handles OAuth 2.0 authentication flow with OpenAI Codex (ChatGPT Plus/Pro).
 // This uses OpenAI's auth0-based OAuth service for ChatGPT account authentication.
 type OpenAIOAuthClient struct {
+	UserAgent    string
 	ClientID     string
 	AuthorizeURL string
 	TokenURL     string
@@ -219,6 +223,7 @@ type OpenAIOAuthClient struct {
 // to GitHub's internal Copilot token endpoint, which returns the bearer token
 // used by api.githubcopilot.com.
 type CopilotOAuthClient struct {
+	UserAgent     string
 	ClientID      string
 	DeviceURL     string
 	TokenURL      string
@@ -272,7 +277,7 @@ func (c *CopilotOAuthClient) StartDeviceFlow(ctx context.Context) (*CopilotDevic
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+	resp, err := httpclient.WithUserAgent(&http.Client{Timeout: c.ClientTimeout}, c.UserAgent).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request device code: %w", err)
 	}
@@ -354,7 +359,7 @@ func (c *CopilotOAuthClient) PollDeviceToken(ctx context.Context, deviceCode *Co
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+		resp, err := httpclient.WithUserAgent(&http.Client{Timeout: c.ClientTimeout}, c.UserAgent).Do(req)
 		if err != nil {
 			return "", fmt.Errorf("failed to poll device token: %w", err)
 		}
@@ -419,10 +424,10 @@ func (c *CopilotOAuthClient) RefreshCopilotToken(ctx context.Context, githubToke
 	}
 	req.Header.Set("Authorization", "token "+githubToken)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "kit")
+
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+	resp, err := httpclient.WithUserAgent(&http.Client{Timeout: c.ClientTimeout}, c.UserAgent).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request copilot token: %w", err)
 	}
@@ -559,7 +564,7 @@ func (c *OpenAIOAuthClient) exchangeAuthorizationCodeContext(ctx context.Context
 		Timeout:       30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	resp, err := client.Do(req)
+	resp, err := httpclient.WithUserAgent(client, c.UserAgent).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make token request: %w", err)
 	}
@@ -623,7 +628,7 @@ func (c *OpenAIOAuthClient) RefreshToken(refreshToken string) (*OpenAICredential
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpclient.WithUserAgent(client, c.UserAgent).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make refresh request: %w", err)
 	}
@@ -776,6 +781,7 @@ func (cm *CredentialManager) GetValidAccessToken() (string, error) {
 		if creds.NeedsRefresh() {
 			// Refresh the token
 			client := NewOAuthClient()
+			client.UserAgent = cm.userAgent
 			newCreds, err := client.RefreshToken(creds.RefreshToken)
 			if err != nil {
 				return "", fmt.Errorf("failed to refresh token: %w", err)

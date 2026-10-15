@@ -56,11 +56,17 @@ func TestCodexTransportTokenFreshness(t *testing.T) {
 	refreshes, requests := 0, 0
 	mockDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.String() == "https://auth.openai.com/oauth/token" {
+			if r.Header.Get("User-Agent") != "CodexApp/1" {
+				t.Errorf("refresh identity = %q", r.Header.Get("User-Agent"))
+			}
 			refreshes++
 			return jsonTestResponse(r, fmt.Sprintf(`{"access_token":%q,"refresh_token":"new-refresh","expires_in":3600}`, refreshed)), nil
 		}
 		if !isCodexDestination(r.URL.String()) {
 			t.Fatalf("unexpected destination: %s", r.URL)
+		}
+		if r.Header.Get("User-Agent") != "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" {
+			t.Errorf("inference identity = %q", r.Header.Get("User-Agent"))
 		}
 		requests++
 		if r.Header.Get("Authorization") != "Bearer "+wantToken || r.Header.Get("ChatGPT-Account-ID") != wantAccount {
@@ -69,6 +75,7 @@ func TestCodexTransportTokenFreshness(t *testing.T) {
 		return jsonTestResponse(r, `{}`), nil
 	})
 	client := createCodexHTTPClient(false)
+	client.Transport.(*codexTransport).userAgent = "CodexApp/1"
 	send := func() {
 		t.Helper()
 		resp, err := client.Get("https://chatgpt.com/backend-api/codex/responses")

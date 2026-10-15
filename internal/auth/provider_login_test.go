@@ -40,6 +40,9 @@ func TestProviderLoginFlow(t *testing.T) {
 			}
 			var challenge string
 			tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("User-Agent") != "LoginApp/1" {
+					t.Errorf("login identity = %q", r.Header.Get("User-Agent"))
+				}
 				if err := r.ParseForm(); err != nil {
 					t.Error(err)
 				}
@@ -70,7 +73,7 @@ func TestProviderLoginFlow(t *testing.T) {
 			defer tokenServer.Close()
 			client := NewOpenAIOAuthClient()
 			client.TokenURL = tokenServer.URL
-			err := loginProvider(ctx, "openai", LoginOptions{CredentialManager: cm, OnAuthorization: func(ctx context.Context, instructions LoginInstructions) error {
+			err := loginProvider(ctx, "openai", LoginOptions{UserAgent: "LoginApp/1", CredentialManager: cm, OnAuthorization: func(ctx context.Context, instructions LoginInstructions) error {
 				u, err := url.Parse(instructions.URL)
 				if err != nil {
 					return err

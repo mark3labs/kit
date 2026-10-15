@@ -157,6 +157,7 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 	mainGPU := int32(v.GetInt("main-gpu"))
 
 	cfg := &models.ProviderConfig{
+		UserAgent:      v.GetString("internal-user-agent"),
 		ModelString:    v.GetString("model"),
 		ModelMode:      v.GetString("model_mode"),
 		SystemPrompt:   systemPrompt,
