@@ -205,14 +205,17 @@ func (m *Kit) ClearSkillCache() {
 // ReloadSkills re-discovers skills from disk, replacing the current set.
 // This is called by file watchers when skill files change. The system prompt
 // is recomposed and applied to the running agent so subsequent turns see the
-// new skill set.
+// new skill set. Disk content is selected here; built-in activation does not
+// re-read disk files.
 func (m *Kit) ReloadSkills() error {
+	m.catalogueMu.Lock()
+	defer m.catalogueMu.Unlock()
 	newSkills, err := loadSkills(m.opts)
 	if err != nil {
 		return fmt.Errorf("reloading skills: %w", err)
 	}
 	m.runtimeMu.Lock()
-	m.skills = newSkills
+	m.skills = skills.CloneAll(newSkills)
 	m.runtimeMu.Unlock()
 	m.ClearSkillCache()
 	m.applyComposedSystemPrompt()
@@ -229,15 +232,19 @@ func (m *Kit) ReloadSkills() error {
 // the new skill metadata on its next turn.
 
 // AddSkill registers a single skill on this Kit instance. The skill object
-// can be built programmatically (no file on disk required) — only Name and
-// Content are mandatory. If a skill with the same Name is already loaded the
-// new skill replaces it. Returns an error when skill is nil or has an empty
+// can be built programmatically (no file on disk required). Only Name must be
+// non-empty. If a skill with the same Name is already loaded, the new skill
+// replaces it. Returns an error when skill is nil or has an empty
 // name.
 //
 // After mutation the system prompt is recomposed and applied to the running
-// agent so the next turn sees the updated skill metadata. AddSkill is safe to
-// call from any goroutine.
+// agent so the next prepared request sees the updated metadata, including a
+// mutation completed inside OnPrepareStep in the same turn. Registered Content
+// is authoritative, even when empty or different from Path's disk content.
+// Inputs are copied. AddSkill is safe to call from any goroutine.
 func (m *Kit) AddSkill(skill *Skill) error {
+	m.catalogueMu.Lock()
+	defer m.catalogueMu.Unlock()
 	if skill == nil {
 		return fmt.Errorf("AddSkill: skill is nil")
 	}
@@ -245,6 +252,7 @@ func (m *Kit) AddSkill(skill *Skill) error {
 		return fmt.Errorf("AddSkill: skill name is required")
 	}
 
+	skill = skills.Clone(skill)
 	m.runtimeMu.Lock()
 	replaced := false
 	for i, s := range m.skills {
@@ -281,6 +289,8 @@ func (m *Kit) LoadAndAddSkill(path string) (*Skill, error) {
 // the system prompt. Returns true when a skill with that name was found and
 // removed, false otherwise.
 func (m *Kit) RemoveSkill(name string) bool {
+	m.catalogueMu.Lock()
+	defer m.catalogueMu.Unlock()
 	m.runtimeMu.Lock()
 	found := false
 	for i, s := range m.skills {
@@ -303,7 +313,10 @@ func (m *Kit) RemoveSkill(name string) bool {
 // SetSkills replaces the active skill set with the provided slice. Pass nil
 // or an empty slice to remove all skills. The system prompt is recomposed and
 // applied. Skills with empty names are rejected and no mutation is performed.
+// Values, Metadata and Tags are copied. Duplicate names use the last entry.
 func (m *Kit) SetSkills(skillList []*Skill) error {
+	m.catalogueMu.Lock()
+	defer m.catalogueMu.Unlock()
 	// Validate first so a bad input doesn't partially mutate state.
 	for i, s := range skillList {
 		if s == nil {
@@ -314,8 +327,16 @@ func (m *Kit) SetSkills(skillList []*Skill) error {
 		}
 	}
 
-	copied := make([]*Skill, len(skillList))
-	copy(copied, skillList)
+	copied := make([]*Skill, 0, len(skillList))
+	indices := make(map[string]int)
+	for _, s := range skillList {
+		if i, ok := indices[s.Name]; ok {
+			copied[i] = skills.Clone(s)
+		} else {
+			indices[s.Name] = len(copied)
+			copied = append(copied, skills.Clone(s))
+		}
+	}
 
 	m.runtimeMu.Lock()
 	m.skills = copied
@@ -334,6 +355,8 @@ func (m *Kit) applyComposedSystemPrompt() {
 	if m.agent == nil {
 		return
 	}
+	m.publicationMu.Lock()
+	defer m.publicationMu.Unlock()
 	m.runtimeMu.RLock()
 	base := m.basePrompt
 	m.runtimeMu.RUnlock()
@@ -391,11 +414,15 @@ func (m *Kit) EnableSkill(name string) bool {
 // setSkillModelInvocation toggles DisableModelInvocation on the named skill
 // and refreshes the system prompt. Returns true when the skill was found.
 func (m *Kit) setSkillModelInvocation(name string, disabled bool) bool {
+	m.catalogueMu.Lock()
+	defer m.catalogueMu.Unlock()
 	m.runtimeMu.Lock()
 	found := false
-	for _, s := range m.skills {
+	for i, s := range m.skills {
 		if s.Name == name {
+			s = skills.Clone(s)
 			s.DisableModelInvocation = disabled
+			m.skills[i] = s
 			found = true
 			break
 		}

@@ -7,6 +7,8 @@ import (
 	"slices"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/agent"
 )
 
 // This file implements reactive compaction (issue #85): when a provider call
@@ -23,7 +25,7 @@ import (
 // isContextOverflow reports whether err is (or classifies as) a provider
 // context-window overflow.
 func isContextOverflow(err error) bool {
-	return err != nil && errors.Is(ClassifyProviderError(err), ErrContextOverflow)
+	return err != nil && !agent.IsPreparationError(err) && errors.Is(ClassifyProviderError(err), ErrContextOverflow)
 }
 
 // prepareOverflowRetry runs reactive compaction after a provider

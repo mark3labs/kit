@@ -472,13 +472,14 @@ func resolveMCPConfig(v *viper.Viper, opts *Options) (*config.Config, error) {
 	return mcpConfig, nil
 }
 
-// withSkillTool appends the dedicated activate_skill tool to extraTools when
-// at least one skill is loaded (issue #65, gaps #13/#14). liveKit returns the
-// Kit once it exists (nil before); the tool's provider then reads the live
-// skill set so runtime additions resolve.
+// withSkillTool retains activation state even with an empty catalogue.
+// Request composition omits empty definitions. A caller-supplied tool wins.
+// liveKit returns nil until construction completes.
 func withSkillTool(extraTools []Tool, loadedSkills []*Skill, liveKit func() *Kit) []Tool {
-	if len(loadedSkills) == 0 {
-		return extraTools
+	for _, t := range extraTools {
+		if t.Info().Name == "activate_skill" {
+			return extraTools
+		}
 	}
 	names := make([]string, 0, len(loadedSkills))
 	for _, s := range loadedSkills {

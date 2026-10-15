@@ -92,3 +92,26 @@ pb.WithSection("", "Extra context here")
 systemPrompt := pb.Build()
 ```
 
+### Runtime registration and activation
+
+`AddSkill`, `SetSkills`, `RemoveSkill`, `DisableSkill`, `EnableSkill`, and reload
+update the next prepared request, including mutations completed inside
+`OnPrepareStep` in the same turn. Qualified names are allowed. Kit owns copies
+of skill values, Metadata and Tags; `GetSkills` returns owned copies.
+`SetSkills` uses the last entry for duplicate names and rejects invalid batches
+without mutation.
+
+Registered Content is authoritative, even when empty or without Path. Built-in
+activation does not read newer disk bytes: use `ReloadSkills` or
+`LoadAndAddSkill` to select disk content. Explicit `/name` activation keeps its
+existing disk-freshness behavior.
+
+Each request freezes sorted, unique eligible names and selected body/path.
+Removed and model-disabled names disappear. With no eligible skills the managed
+`activate_skill` is omitted; adding from zero restores it next request. Stale
+selections fail with a fresh-request error rather than returning replacement
+bytes. Deduplication tracks the latest successfully activated body/path per
+name, so edited content can activate again in the same turn. Removing a skill
+does not erase past conversation content. Resources remain filesystem-based
+and best-effort.
+

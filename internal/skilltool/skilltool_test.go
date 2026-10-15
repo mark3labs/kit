@@ -26,11 +26,11 @@ func writeSkillFile(t *testing.T, dir, name string) *skills.Skill {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &skills.Skill{Name: name, Description: "A test skill", Path: path}
+	return &skills.Skill{Name: name, Description: "A test skill", Content: "Do the thing.", Path: path}
 }
 
 func TestNew_NilWhenNoSkills(t *testing.T) {
-	if tool := New(nil, func() []*skills.Skill { return nil }); tool != nil {
+	if tool := New(nil, func() []*skills.Skill { return nil }).(*activateSkillTool).Snapshot(); tool != nil {
 		t.Error("expected nil tool when no skill names provided")
 	}
 }

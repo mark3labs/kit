@@ -133,6 +133,8 @@ type BeforeCompactResult struct {
 //   - Mid-turn context injection beyond simple steering
 //   - Custom stop conditions that inspect message history
 type PrepareStepHook struct {
+	// Context is the request context. Use it to bound synchronous preparation I/O.
+	Context context.Context
 	// StepNumber is the zero-based step index within the current turn.
 	StepNumber int
 	// Messages is the current context window that will be sent to the LLM.
@@ -143,6 +145,9 @@ type PrepareStepHook struct {
 // PrepareStepResult can replace the context window, the tool set, and the
 // tool-choice mode between steps.
 type PrepareStepResult struct {
+	// Error aborts preparation before a provider request, takes precedence over
+	// overrides, and is returned without automatic retry or recovery.
+	Error error
 	// Messages replaces the entire context window for this step. If nil,
 	// the original messages (including any steering) are used unchanged.
 	Messages []LLMMessage
