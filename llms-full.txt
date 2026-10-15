@@ -4935,6 +4935,53 @@ Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
 these options never leak between Kit instances in the same process. See
 [Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
 
+
+## HTTP request identity
+
+Kit-controlled HTTP requests use `User-Agent: KIT` by default. Set a per-instance
+identity with either API:
+
+```go
+host, err := kit.New(ctx, &kit.Options{UserAgent: "MyApp/1.0"})
+// Or use functional options:
+host, err = kit.NewAgent(ctx, kit.WithUserAgent("MyApp/1.0"))
+```
+
+Empty means `KIT`, not an opt-out. Valid values are preserved without trimming,
+including spaces. HTTP control characters (including CR, LF, NUL and DEL) are
+rejected before construction or login does network work. This setting has no
+CLI flag, environment variable, or config-file key.
+
+Each instance keeps its own identity. It passes to model changes, temporary
+completions and subagents, including isolated/bare children and provider changes.
+It covers built-in model requests (including streams), Ollama setup, remote MCP
+and their OAuth requests, and provider token refresh. The identity replaces
+conflicting user-agent headers from model defaults, catalog headers, per-call
+headers and MCP configuration, case-insensitively. Other headers stay unchanged.
+Custom provider factories receive `ProviderConfig.UserAgent` and must enforce it
+on their own requests; Kit does not intercept arbitrary factory traffic.
+
+Two inference paths keep their fixed compatibility identities, even with an
+SDK override. Their token endpoints still use the configured Kit identity.
+These exceptions follow existing source requirements; they were not live-tested.
+
+| Inference path | Fixed user agent |
+| --- | --- |
+| Codex | `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36` |
+| Copilot | `GitHubCopilotChat/0.31.0` |
+
+Standalone `kit.LoginProvider` has a separate `kit.LoginOptions.UserAgent` field
+(default `KIT`), independent of any Kit instance or supplied credential manager.
+Standalone CLI OAuth and model-catalog downloads use `KIT`.
+
+This policy does not change global HTTP defaults. It does not cover subprocesses
+(shell, git/gh/curl, installers, npm or MCP server processes), extension/application
+code, browser navigation, or remote services acting for Kit. Third-party cloud
+credential discovery (metadata services or default credential chains) inherits
+the identity only when it uses the HTTP client Kit supplies; model endpoint
+requests use the configured identity. A custom transport can rewrite headers
+after Kit's boundary and is responsible for its own policy.
+
 ## Full options reference
 
 ```go

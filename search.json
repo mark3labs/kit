@@ -444,6 +444,7 @@
       "title": "SDK Options",
       "description": "Configuration options for the Kit Go SDK.",
       "headings": [
+        "HTTP request identity",
         "Full options reference",
         "Options fields",
         "Core",
@@ -467,7 +468,7 @@
         "Routing file access and commands"
       ],
       "tags": [],
-      "wordCount": 3671
+      "wordCount": 3998
     },
     {
       "id": "sdk/overview",
