@@ -589,6 +589,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// The mcpReady channel is closed when loading completes (success or failure).
 	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
 		toolManager := tools.NewMCPToolManager()
+		if agentConfig.ModelConfig != nil {
+			toolManager.SetUserAgent(agentConfig.ModelConfig.UserAgent)
+		}
 		if agentConfig.AuthHandler != nil {
 			toolManager.SetAuthHandler(agentConfig.AuthHandler)
 		}
@@ -1811,6 +1814,9 @@ func (a *Agent) AddMCPServer(ctx context.Context, name string, cfg config.MCPSer
 
 	if a.toolManager == nil {
 		a.toolManager = tools.NewMCPToolManager()
+		if a.modelConfig != nil {
+			a.toolManager.SetUserAgent(a.modelConfig.UserAgent)
+		}
 		if a.authHandler != nil {
 			a.toolManager.SetAuthHandler(a.authHandler)
 		}

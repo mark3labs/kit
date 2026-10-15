@@ -101,6 +101,7 @@ func WithProvider(name string, f ProviderFactory) Option {
 // provided a value, so nil pointers leave room for per-model defaults
 // (modelSettings / customModels params).
 func (m *Kit) applyEffectiveProviderSettings(cfg *models.ProviderConfig, modelString string) {
+	cfg.UserAgent = m.v.GetString("internal-user-agent")
 	if m.endpointOverridesApply(modelString) {
 		cfg.ProviderAPIKey = m.v.GetString("provider-api-key")
 		cfg.ProviderURL = m.v.GetString("provider-url")

@@ -218,3 +218,6 @@ func WithCoreTools(names ...string) Option {
 		}
 	}
 }
+
+// WithUserAgent sets the per-instance HTTP identity. Empty means "KIT".
+func WithUserAgent(value string) Option { return func(o *Options) { o.UserAgent = value } }

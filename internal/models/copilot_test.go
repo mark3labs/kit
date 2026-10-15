@@ -51,6 +51,7 @@ func TestCopilotTransportHeaders(t *testing.T) {
 	}
 
 	transport := &copilotTransport{
+		userAgent: "CopilotApp/1",
 		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			if req.Header.Get("Authorization") != "Bearer cached-token" {
 				t.Fatalf("unexpected Authorization header: %q", req.Header.Get("Authorization"))

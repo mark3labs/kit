@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mark3labs/kit/internal/httpclient"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/spf13/cobra"
 )
@@ -87,7 +88,7 @@ func fetchFromURL(url string) error {
 		req.Header.Set("If-None-Match", etag)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.WithUserAgent(nil, "").Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch models: %w", err)
 	}

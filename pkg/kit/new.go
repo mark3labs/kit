@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/httpclient"
 	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/skills"
@@ -322,11 +323,16 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 // instance-derived value New needs. It performs no network or subprocess
 // I/O; MCP and agent setup happen afterwards.
 func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.Viper, *resolvedConfig, error) {
+	userAgent, err := httpclient.ResolveUserAgent(opts.UserAgent)
+	if err != nil {
+		return nil, nil, err
+	}
 	v := newConfigStore(opts)
 	if err := loadConfigStore(v, opts); err != nil {
 		return nil, nil, err
 	}
 	applyOptionOverrides(v, opts)
+	v.Set("internal-user-agent", userAgent)
 
 	rc := &resolvedConfig{}
 	if err := loadProjectResources(v, opts, rc); err != nil {

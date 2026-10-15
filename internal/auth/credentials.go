@@ -188,6 +188,7 @@ func (c *CopilotCredentials) NeedsRefresh() bool {
 // file permissions for security.
 type CredentialManager struct {
 	credentialsPath string
+	userAgent       string
 }
 
 // NewCredentialManager creates a new credential manager instance. It determines
@@ -449,6 +450,7 @@ func (cm *CredentialManager) GetValidCopilotAccessTokenContext(ctx context.Conte
 
 	if creds.CopilotAccessToken == "" || creds.NeedsRefresh() {
 		client := NewCopilotOAuthClient()
+		client.UserAgent = cm.userAgent
 		newCreds, err := client.RefreshCopilotToken(ctx, creds.GitHubToken)
 		if err != nil {
 			return "", fmt.Errorf("failed to refresh Copilot token: %w", err)
@@ -540,6 +542,7 @@ func (cm *CredentialManager) GetValidOpenAICredentials() (*OpenAICredentials, er
 		if creds.NeedsRefresh() {
 			// Refresh the token
 			client := NewOpenAIOAuthClient()
+			client.UserAgent = cm.userAgent
 			newCreds, err := client.RefreshToken(creds.RefreshToken)
 			if err != nil {
 				return nil, fmt.Errorf("failed to refresh token: %w", err)
@@ -605,7 +608,7 @@ func IsAnthropicOAuth(flagValue string) bool {
 // 3. ANTHROPIC_API_KEY environment variable (lowest priority)
 // Returns the API key, a description of its source, and any error encountered.
 // For OAuth credentials, it automatically refreshes expired tokens.
-func GetAnthropicAPIKey(flagValue string) (string, string, error) {
+func GetAnthropicAPIKey(flagValue string, userAgents ...string) (string, string, error) {
 	// 1. Check flag value first (highest priority)
 	if flagValue != "" {
 		return flagValue, "command-line flag", nil
@@ -613,6 +616,9 @@ func GetAnthropicAPIKey(flagValue string) (string, string, error) {
 
 	// 2. Check stored credentials
 	cm, err := NewCredentialManager()
+	if err == nil && len(userAgents) > 0 {
+		cm = cm.WithUserAgent(userAgents[0])
+	}
 	if err == nil {
 		if creds, err := cm.GetAnthropicCredentials(); err == nil && creds != nil {
 			if creds.Type == "oauth" && creds.AccessToken != "" {
@@ -793,4 +799,11 @@ func LookupStoredAPIKey(providerID string) string {
 		return ""
 	}
 	return key
+}
+
+// WithUserAgent returns an independent manager with the same credential path.
+func (cm *CredentialManager) WithUserAgent(value string) *CredentialManager {
+	copy := *cm
+	copy.userAgent = value
+	return &copy
 }

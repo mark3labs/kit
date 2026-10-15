@@ -29,6 +29,8 @@ import (
 	"charm.land/fantasy/providers/vercel"
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/spf13/viper"
+
+	"github.com/mark3labs/kit/internal/httpclient"
 )
 
 const (
@@ -175,6 +177,9 @@ func ParseThinkingLevel(s string) ThinkingLevel {
 
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
+	// UserAgent is the effective per-instance HTTP identity. Factories own enforcement.
+	UserAgent string
+
 	ModelString string
 	// ModelMode selects a catalog-defined model mode. Empty selects the provider default.
 	ModelMode      string
@@ -299,6 +304,11 @@ func catalogProviderID(provider string) string {
 // transport, using the provider's api URL as the base. Providers with an api
 // URL but an unrecognized npm package fall back to the OpenAI-compatible wire.
 func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
+	identity, err := httpclient.ResolveUserAgent(config.UserAgent)
+	if err != nil {
+		return nil, err
+	}
+	config.UserAgent = identity
 	provider, modelName, err := ParseModelString(config.ModelString)
 	if err != nil {
 		return nil, err
@@ -684,12 +694,13 @@ func withDefaultHeaders(client *http.Client, headers map[string]string) *http.Cl
 // autoRouteHTTPClient builds the HTTP client for an auto-routed provider,
 // combining TLS verification config with the provider's default headers and
 // provider-specific dynamic headers (e.g. the opencode session header).
-// Returns nil when no customization is needed (callers use the SDK default).
+// Always returns an owned client to enforce the instance identity.
 func autoRouteHTTPClient(config *ProviderConfig, info *ProviderInfo) *http.Client {
 	var client *http.Client
 	if config.TLSSkipVerify {
 		client = createHTTPClientWithTLSConfig(true)
 	}
+	client = httpclient.WithUserAgent(client, config.UserAgent)
 	client = withDefaultHeaders(client, info.Headers)
 	return withOpencodeSessionHeader(client, config, info)
 }
@@ -711,6 +722,7 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 	}
 
 	var opts []openaicompat.Option
+	opts = append(opts, openaicompat.WithUserAgent(config.UserAgent))
 	opts = append(opts, openaicompat.WithBaseURL(apiURL))
 	opts = append(opts, openaicompat.WithAPIKey(apiKey))
 	opts = append(opts, openaicompat.WithName(info.ID))
@@ -743,6 +755,7 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 	}
 
 	var opts []anthropic.Option
+	opts = append(opts, anthropic.WithUserAgent(config.UserAgent))
 	opts = append(opts, anthropic.WithAPIKey(apiKey))
 
 	if config.ProviderURL != "" {
@@ -786,6 +799,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 	}
 
 	var opts []openai.Option
+	opts = append(opts, openai.WithUserAgent(config.UserAgent))
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithUseResponsesAPI())
 	opts = append(opts, openai.WithResponsesAPIFunc(func(string) bool { return true }))
@@ -831,6 +845,7 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 
 	opts := []google.Option{
 		google.WithGeminiAPIKey(apiKey),
+		google.WithUserAgent(config.UserAgent),
 		google.WithName(info.ID),
 	}
 
@@ -845,6 +860,7 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 	} else if config.TLSSkipVerify {
 		httpClient = createHTTPClientWithTLSConfig(true)
 	}
+	httpClient = httpclient.WithUserAgent(httpClient, config.UserAgent)
 	httpClient = withDefaultHeaders(httpClient, info.Headers)
 	httpClient = withOpencodeSessionHeader(httpClient, config, info)
 	if httpClient != nil {
@@ -1274,7 +1290,7 @@ func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fan
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	clearConflictingAnthropicSamplingParams(config)
 
-	apiKey, source, err := auth.GetAnthropicAPIKey(config.ProviderAPIKey)
+	apiKey, source, err := auth.GetAnthropicAPIKey(config.ProviderAPIKey, config.UserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -1284,6 +1300,7 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	}
 
 	var opts []anthropic.Option
+	opts = append(opts, anthropic.WithUserAgent(config.UserAgent), anthropic.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, anthropic.WithAPIKey(apiKey))
 
 	if config.ProviderURL != "" {
@@ -1293,10 +1310,10 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	// Handle OAuth vs API key authentication
 	if source == auth.CredentialSourceOAuth {
 		httpClient := createOAuthHTTPClient(apiKey, config.TLSSkipVerify)
+		httpClient.Transport.(*oauthTransport).userAgent = config.UserAgent
+		httpClient = httpclient.WithUserAgent(httpClient, config.UserAgent)
 		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 		// Note: For OAuth, the API key is set as a placeholder; the transport handles auth
-	} else if config.TLSSkipVerify {
-		opts = append(opts, anthropic.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
 	}
 
 	provider, err := anthropic.New(opts...)
@@ -1341,6 +1358,7 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 	}
 
 	var opts []anthropic.Option
+	opts = append(opts, anthropic.WithUserAgent(config.UserAgent), anthropic.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, anthropic.WithVertex(projectID, region))
 
 	provider, err := anthropic.New(opts...)
@@ -1363,6 +1381,9 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	// Stored OAuth credentials take priority only for the trusted Codex endpoint.
 	cm, err := auth.NewCredentialManager()
+	if err == nil {
+		cm = cm.WithUserAgent(config.UserAgent)
+	}
 	if err == nil {
 		trustedDestination := config.ProviderURL == "" || isCodexDestination(config.ProviderURL)
 		var creds *auth.OpenAICredentials
@@ -1410,15 +1431,12 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	// Regular OpenAI API key flow
 	var opts []openai.Option
+	opts = append(opts, openai.WithUserAgent(config.UserAgent), openai.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithUseResponsesAPI())
 
 	if config.ProviderURL != "" {
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
-	}
-
-	if config.TLSSkipVerify {
-		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
 	}
 
 	provider, err := openai.New(opts...)
@@ -1450,6 +1468,9 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 	}
 
 	cm, err := auth.NewCredentialManager()
+	if err == nil {
+		cm = cm.WithUserAgent(config.UserAgent)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize credential manager: %w", err)
 	}
@@ -1481,9 +1502,10 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 
 	opts := []openai.Option{
 		openai.WithName(copilotAliasProviderID),
+		openai.WithUserAgent(copilotUserAgent),
 		openai.WithBaseURL(baseURL),
 		openai.WithAPIKey(token),
-		openai.WithHTTPClient(createCopilotHTTPClient(token, expiresAt, config.TLSSkipVerify, config.StreamingHTTP)),
+		openai.WithHTTPClient(copilotHTTPClientWithIdentity(token, expiresAt, config)),
 		openai.WithUseResponsesAPI(),
 		openai.WithResponsesAPIFunc(copilotUsesResponsesAPI),
 		openai.WithObjectMode(fantasy.ObjectModeTool),
@@ -1537,8 +1559,10 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 
 	// Build custom HTTP client with required headers.
 	httpClient := createCodexHTTPClient(config.TLSSkipVerify, config.StreamingHTTP)
+	httpClient.Transport.(*codexTransport).userAgent = config.UserAgent
 
 	var opts []openai.Option
+	opts = append(opts, openai.WithUserAgent(config.UserAgent))
 	opts = append(opts, openai.WithAPIKey(token))
 	opts = append(opts, openai.WithBaseURL(baseURL))
 	opts = append(opts, openai.WithUseResponsesAPI())
@@ -1617,7 +1641,8 @@ func createCodexHTTPClient(skipVerify bool, configs ...StreamingHTTPConfig) *htt
 
 // codexTransport is a custom RoundTripper that adds ChatGPT/Codex specific headers
 type codexTransport struct {
-	base http.RoundTripper
+	userAgent string
+	base      http.RoundTripper
 }
 
 // isCodexDestination restricts OAuth credentials to the ChatGPT Codex backend.
@@ -1638,6 +1663,9 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("untrusted Codex OAuth destination")
 	}
 	cm, err := auth.NewCredentialManager()
+	if err == nil {
+		cm = cm.WithUserAgent(t.userAgent)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("initialize Codex credential manager: %w", err)
 	}
@@ -1695,6 +1723,7 @@ func createCopilotHTTPClient(token string, expiresAt int64, skipVerify bool, con
 // path is in-memory only. Near expiry it refreshes through CredentialManager,
 // which updates both the cache here and credentials.json.
 type copilotTransport struct {
+	userAgent string
 	base      http.RoundTripper
 	token     string
 	expiresAt int64
@@ -1728,6 +1757,9 @@ func (t *copilotTransport) cachedToken(ctx context.Context) string {
 	}
 
 	cm, err := auth.NewCredentialManager()
+	if err == nil {
+		cm = cm.WithUserAgent(t.userAgent)
+	}
 	if err != nil {
 		return t.token
 	}
@@ -1752,6 +1784,7 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	var opts []google.Option
+	opts = append(opts, google.WithUserAgent(config.UserAgent), google.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, google.WithGeminiAPIKey(apiKey))
 
 	provider, err := google.New(opts...)
@@ -1785,12 +1818,9 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, providerID
 	}
 
 	var opts []azure.Option
+	opts = append(opts, azure.WithUserAgent(config.UserAgent), azure.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, azure.WithAPIKey(apiKey))
 	opts = append(opts, azure.WithBaseURL(baseURL))
-
-	if config.TLSSkipVerify {
-		opts = append(opts, azure.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
-	}
 
 	provider, err := azure.New(opts...)
 	if err != nil {
@@ -1812,6 +1842,7 @@ func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, model
 	}
 
 	var opts []openrouter.Option
+	opts = append(opts, openrouter.WithUserAgent(config.UserAgent), openrouter.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, openrouter.WithAPIKey(apiKey))
 
 	provider, err := openrouter.New(opts...)
@@ -1829,6 +1860,7 @@ func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, model
 
 func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	var opts []bedrock.Option
+	opts = append(opts, bedrock.WithUserAgent(config.UserAgent), bedrock.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 
 	// Bedrock uses AWS SDK default credential chain (env vars, shared config, etc.)
 	provider, err := bedrock.New(opts...)
@@ -1851,6 +1883,7 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	var opts []vercel.Option
+	opts = append(opts, vercel.WithUserAgent(config.UserAgent), vercel.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, vercel.WithAPIKey(apiKey))
 
 	if config.ProviderURL != "" {
@@ -1899,13 +1932,10 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 	// <think> tag extraction is handled transparently at the agent layer,
 	// so no provider-level hooks are needed here.
 	var opts []openai.Option
+	opts = append(opts, openai.WithUserAgent(config.UserAgent), openai.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, openai.WithBaseURL(baseURL))
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithName("custom"))
-
-	if config.TLSSkipVerify {
-		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
-	}
 
 	p, err := openai.New(opts...)
 	if err != nil {
@@ -1947,6 +1977,7 @@ func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName
 	ollamaAPIBase := strings.TrimRight(baseURL, "/") + "/v1"
 
 	var opts []openaicompat.Option
+	opts = append(opts, openaicompat.WithUserAgent(config.UserAgent), openaicompat.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
 	opts = append(opts, openaicompat.WithBaseURL(ollamaAPIBase))
 	opts = append(opts, openaicompat.WithName("ollama"))
 
@@ -1955,10 +1986,6 @@ func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName
 	} else {
 		// Ollama doesn't require an API key, but the openaicompat provider might need one
 		opts = append(opts, openaicompat.WithAPIKey("ollama"))
-	}
-
-	if config.TLSSkipVerify {
-		opts = append(opts, openaicompat.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
 	}
 
 	provider, err := openaicompat.New(opts...)
@@ -1984,7 +2011,7 @@ type OllamaLoadingResult struct {
 
 // loadOllamaModelWithFallback loads an Ollama model with GPU settings and automatic CPU fallback
 func loadOllamaModelWithFallback(ctx context.Context, baseURL, modelName string, config *ProviderConfig) (*OllamaLoadingResult, error) {
-	client := createHTTPClientWithTLSConfig(config.TLSSkipVerify)
+	client := httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)
 
 	// Phase 1: Check if model exists locally
 	if err := checkOllamaModelExists(client, baseURL, modelName); err != nil {
@@ -2199,6 +2226,7 @@ func createOAuthHTTPClient(accessToken string, skipVerify bool) *http.Client {
 }
 
 type oauthTransport struct {
+	userAgent   string
 	accessToken string
 	base        http.RoundTripper
 }
@@ -2211,6 +2239,7 @@ func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// credential manager is unavailable.
 	token := t.accessToken
 	if cm, err := auth.NewCredentialManager(); err == nil {
+		cm = cm.WithUserAgent(t.userAgent)
 		if fresh, err := cm.GetValidAccessToken(); err == nil && fresh != "" {
 			token = fresh
 		}
@@ -2282,4 +2311,10 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func copilotHTTPClientWithIdentity(token string, expiresAt int64, config *ProviderConfig) *http.Client {
+	client := createCopilotHTTPClient(token, expiresAt, config.TLSSkipVerify, config.StreamingHTTP)
+	client.Transport.(*copilotTransport).userAgent = config.UserAgent
+	return client
 }
