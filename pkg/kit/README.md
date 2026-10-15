@@ -3,7 +3,7 @@
 The KIT SDK (`pkg/kit`) lets you embed Kit's full agent capabilities — LLM interactions, tool execution, session management, streaming, hooks — into any Go application.
 
 
-### HTTP request identity
+## HTTP request identity
 
 Kit-controlled HTTP requests use `User-Agent: KIT` by default. Set a per-instance
 identity with either API:

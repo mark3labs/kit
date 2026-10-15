@@ -3,7 +3,7 @@
 > Part of the `kit-sdk` skill. Read `SKILL.md` first for the overview and critical constraints.
 
 
-### HTTP request identity
+## HTTP request identity
 
 Kit-controlled HTTP requests use `User-Agent: KIT` by default. Set a per-instance
 identity with either API:

@@ -23,7 +23,7 @@ these options never leak between Kit instances in the same process. See
 [Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
 
 
-### HTTP request identity
+## HTTP request identity
 
 Kit-controlled HTTP requests use `User-Agent: KIT` by default. Set a per-instance
 identity with either API:
