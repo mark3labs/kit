@@ -436,7 +436,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 1191
+      "wordCount": 1309
     },
     {
       "id": "sdk/options",
@@ -510,7 +510,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5004
+      "wordCount": 5127
     },
     {
       "id": "sdk/sessions",

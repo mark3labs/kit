@@ -4823,6 +4823,20 @@ host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.Prep
 
 Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
 
+Hooks run synchronously. Use `h.Context` to bound preparation I/O. A non-nil
+`PrepareStepResult.Error` aborts before the provider request and takes precedence
+over Messages, Tools, and ToolChoice. `Prompt` and `PromptResult` preserve
+`errors.Is` identity without automatic retry, resume, or media recovery.
+Completed tool/result pairs remain in partial results and persistence. Kit
+checks cancellation before and after hooks, but does not start a worker to
+interrupt an uncooperative hook.
+
+Skill changes completed inside preparation affect this request's managed
+prompt and activation schema. Explicit overrides still win. Nil Tools uses the
+live set; an empty non-nil Tools slice offers no tools. The override lasts one
+step. Hosts must finish any durable write before returning: Kit does not
+provide a transaction over external storage.
+
 ### Hook priorities
 
 ```go
@@ -6251,8 +6265,23 @@ Key points:
 Kit auto-discovers skills and `AGENTS.md`-style context files during `New()`,
 but multi-tenant hosts (chatbots, web services, per-user agents) often need
 to swap these **after** construction. The runtime mutators below recompose
-the system prompt and apply it to the agent so the next turn picks up the
-updated instructions — no restart, no file shuffling.
+the system prompt. The next prepared request uses the new metadata and
+activation schema, including changes completed in `OnPrepareStep` in the same
+turn — no restart, no file shuffling.
+
+Registered `Skill.Content` is authoritative, even when empty, pathless, or
+different from disk. Built-in activation does not re-read Path. Use
+`ReloadSkills` or `LoadAndAddSkill` to select new disk bytes. Explicit `/name`
+activation keeps its disk-freshness behavior. Kit copies values, Metadata and
+Tags on registration and `GetSkills` reads.
+
+Each request freezes sorted, unique eligible names and selected content/path.
+Removed and disabled names are hidden. An empty catalogue omits
+`activate_skill`; adding a skill from zero restores it on the next request.
+Stale tool selections return a fresh-request error, never replacement bytes.
+Repeats of the same name/body/path are acknowledged; a changed version returns
+its body again in the same turn. Removal does not erase past conversation
+content. Bundled resources remain filesystem-based and best-effort.
 
 ```go
 // Add a programmatic skill — no file on disk required.

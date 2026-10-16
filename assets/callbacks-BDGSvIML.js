@@ -102,6 +102,18 @@ you need a real control.</p>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Return nil to pass through unchanged</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.</p>
+<p>Hooks run synchronously. Use <code>h.Context</code> to bound preparation I/O. A non-nil
+<code>PrepareStepResult.Error</code> aborts before the provider request and takes precedence
+over Messages, Tools, and ToolChoice. <code>Prompt</code> and <code>PromptResult</code> preserve
+<code>errors.Is</code> identity without automatic retry, resume, or media recovery.
+Completed tool/result pairs remain in partial results and persistence. Kit
+checks cancellation before and after hooks, but does not start a worker to
+interrupt an uncooperative hook.</p>
+<p>Skill changes completed inside preparation affect this request's managed
+prompt and activation schema. Explicit overrides still win. Nil Tools uses the
+live set; an empty non-nil Tools slice offers no tools. The override lasts one
+step. Hosts must finish any durable write before returning: Kit does not
+provide a transaction over external storage.</p>
 <h3 id="hook-priorities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#hook-priorities"><span class="icon icon-link"></span></a>Hook priorities</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityHigh   </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 0</span><span style="color:#6A737D;--shiki-dark:#6A737D">   // runs first</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityNormal </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 50</span><span style="color:#6A737D;--shiki-dark:#6A737D">  // default</span></span>
@@ -448,6 +460,20 @@ host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.Prep
 \`\`\`
 
 Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
+
+Hooks run synchronously. Use \`h.Context\` to bound preparation I/O. A non-nil
+\`PrepareStepResult.Error\` aborts before the provider request and takes precedence
+over Messages, Tools, and ToolChoice. \`Prompt\` and \`PromptResult\` preserve
+\`errors.Is\` identity without automatic retry, resume, or media recovery.
+Completed tool/result pairs remain in partial results and persistence. Kit
+checks cancellation before and after hooks, but does not start a worker to
+interrupt an uncooperative hook.
+
+Skill changes completed inside preparation affect this request's managed
+prompt and activation schema. Explicit overrides still win. Nil Tools uses the
+live set; an empty non-nil Tools slice offers no tools. The override lasts one
+step. Hosts must finish any durable write before returning: Kit does not
+provide a transaction over external storage.
 
 ### Hook priorities
 

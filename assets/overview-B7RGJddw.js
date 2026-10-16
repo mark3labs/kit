@@ -735,8 +735,21 @@ session state. Re-add them on session resume, just as with <code>Options.ExtraTo
 <p>Kit auto-discovers skills and <code>AGENTS.md</code>-style context files during <code>New()</code>,
 but multi-tenant hosts (chatbots, web services, per-user agents) often need
 to swap these <strong>after</strong> construction. The runtime mutators below recompose
-the system prompt and apply it to the agent so the next turn picks up the
-updated instructions — no restart, no file shuffling.</p>
+the system prompt. The next prepared request uses the new metadata and
+activation schema, including changes completed in <code>OnPrepareStep</code> in the same
+turn — no restart, no file shuffling.</p>
+<p>Registered <code>Skill.Content</code> is authoritative, even when empty, pathless, or
+different from disk. Built-in activation does not re-read Path. Use
+<code>ReloadSkills</code> or <code>LoadAndAddSkill</code> to select new disk bytes. Explicit <code>/name</code>
+activation keeps its disk-freshness behavior. Kit copies values, Metadata and
+Tags on registration and <code>GetSkills</code> reads.</p>
+<p>Each request freezes sorted, unique eligible names and selected content/path.
+Removed and disabled names are hidden. An empty catalogue omits
+<code>activate_skill</code>; adding a skill from zero restores it on the next request.
+Stale tool selections return a fresh-request error, never replacement bytes.
+Repeats of the same name/body/path are acknowledged; a changed version returns
+its body again in the same turn. Removal does not erase past conversation
+content. Bundled resources remain filesystem-based and best-effort.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Add a programmatic skill — no file on disk required.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Skill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Name:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"polite-french"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
@@ -1708,8 +1721,23 @@ Key points:
 Kit auto-discovers skills and \`AGENTS.md\`-style context files during \`New()\`,
 but multi-tenant hosts (chatbots, web services, per-user agents) often need
 to swap these **after** construction. The runtime mutators below recompose
-the system prompt and apply it to the agent so the next turn picks up the
-updated instructions — no restart, no file shuffling.
+the system prompt. The next prepared request uses the new metadata and
+activation schema, including changes completed in \`OnPrepareStep\` in the same
+turn — no restart, no file shuffling.
+
+Registered \`Skill.Content\` is authoritative, even when empty, pathless, or
+different from disk. Built-in activation does not re-read Path. Use
+\`ReloadSkills\` or \`LoadAndAddSkill\` to select new disk bytes. Explicit \`/name\`
+activation keeps its disk-freshness behavior. Kit copies values, Metadata and
+Tags on registration and \`GetSkills\` reads.
+
+Each request freezes sorted, unique eligible names and selected content/path.
+Removed and disabled names are hidden. An empty catalogue omits
+\`activate_skill\`; adding a skill from zero restores it on the next request.
+Stale tool selections return a fresh-request error, never replacement bytes.
+Repeats of the same name/body/path are acknowledged; a changed version returns
+its body again in the same turn. Removal does not erase past conversation
+content. Bundled resources remain filesystem-based and best-effort.
 
 \`\`\`go
 // Add a programmatic skill — no file on disk required.

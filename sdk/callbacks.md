@@ -141,6 +141,20 @@ host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.Prep
 
 Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
 
+Hooks run synchronously. Use `h.Context` to bound preparation I/O. A non-nil
+`PrepareStepResult.Error` aborts before the provider request and takes precedence
+over Messages, Tools, and ToolChoice. `Prompt` and `PromptResult` preserve
+`errors.Is` identity without automatic retry, resume, or media recovery.
+Completed tool/result pairs remain in partial results and persistence. Kit
+checks cancellation before and after hooks, but does not start a worker to
+interrupt an uncooperative hook.
+
+Skill changes completed inside preparation affect this request's managed
+prompt and activation schema. Explicit overrides still win. Nil Tools uses the
+live set; an empty non-nil Tools slice offers no tools. The override lasts one
+step. Hosts must finish any durable write before returning: Kit does not
+provide a transaction over external storage.
+
 ### Hook priorities
 
 ```go
