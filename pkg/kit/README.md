@@ -561,13 +561,40 @@ runtime `AddTools` and `RemoveTools` still take effect mid-turn. An empty
 non-nil slice offers the model no tools at all, which ends the turn
 deterministically. The override lasts one step.
 
+`StepNumber` is zero-based. Hooks run synchronously after steering. Use
+`h.Context` for bounded, cancellable I/O. A non-nil `PrepareStepResult.Error`
+aborts before the provider request and takes precedence over all overrides.
+`Prompt` and `PromptResult` preserve `errors.Is` identity without automatic
+retry, resume, or media recovery. Completed tool calls/results remain in the
+partial result and persistence path. Cancellation is checked before and after
+hooks; Kit does not start a worker to interrupt an uncooperative hook. A host
+must complete its durable write before returning; this is not a storage
+transaction. Explicit `Messages`, `Tools`, and `ToolChoice` overrides win over
+the live managed prompt/tool snapshot for that step.
+
 ### Runtime Skills and Context Files
 
 For multi-tenant chatbots, web services, or any host that needs per-user or
 per-session instructions, the SDK lets you add, remove, and replace skills and
 project context files (e.g. `AGENTS.md`) **after** Kit construction. Every
-mutation recomposes the system prompt and applies it to the agent so the next
-turn picks up the new instructions — no restart required.
+mutation recomposes the system prompt. The next prepared request uses the new
+metadata and activation schema, including changes completed inside
+`OnPrepareStep` in the same turn — no restart required.
+
+Registered `Skill.Content` is authoritative, including an empty body and skills
+without a disk path. Built-in activation never re-reads that path. Use
+`ReloadSkills` or `LoadAndAddSkill` to select new disk content. Explicit `/name`
+activation keeps its existing disk-freshness behavior. Kit copies registered
+values, `Metadata`, and `Tags`, and `GetSkills` returns owned copies.
+
+Each request freezes a sorted, unique set of eligible names and their selected
+content/location. Removed and disabled names are excluded. An empty catalogue
+omits `activate_skill`; registration from zero restores it on the next request.
+A stale tool selection returns an error asking for a fresh request, never newer
+replacement bytes. Activation acknowledges repeats of the same name/body/path;
+a changed version is returned again, even within the same turn. Removal does
+not erase content already in conversation history. Bundled resources remain
+filesystem-based and best-effort.
 
 ```go
 // Add a programmatic skill (no file on disk required).

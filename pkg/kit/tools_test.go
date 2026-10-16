@@ -303,8 +303,8 @@ func TestRuntimeToolMutation(t *testing.T) {
 	}
 	defer func() { _ = host.Close() }()
 
-	if got := host.GetExtraTools(); len(got) != 0 {
-		t.Fatalf("expected no extra tools initially, got %d", len(got))
+	if got := host.GetExtraTools(); len(got) != 1 || got[0].Info().Name != "activate_skill" {
+		t.Fatalf("expected the latent managed skill tool initially, got %v", got)
 	}
 	if got := host.GetToolNames(); len(got) != 0 {
 		t.Fatalf("expected no tools initially, got %d: %v", len(got), got)
@@ -315,8 +315,8 @@ func TestRuntimeToolMutation(t *testing.T) {
 	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"alpha", "beta"}) {
 		t.Errorf("after AddTools: expected [alpha beta], got %v", got)
 	}
-	if got := host.GetExtraTools(); len(got) != 2 {
-		t.Errorf("expected 2 extra tools, got %d", len(got))
+	if got := host.GetExtraTools(); len(got) != 3 {
+		t.Errorf("expected 2 native tools plus the managed skill tool, got %d", len(got))
 	}
 
 	// Adding a duplicate by name replaces it in place without growing the set.
@@ -324,8 +324,8 @@ func TestRuntimeToolMutation(t *testing.T) {
 	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"alpha", "beta"}) {
 		t.Errorf("after duplicate AddTools: expected [alpha beta], got %v", got)
 	}
-	if got := host.GetExtraTools(); len(got) != 2 {
-		t.Errorf("expected 2 extra tools after duplicate add, got %d", len(got))
+	if got := host.GetExtraTools(); len(got) != 3 {
+		t.Errorf("expected 2 native tools plus the managed tool after duplicate add, got %d", len(got))
 	}
 
 	// Removing a missing name returns an error and leaves tools untouched.

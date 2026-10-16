@@ -1,14 +1,9 @@
-// Package skilltool provides the built-in activate_skill tool, a dedicated
-// activation entry point for agentskills.io skills (issue #65, gaps #13/#14).
-//
-// While a skill can always be activated by reading its SKILL.md with the
-// generic read tool, a dedicated tool offers an enum-constrained skill name
-// (preventing hallucinated names), bundled-resource enumeration, and
-// per-session deduplication so the same skill is not re-injected repeatedly.
+// Package skilltool provides snapshot-backed skill activation.
 package skilltool
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -16,26 +11,22 @@ import (
 	"sync"
 
 	"charm.land/fantasy"
-
 	"github.com/mark3labs/kit/internal/skills"
 )
 
-// SkillProvider returns the skills currently available for activation. It is
-// queried on every call so runtime skill mutations are reflected.
 type SkillProvider func() []*skills.Skill
 
-type activateArgs struct {
-	Name string `json:"name"`
+type activationState struct {
+	mu        sync.Mutex
+	activated map[string][32]byte
 }
 
-// activateSkillTool implements fantasy.AgentTool.
 type activateSkillTool struct {
 	info            fantasy.ToolInfo
 	provider        SkillProvider
 	providerOptions fantasy.ProviderOptions
-
-	mu        sync.Mutex
-	activated map[string]bool // session-level dedup tracking
+	state           *activationState
+	selected        map[string]*skills.Skill
 }
 
 func (t *activateSkillTool) Info() fantasy.ToolInfo                   { return t.info }
@@ -44,89 +35,95 @@ func (t *activateSkillTool) SetProviderOptions(opts fantasy.ProviderOptions) {
 	t.providerOptions = opts
 }
 
-// New builds the activate_skill tool. names is the initial set of skill names
-// used to populate the enum constraint on the name parameter; provider is
-// queried at call time to resolve the skill by name (so runtime additions
-// resolve even if absent from the enum). Returns nil when no skill names are
-// available.
-func New(names []string, provider SkillProvider) fantasy.AgentTool {
-	if len(names) == 0 || provider == nil {
+// New retains activation state even when the catalogue is empty. The agent
+// calls Snapshot before wrapping tools for each model request.
+func New(_ []string, provider SkillProvider) fantasy.AgentTool {
+	if provider == nil {
 		return nil
 	}
-	sorted := append([]string(nil), names...)
-	sort.Strings(sorted)
-	enum := make([]any, len(sorted))
-	for i, n := range sorted {
-		enum[i] = n
-	}
+	t := &activateSkillTool{info: fantasy.ToolInfo{Name: "activate_skill"}, provider: provider, state: &activationState{activated: make(map[string][32]byte)}}
+	return t
+}
 
+// Snapshot returns an immutable definition, or nil if no names are eligible.
+func (t *activateSkillTool) Snapshot() fantasy.AgentTool {
+	selected := make(map[string]*skills.Skill)
+	for _, s := range t.provider() {
+		if s != nil && !s.DisableModelInvocation {
+			selected[s.Name] = skills.Clone(s)
+		}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(selected))
+	for name := range selected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	enum := make([]any, len(names))
+	for i, name := range names {
+		enum[i] = name
+	}
 	return &activateSkillTool{
-		info: fantasy.ToolInfo{
-			Name: "activate_skill",
-			Description: "Activate a skill by name to load its full instructions into context. " +
-				"Use this when a task matches a skill listed in <available_skills>. " +
-				"The skill body and a list of its bundled resources are returned.",
-			Parameters: map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "The exact name of the skill to activate.",
-					"enum":        enum,
-				},
-			},
-			Required: []string{"name"},
-			Parallel: false,
-		},
-		provider:  provider,
-		activated: map[string]bool{},
+		provider: t.provider, state: t.state, selected: selected, providerOptions: t.providerOptions,
+		info: fantasy.ToolInfo{Name: "activate_skill", Description: "Activate a skill listed in <available_skills> to load its full instructions and bundled resource list.", Parameters: map[string]any{"name": map[string]any{"type": "string", "description": "The exact name of the skill to activate.", "enum": enum}}, Required: []string{"name"}},
 	}
 }
 
-func (t *activateSkillTool) Run(_ context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-	var args activateArgs
-	if call.Input != "" && call.Input != "{}" {
-		if err := json.Unmarshal([]byte(call.Input), &args); err != nil {
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid arguments: %v", err)), nil
-		}
+func fingerprint(s *skills.Skill) [32]byte {
+	b, _ := json.Marshal([]string{s.Name, s.Content, s.Path})
+	return sha256.Sum256(b)
+}
+
+func (t *activateSkillTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(call.Input), &args); err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid arguments: %v", err)), nil
 	}
 	name := strings.TrimSpace(args.Name)
 	if name == "" {
 		return fantasy.NewTextErrorResponse("name is required"), nil
 	}
-
-	// Hold the lock across the whole activation so the dedup check and the
-	// subsequent mark are atomic — two concurrent calls cannot both pass the
-	// check and double-activate the same skill (gap #14). The skill is only
-	// marked activated on success, so a failed load can be retried.
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.activated[name] {
-		return fantasy.NewTextResponse(
-			fmt.Sprintf("Skill %q was already loaded earlier in this session.", name)), nil
+	if t.selected == nil {
+		snapshot := t.Snapshot()
+		if snapshot == nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("unknown skill %q", name)), nil
+		}
+		return snapshot.Run(ctx, call)
 	}
-
-	// Resolve the skill path from the current provider snapshot. Skills with
-	// disable-model-invocation set are not activatable by the model (they
-	// remain available via the /<name> command), mirroring their exclusion
-	// from the catalog and the tool's name enum.
-	var path string
+	t.state.mu.Lock()
+	defer t.state.mu.Unlock()
+	selected := t.selected[name]
+	var current *skills.Skill
 	for _, s := range t.provider() {
 		if s.Name == name && !s.DisableModelInvocation {
-			path = s.Path
+			current = s
 			break
 		}
 	}
-	if path == "" {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("unknown skill %q", name)), nil
+	if current == nil || selected == nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("unknown skill %q; prepare a fresh request", name)), nil
 	}
-
-	// Re-read the file for freshness, stripping frontmatter.
-	loaded, err := skills.LoadSkill(path)
-	if err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to load skill %q: %v", name, err)), nil
+	version := fingerprint(selected)
+	if fingerprint(current) != version {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("skill %q changed; prepare a fresh request", name)), nil
 	}
-
-	t.activated[name] = true
-
-	return fantasy.NewTextResponse(skills.FormatActivation(loaded)), nil
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
+	if t.state.activated[name] == version {
+		return fantasy.NewTextResponse(fmt.Sprintf("Skill %q was already loaded earlier in this session.", name)), nil
+	}
+	content := skills.FormatActivation(selected)
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
+	t.state.activated[name] = version
+	return fantasy.NewTextResponse(content), nil
 }

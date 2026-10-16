@@ -151,7 +151,9 @@ type Kit struct {
 	// mutations via AddSkill / RemoveSkill / AddContextFile etc. The fields
 	// are read by composeSystemPrompt and several other accessors, so all
 	// reads and writes after Kit construction must take this lock.
-	runtimeMu sync.RWMutex
+	runtimeMu     sync.RWMutex
+	publicationMu sync.Mutex
+	catalogueMu   sync.Mutex
 
 	// steerCh is a buffered channel used to inject steering messages into
 	// the running agent turn via the LLM library's PrepareStep. Created fresh for
@@ -328,9 +330,7 @@ func (m *Kit) GetExtraTools() []Tool {
 	if len(m.runtimeExtraTools) == 0 {
 		return nil
 	}
-	out := make([]Tool, len(m.runtimeExtraTools))
-	copy(out, m.runtimeExtraTools)
-	return out
+	return append([]Tool(nil), m.runtimeExtraTools...)
 }
 
 // recomposeExtraTools rebuilds the agent's extra-tool list from extension
@@ -1800,7 +1800,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		autoCompact:           opts.AutoCompact,
 		compactionOpts:        opts.CompactionOptions,
 		contextFiles:          rc.contextFiles,
-		skills:                rc.loadedSkills,
+		skills:                skills.CloneAll(rc.loadedSkills),
 		namedAgents:           rc.namedAgents,
 		extRunner:             agentResult.ExtRunner,
 		bufferedLogger:        agentResult.BufferedLogger,
@@ -1866,9 +1866,7 @@ func (m *Kit) GetSkills() []*Skill {
 	if len(m.skills) == 0 {
 		return nil
 	}
-	out := make([]*Skill, len(m.skills))
-	copy(out, m.skills)
-	return out
+	return skills.CloneAll(m.skills)
 }
 
 // ---------------------------------------------------------------------------
@@ -2963,22 +2961,29 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 		// PrepareStep hook — compose with steering (handled in agent layer)
 		// and then run SDK consumer hooks.
+		RequestSnapshot: func() (string, []fantasy.AgentTool) {
+			m.catalogueMu.Lock()
+			defer m.catalogueMu.Unlock()
+			return m.agent.RequestSnapshot()
+		},
 		OnPrepareStep: func() agent.PrepareStepHandler {
 			if !m.prepareStep.hasHooks() {
 				return nil
 			}
-			return func(stepNumber int, messages []fantasy.Message) *agent.PrepareStepUpdate {
+			return func(ctx context.Context, stepNumber int, messages []fantasy.Message) *agent.PrepareStepUpdate {
 				hookResult := m.prepareStep.run(PrepareStepHook{
+					Context:    ctx,
 					StepNumber: stepNumber,
 					Messages:   messages,
 				})
 				if hookResult == nil ||
-					(hookResult.Messages == nil &&
+					(hookResult.Error == nil && hookResult.Messages == nil &&
 						hookResult.ToolChoice == nil &&
 						hookResult.Tools == nil) {
 					return nil
 				}
 				return &agent.PrepareStepUpdate{
+					Error:      hookResult.Error,
 					Messages:   hookResult.Messages,
 					ToolChoice: hookResult.ToolChoice,
 					Tools:      hookResult.Tools,

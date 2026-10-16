@@ -51,7 +51,7 @@ func TestPrepareStepToolChoiceForcing(t *testing.T) {
 
 	forced := fantasy.SpecificToolChoice("record_result")
 	cb := GenerateCallbacks{
-		OnPrepareStep: func(stepNumber int, messages []fantasy.Message) *PrepareStepUpdate {
+		OnPrepareStep: func(_ context.Context, stepNumber int, messages []fantasy.Message) *PrepareStepUpdate {
 			if stepNumber == 0 {
 				return &PrepareStepUpdate{ToolChoice: &forced}
 			}

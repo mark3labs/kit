@@ -57,7 +57,7 @@ host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
 
 ```go
 host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
-    // h.StepNumber  — which step in the current turn (1-based)
+    // h.StepNumber  — which step in the current turn (zero-based)
     // h.Messages    — []kit.LLMMessage being sent to the LLM
     // Return nil to pass through unchanged, or replace messages:
     modified := filterSensitiveMessages(h.Messages)
@@ -66,6 +66,20 @@ host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.Prep
 ```
 
 `PrepareStep` fires before every LLM API call within a turn (including tool-call loop iterations). Unlike `ContextPrepare` (which operates on the full context window once per turn), `PrepareStep` runs per-step and sees the messages that include the latest tool results.
+
+Hooks are synchronous. Use `h.Context` to bound preparation I/O and honor
+cancellation. Return `&kit.PrepareStepResult{Error: err}` to abort before a
+provider request. Error takes precedence over Messages, Tools, and ToolChoice;
+`Prompt` / `PromptResult` preserve `errors.Is` identity. No automatic retry,
+resume, or media recovery follows a preparation failure. Completed tool/result
+pairs remain in partial results and persistence. Kit checks cancellation before
+and after the hook, but does not start a worker to interrupt an uncooperative
+hook. Existing priority and first-non-nil result rules still apply.
+
+Skill mutations completed in this hook affect this request's managed prompt
+and activation schema. Explicit overrides still win; nil Tools uses the live
+set, while an empty non-nil Tools slice offers no tools. A durable host must
+finish its write before returning; Kit does not provide a storage transaction.
 
 ### ContextPrepare — filter/inject context window
 

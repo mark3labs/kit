@@ -730,8 +730,23 @@ Key points:
 Kit auto-discovers skills and `AGENTS.md`-style context files during `New()`,
 but multi-tenant hosts (chatbots, web services, per-user agents) often need
 to swap these **after** construction. The runtime mutators below recompose
-the system prompt and apply it to the agent so the next turn picks up the
-updated instructions — no restart, no file shuffling.
+the system prompt. The next prepared request uses the new metadata and
+activation schema, including changes completed in `OnPrepareStep` in the same
+turn — no restart, no file shuffling.
+
+Registered `Skill.Content` is authoritative, even when empty, pathless, or
+different from disk. Built-in activation does not re-read Path. Use
+`ReloadSkills` or `LoadAndAddSkill` to select new disk bytes. Explicit `/name`
+activation keeps its disk-freshness behavior. Kit copies values, Metadata and
+Tags on registration and `GetSkills` reads.
+
+Each request freezes sorted, unique eligible names and selected content/path.
+Removed and disabled names are hidden. An empty catalogue omits
+`activate_skill`; adding a skill from zero restores it on the next request.
+Stale tool selections return a fresh-request error, never replacement bytes.
+Repeats of the same name/body/path are acknowledged; a changed version returns
+its body again in the same turn. Removal does not erase past conversation
+content. Bundled resources remain filesystem-based and best-effort.
 
 ```go
 // Add a programmatic skill — no file on disk required.

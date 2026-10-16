@@ -241,6 +241,7 @@ type StepResumeHandler func(stepNumber, resume int, err error, delay time.Durati
 // PrepareStepHandler. Nil fields leave the corresponding aspect of the step
 // unchanged.
 type PrepareStepUpdate struct {
+	Error error
 	// Messages, when non-nil, replaces the context window for this step.
 	Messages []fantasy.Message
 	// ToolChoice, when non-nil, overrides the tool-choice mode for this step.
@@ -254,7 +255,7 @@ type PrepareStepUpdate struct {
 // and per-step tool-choice control. It receives the step number and current
 // messages, and returns a PrepareStepUpdate (or nil to keep everything
 // unchanged).
-type PrepareStepHandler func(stepNumber int, messages []fantasy.Message) *PrepareStepUpdate
+type PrepareStepHandler func(context.Context, int, []fantasy.Message) *PrepareStepUpdate
 
 // GenerateCallbacks consolidates all callback functions for
 // GenerateWithCallbacks into a single struct, replacing what was previously
@@ -295,6 +296,8 @@ type GenerateCallbacks struct {
 	// OnStepResume reports a step resume. See StepResumeHandler.
 	OnStepResume  StepResumeHandler
 	OnPrepareStep PrepareStepHandler
+	// RequestSnapshot captures managed prompt and tools after preparation side effects.
+	RequestSnapshot func() (string, []fantasy.AgentTool)
 }
 
 // HasAnyCallback reports whether any callback that can only be observed on
@@ -333,7 +336,7 @@ func (cb GenerateCallbacks) HasAnyCallback() bool {
 		cb.OnRetry != nil ||
 		cb.OnRetryScheduled != nil ||
 		cb.OnStepResume != nil ||
-		cb.OnPrepareStep != nil
+		cb.OnPrepareStep != nil || cb.RequestSnapshot != nil
 }
 
 // ErrNoMCPServers is returned by the per-server MCP accessors (prompts,
@@ -660,7 +663,9 @@ func (a *Agent) ensureMCPTools() {
 
 	// If there are MCP tools, rebuild the fantasy agent to include them.
 	if a.toolManager != nil && len(a.toolManager.GetTools()) > 0 {
+		a.promptMu.Lock()
 		a.rebuildFantasyAgent()
+		a.promptMu.Unlock()
 	}
 
 	// Nil out the channel so future calls are instant no-ops and we
@@ -705,6 +710,16 @@ func (a *Agent) composeAllTools() []fantasy.AgentTool {
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
 	}
+	selected := make([]fantasy.AgentTool, 0, len(allTools))
+	for _, t := range allTools {
+		if dynamic, ok := t.(interface{ Snapshot() fantasy.AgentTool }); ok {
+			t = dynamic.Snapshot()
+		}
+		if t != nil {
+			selected = append(selected, t)
+		}
+	}
+	allTools = selected
 	if a.currentModel != nil {
 		allTools = gateImageTools(allTools, a.currentModel.imageInput)
 	}
@@ -999,10 +1014,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// mediaRetries counts replays after a provider rejected a media tool
 	// result. It bounds the recovery loop below.
 	var mediaRetries int
+	var preparationErr error
 	// canRecoverMedia reports whether err can be recovered by replacing the
 	// held media tool results and replaying the turn.
 	canRecoverMedia := func(err error) bool {
-		return mediaRetries < maxMediaRetries &&
+		return preparationErr == nil && mediaRetries < maxMediaRetries &&
 			hasMediaToolResult(pendingMedia) &&
 			isMediaRejection(err)
 	}
@@ -1155,6 +1171,12 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 		// Error callback
 		OnError: func(err error) {
+			if preparationErr != nil {
+				if cb.OnError != nil {
+					cb.OnError(preparationErr)
+				}
+				return
+			}
 			// A rejected media tool result is recovered below and the
 			// model is told about it, so it is not a turn error.
 			if canRecoverMedia(err) {
@@ -1305,18 +1327,21 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// at their recorded positions on every step.
 	var injectedSteer []steerInjection
 
+	a.promptMu.Lock()
+	loop := a.fantasyAgent
+	hadManagedPrompt := a.systemPrompt != ""
+	a.promptMu.Unlock()
 	streamCall.PrepareStep = func(
 		stepCtx context.Context,
 		opts fantasy.PrepareStepFunctionOptions,
 	) (context.Context, fantasy.PrepareStepResult, error) {
+		if err := stepCtx.Err(); err != nil {
+			preparationErr = err
+			return stepCtx, fantasy.PrepareStepResult{}, err
+		}
 		result := fantasy.PrepareStepResult{
 			Model:    opts.Model,
 			Messages: withSteerInjections(opts.Messages, injectedSteer),
-			// Re-read the live tool set so mid-turn tool changes are
-			// honored. composeModelTools matches the composition baked
-			// into the fantasy agent, so in the steady state this is
-			// identical to the snapshot fantasy would have used.
-			Tools: a.composeModelTools(),
 		}
 
 		// Phase 1: Drain steering channel (if present).
@@ -1359,23 +1384,45 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 		}
 
-		// Phase 2: Run OnPrepareStep hook (if registered).
+		if err := stepCtx.Err(); err != nil {
+			preparationErr = err
+			return stepCtx, result, err
+		}
+		// Run hooks first, then capture live state. Explicit overrides win.
+		var update *PrepareStepUpdate
 		if hasPrepareStepHook {
-			if update := cb.OnPrepareStep(stepOffset+opts.StepNumber, result.Messages); update != nil {
-				if update.Messages != nil {
-					result.Messages = update.Messages
-				}
-				if update.ToolChoice != nil {
-					result.ToolChoice = update.ToolChoice
-				}
-				if update.Tools != nil {
-					// Overrides the live tool set read above. An empty
-					// non-nil slice disables tools for this step: fantasy
-					// only replaces stepTools when Tools is non-nil, so
-					// the distinction between nil and empty is preserved
-					// all the way down.
-					result.Tools = update.Tools
-				}
+			update = cb.OnPrepareStep(stepCtx, stepOffset+opts.StepNumber, result.Messages)
+		}
+		if update != nil && update.Error != nil {
+			preparationErr = update.Error
+			return stepCtx, result, preparationErr
+		}
+		if err := stepCtx.Err(); err != nil {
+			preparationErr = err
+			return stepCtx, result, err
+		}
+		var livePrompt string
+		if cb.RequestSnapshot != nil {
+			livePrompt, result.Tools = cb.RequestSnapshot()
+		} else {
+			livePrompt, result.Tools = a.RequestSnapshot()
+		}
+		if hadManagedPrompt && len(result.Messages) > 0 && result.Messages[0].Role == fantasy.MessageRoleSystem {
+			result.Messages = append([]fantasy.Message(nil), result.Messages...)
+			result.Messages[0] = fantasy.NewSystemMessage(livePrompt)
+		} else if livePrompt != "" {
+			result.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(livePrompt)}, result.Messages...)
+		}
+		if update != nil {
+			if update.Messages != nil {
+				result.Messages = update.Messages
+			}
+			if update.ToolChoice != nil {
+				result.ToolChoice = update.ToolChoice
+			}
+			if update.Tools != nil {
+				// An empty non-nil slice disables tools for this step.
+				result.Tools = update.Tools
 			}
 		}
 
@@ -1394,10 +1441,14 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			result.Messages = applyCacheControlToMessages(result.Messages, toolCacheBlocks)
 		}
 
+		if err := stepCtx.Err(); err != nil {
+			preparationErr = err
+			return stepCtx, result, err
+		}
 		return stepCtx, result, nil
 	}
 
-	result, err := a.fantasyAgent.Stream(ctx, streamCall)
+	result, err := loop.Stream(ctx, streamCall)
 
 	// replayFromCompleted makes streamCall continue the turn from the full
 	// conversation so far. The steer messages are already in it, so they
@@ -1421,7 +1472,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		}
 	}
 
-	for err != nil && ctx.Err() == nil {
+	if preparationErr != nil {
+		err = preparationErr
+	}
+	for err != nil && ctx.Err() == nil && preparationErr == nil {
 		// Recover from a provider that rejected a media tool result (for
 		// example an image the model cannot accept, or a request above the
 		// provider size limit). Replace the held media results with error
@@ -1439,7 +1493,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 					"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
 			}
 			replayFromCompleted()
-			result, err = a.fantasyAgent.Stream(ctx, streamCall)
+			result, err = loop.Stream(ctx, streamCall)
 			continue
 		}
 
@@ -1459,7 +1513,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			break
 		}
 		replayFromCompleted()
-		result, err = a.fantasyAgent.Stream(ctx, streamCall)
+		result, err = loop.Stream(ctx, streamCall)
+	}
+	if preparationErr != nil {
+		err = preparationErr
 	}
 	// A plan can remain when the turn was cancelled in the same moment.
 	// Report the suppressed error, so it is never lost.
@@ -1473,7 +1530,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			ConversationMessages: partialMessages, PersistedMessageCount: persistedCount,
 			PartialText: unfinished.String(), AttemptID: attemptID, Incomplete: true,
 			TotalUsage: completedUsage, PersistenceError: persistenceErr,
-		}, errors.Join(err, persistenceErr)
+		}, errors.Join(preparationFailure(err, preparationErr), persistenceErr)
 	}
 
 	// Fire the response callback so callers (e.g. the TUI) can reset
@@ -1558,7 +1615,10 @@ func (a *Agent) generateSimple(ctx context.Context, cb GenerateCallbacks, messag
 ) (*GenerateWithLoopResult, error) {
 	// Non-streaming path with no callbacks — use the simpler Generate call.
 	zeroRetries := 0
-	result, err := a.fantasyAgent.Generate(ctx, fantasy.AgentCall{
+	a.promptMu.Lock()
+	loop := a.fantasyAgent
+	a.promptMu.Unlock()
+	result, err := loop.Generate(ctx, fantasy.AgentCall{
 		MaxRetries: &zeroRetries,
 		Prompt:     prompt,
 		Files:      files,
@@ -1729,7 +1789,16 @@ func (a *Agent) GetTools() []fantasy.AgentTool {
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
 	}
-	return dedupeToolsByName(allTools)
+	var selected []fantasy.AgentTool
+	for _, t := range allTools {
+		if dynamic, ok := t.(interface{ Snapshot() fantasy.AgentTool }); ok {
+			t = dynamic.Snapshot()
+		}
+		if t != nil {
+			selected = append(selected, t)
+		}
+	}
+	return dedupeToolsByName(selected)
 }
 
 // GetCoreToolCount returns the number of core tools.
@@ -2003,6 +2072,13 @@ func (a *Agent) SkipMaxOutputTokens() bool {
 // when the provider is usable. A successful SetModel clears it.
 func (a *Agent) ProviderError() error {
 	return a.providerErr
+}
+
+// RequestSnapshot captures the live managed prompt and immutable tool definitions.
+func (a *Agent) RequestSnapshot() (string, []fantasy.AgentTool) {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+	return a.systemPrompt, a.composeModelTools()
 }
 
 // SetSystemPrompt updates the agent's system prompt and rebuilds the underlying
