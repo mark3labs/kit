@@ -109,7 +109,7 @@ func TestRuntimeActivationPublicLoop(t *testing.T) {
 						if h.StepNumber == 2 {
 							body = "saved v2"
 						}
-						if err := host.AddSkill(&Skill{Name: name, Description: "selected metadata", Content: body, Path: path, Metadata: map[string]string{"source": "saved"}}); err != nil {
+						if err := host.AddSkill(&Skill{Name: name, Description: "selected metadata", Content: body, Path: path, NoHostIO: true, Metadata: map[string]string{"source": "saved"}}); err != nil {
 							t.Fatal(err)
 						}
 					}

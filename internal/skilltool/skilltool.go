@@ -128,7 +128,18 @@ func (t *activateSkillTool) Run(ctx context.Context, call fantasy.ToolCall) (fan
 	if t.state.activated[name] == version {
 		return fantasy.NewTextResponse(fmt.Sprintf("Skill %q was already loaded earlier in this session.", name)), nil
 	}
-	content := skills.FormatActivation(selected)
+	// Workspace content is authoritative. Ordinary file-backed skills keep
+	// the historical activation-time reread, without changing the registered
+	// catalogue or the version selected for workspace entries.
+	activation := selected
+	if !selected.NoHostIO && selected.Path != "" {
+		loaded, err := skills.LoadSkill(selected.Path)
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to load skill %q: %v", name, err)), nil
+		}
+		activation = loaded
+	}
+	content := skills.FormatActivation(activation)
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
 	}
