@@ -473,9 +473,9 @@ func resolveMCPConfig(v *viper.Viper, opts *Options) (*config.Config, error) {
 }
 
 // withSkillTool retains activation state even with an empty catalogue.
-// Request composition omits empty definitions. A caller-supplied tool wins.
+// Request composition omits empty definitions unless opted in. A caller-supplied tool wins.
 // liveKit returns nil until construction completes.
-func withSkillTool(extraTools []Tool, loadedSkills []*Skill, liveKit func() *Kit) []Tool {
+func withSkillTool(extraTools []Tool, loadedSkills []*Skill, liveKit func() *Kit, keepEmpty bool) []Tool {
 	for _, t := range extraTools {
 		if t.Info().Name == "activate_skill" {
 			return extraTools
@@ -494,7 +494,7 @@ func withSkillTool(extraTools []Tool, loadedSkills []*Skill, liveKit func() *Kit
 		}
 		return k.GetSkills()
 	}
-	if t := skilltool.New(names, provider); t != nil {
+	if t := skilltool.New(names, provider, keepEmpty); t != nil {
 		extraTools = append(extraTools, t)
 	}
 	return extraTools

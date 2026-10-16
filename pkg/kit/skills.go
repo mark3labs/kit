@@ -14,6 +14,11 @@ import (
 
 // Skill represents a markdown-based instruction file with optional YAML
 // frontmatter that provides domain-specific context and workflows.
+// Set NoHostIO for workspace/content-backed entries: activation uses copied
+// Content, preserves Path and BaseDir, and does not inspect the host filesystem.
+// Metadata can retain a durable version hash and scope. Hosts can compose these
+// annotations into Description (advertised metadata) or Content (activation-only
+// output) before registration; neither requires rereading the source file.
 type Skill = skills.Skill
 
 // SkillDiagnostic describes a validation problem found by Skill.Validate.
@@ -96,7 +101,11 @@ func CombineSkills(user, project []*Skill) []*Skill {
 // block, a note on resolving relative paths against the skill directory, and a
 // <skill_resources> listing of bundled files. This is the exact text the
 // activate_skill tool and the /<name> slash command emit, so hosts that
-// inject skills themselves get the same compaction protection.
+// inject skills themselves get the same compaction protection. When NoHostIO
+// is true, no resources are inspected; Path and its lexical BaseDir are still
+// included. Hosts may compose durable hash/scope annotations into Content
+// before registration. The built-in tool returns that copied Content unchanged
+// inside this wrapper, without reopening Path.
 func FormatSkillActivation(s *Skill) string {
 	return skills.FormatActivation(s)
 }

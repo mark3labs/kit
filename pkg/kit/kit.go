@@ -1445,7 +1445,11 @@ type Options struct {
 	// Skills
 	Skills    []string // Explicit skill files/dirs to load (empty = auto-discover)
 	SkillsDir string   // Direct skills directory to scan (overrides auto-discovery; scanned as-is)
-	NoSkills  bool     // Disable skill loading entirely (auto-discovery and explicit)
+	// AlwaysOfferSkillActivation keeps the built-in activate_skill tool offered
+	// with an empty catalogue. It does not enable discovery; combine with
+	// NoSkills or Isolated for application-managed skills. See WithSkillActivation.
+	AlwaysOfferSkillActivation bool
+	NoSkills                   bool // Disable skill loading entirely (auto-discovery and explicit)
 
 	// SkillsDisable names skills (by Name) to exclude from the model-facing
 	// catalog. Disabled skills remain available via the /<name> slash command.
@@ -1769,7 +1773,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	// skillToolKit is assigned once the Kit exists (below) so the
 	// activate_skill provider resolves skills mutated after construction.
 	var skillToolKit *Kit
-	extraTools := withSkillTool(opts.ExtraTools, rc.loadedSkills, func() *Kit { return skillToolKit })
+	extraTools := withSkillTool(opts.ExtraTools, rc.loadedSkills, func() *Kit { return skillToolKit }, opts.AlwaysOfferSkillActivation)
 
 	setupOpts := buildAgentSetupOptions(v, opts, rc, mcpConfig, extraTools, hooks)
 
