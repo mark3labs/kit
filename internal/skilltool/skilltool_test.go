@@ -105,3 +105,29 @@ func TestActivateSkill_DisabledNotActivatable(t *testing.T) {
 func responseText(resp fantasy.ToolResponse) string {
 	return resp.Content
 }
+
+func TestFileBackedActivationReadsCurrentBody(t *testing.T) {
+	t.Parallel()
+	for _, noHostIO := range []bool{false, true} {
+		t.Run(map[bool]string{false: "tree", true: "workspace"}[noHostIO], func(t *testing.T) {
+			t.Parallel()
+			s := writeSkillFile(t, t.TempDir(), "demo")
+			s.NoHostIO = noHostIO
+			tool := New([]string{s.Name}, func() []*skills.Skill { return []*skills.Skill{s} })
+			if err := os.WriteFile(s.Path, []byte("---\nname: demo\ndescription: Updated\n---\nUpdated disk body."), 0600); err != nil {
+				t.Fatal(err)
+			}
+			out, err := tool.Run(context.Background(), fantasy.ToolCall{Input: `{"name":"demo"}`})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "Updated disk body."
+			if noHostIO {
+				want = "Do the thing."
+			}
+			if !strings.Contains(responseText(out), want) {
+				t.Fatalf("activation = %s, want %s", responseText(out), want)
+			}
+		})
+	}
+}

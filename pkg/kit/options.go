@@ -189,7 +189,8 @@ func WithContextFiles() Option { return func(o *Options) { o.NoContextFiles = fa
 // use NewAgent(ctx, Isolated(), WithSkillActivation(), ...) for a hermetic
 // catalogue populated through AddSkill or SetSkills. Set Skill.NoHostIO on
 // workspace entries to preserve Path/BaseDir as metadata without host I/O.
-// Content is copied at registration and is never reopened from Path.
+// NoHostIO content is copied at registration and is never reopened from Path.
+// Ordinary file-backed skills retain activation-time file reads.
 //
 // At each per-step preparation boundary, after caller hooks, Kit captures the
 // catalogue, metadata, schema and content for the next request and tool batch.
