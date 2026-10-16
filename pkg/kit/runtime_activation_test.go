@@ -19,8 +19,9 @@ import (
 // the actual tool result delivered in the next model request.
 type activationModel struct {
 	echoModel
-	calls  []fantasy.Call
-	script []string
+	calls     []fantasy.Call
+	script    []string
+	skillName string
 }
 
 func (m *activationModel) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
@@ -32,7 +33,11 @@ func (m *activationModel) Stream(_ context.Context, call fantasy.Call) (fantasy.
 			name := m.script[i]
 			input := "{}"
 			if name == "activate_skill" {
-				input = `{"name":"workspace/root/demo--0123456789abcdef"}`
+				name := m.skillName
+				if name == "" {
+					name = "workspace/root/demo--0123456789abcdef"
+				}
+				input = fmt.Sprintf(`{"name":%q}`, name)
 			}
 			id := fmt.Sprint(i)
 			parts = []fantasy.StreamPart{

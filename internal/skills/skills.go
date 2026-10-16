@@ -49,8 +49,14 @@ type Skill struct {
 	Description string `yaml:"description" json:"description"`
 	// Content is the full markdown body (after frontmatter).
 	Content string `yaml:"-" json:"content"`
-	// Path is the absolute filesystem path the skill was loaded from.
+	// Path is the source location. For host skills it is an absolute file path;
+	// for NoHostIO skills it may be a workspace-relative path.
 	Path string `yaml:"-" json:"path"`
+	// NoHostIO marks content supplied by a non-host workspace. Content is
+	// authoritative and Path is metadata only. Resources returns nil without
+	// any host filesystem calls, including for symlinked resource directories.
+	// Assets remain live workspace data for the caller's sandbox tools.
+	NoHostIO bool `yaml:"-" json:"no_host_io,omitempty"`
 
 	// License is an optional SPDX license identifier (spec field).
 	License string `yaml:"license,omitempty" json:"license,omitempty"`
@@ -230,9 +236,12 @@ const maxResources = 50
 // Resources walks one level into the skill's scripts/, references/, and
 // assets/ subdirectories and returns the relative paths of any files found
 // (slash-separated, relative to BaseDir). The result is capped at 50 entries.
-// It returns nil when the skill has no bundled resources or its Path is not a
-// real on-disk file.
+// It returns nil without host I/O when NoHostIO is true. Otherwise it lists
+// resource directories even if the source file no longer exists.
 func (s *Skill) Resources() []string {
+	if s.NoHostIO {
+		return nil
+	}
 	base := s.BaseDir()
 	if base == "" {
 		return nil

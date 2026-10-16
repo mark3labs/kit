@@ -27,6 +27,7 @@ type activateSkillTool struct {
 	providerOptions fantasy.ProviderOptions
 	state           *activationState
 	selected        map[string]*skills.Skill
+	keepEmpty       bool
 }
 
 func (t *activateSkillTool) Info() fantasy.ToolInfo                   { return t.info }
@@ -37,15 +38,17 @@ func (t *activateSkillTool) SetProviderOptions(opts fantasy.ProviderOptions) {
 
 // New retains activation state even when the catalogue is empty. The agent
 // calls Snapshot before wrapping tools for each model request.
-func New(_ []string, provider SkillProvider) fantasy.AgentTool {
+func New(_ []string, provider SkillProvider, keepEmpty ...bool) fantasy.AgentTool {
 	if provider == nil {
 		return nil
 	}
 	t := &activateSkillTool{info: fantasy.ToolInfo{Name: "activate_skill"}, provider: provider, state: &activationState{activated: make(map[string][32]byte)}}
+	t.keepEmpty = len(keepEmpty) > 0 && keepEmpty[0]
 	return t
 }
 
-// Snapshot returns an immutable definition, or nil if no names are eligible.
+// Snapshot returns an immutable definition. If no names are eligible it
+// returns nil unless keepEmpty was enabled; the empty definition has no enum.
 func (t *activateSkillTool) Snapshot() fantasy.AgentTool {
 	selected := make(map[string]*skills.Skill)
 	for _, s := range t.provider() {
@@ -53,7 +56,7 @@ func (t *activateSkillTool) Snapshot() fantasy.AgentTool {
 			selected[s.Name] = skills.Clone(s)
 		}
 	}
-	if len(selected) == 0 {
+	if len(selected) == 0 && !t.keepEmpty {
 		return nil
 	}
 	names := make([]string, 0, len(selected))
@@ -65,14 +68,19 @@ func (t *activateSkillTool) Snapshot() fantasy.AgentTool {
 	for i, name := range names {
 		enum[i] = name
 	}
+	parameter := map[string]any{"type": "string", "description": "The exact name of the skill to activate."}
+	if len(enum) > 0 {
+		parameter["enum"] = enum
+	}
 	return &activateSkillTool{
-		provider: t.provider, state: t.state, selected: selected, providerOptions: t.providerOptions,
-		info: fantasy.ToolInfo{Name: "activate_skill", Description: "Activate a skill listed in <available_skills> to load its full instructions and bundled resource list.", Parameters: map[string]any{"name": map[string]any{"type": "string", "description": "The exact name of the skill to activate.", "enum": enum}}, Required: []string{"name"}},
+		keepEmpty: t.keepEmpty,
+		provider:  t.provider, state: t.state, selected: selected, providerOptions: t.providerOptions,
+		info: fantasy.ToolInfo{Name: "activate_skill", Description: "Activate a skill listed in <available_skills> to load its full instructions and bundled resource list.", Parameters: map[string]any{"name": parameter}, Required: []string{"name"}},
 	}
 }
 
 func fingerprint(s *skills.Skill) [32]byte {
-	b, _ := json.Marshal([]string{s.Name, s.Content, s.Path})
+	b, _ := json.Marshal(s)
 	return sha256.Sum256(b)
 }
 
@@ -102,7 +110,7 @@ func (t *activateSkillTool) Run(ctx context.Context, call fantasy.ToolCall) (fan
 	selected := t.selected[name]
 	var current *skills.Skill
 	for _, s := range t.provider() {
-		if s.Name == name && !s.DisableModelInvocation {
+		if s != nil && s.Name == name && !s.DisableModelInvocation {
 			current = s
 			break
 		}

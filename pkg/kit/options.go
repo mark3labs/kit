@@ -184,6 +184,31 @@ func WithConfig() Option { return func(o *Options) { o.SkipConfig = false } }
 // from the working directory again.
 func WithContextFiles() Option { return func(o *Options) { o.NoContextFiles = false } }
 
+// WithSkillActivation keeps activate_skill available even before any skills
+// are registered. It does not enable automatic discovery or change NoSkills;
+// use NewAgent(ctx, Isolated(), WithSkillActivation(), ...) for a hermetic
+// catalogue populated through AddSkill or SetSkills. Set Skill.NoHostIO on
+// workspace entries to preserve Path/BaseDir as metadata without host I/O.
+// Content is copied at registration and is never reopened from Path.
+//
+// At each per-step preparation boundary, after caller hooks, Kit captures the
+// catalogue, metadata, schema and content for the next request and tool batch.
+// A captured tool rejects unavailable or changed entries instead of selecting
+// a newer version. A new boundary permits reactivation of changed versions;
+// earlier results remain unchanged. Unknown/removed names fail before dedup.
+// Empty catalogues use a required string name without an empty enum; every
+// name fails at execution without filesystem access. A caller-owned
+// activate_skill in ExtraTools takes precedence; Kit does not replace it.
+// Explicit preparation tool overrides retain their usual precedence.
+//
+// Preparation errors abort before the provider request, without automatic
+// retry. Preparation hooks receive the request Context and must honor its
+// cancellation. Activation checks cancellation before recording success.
+// Preparation and activation return context errors on cancellation.
+func WithSkillActivation() Option {
+	return func(o *Options) { o.AlwaysOfferSkillActivation = true }
+}
+
 // WithSkills enables skills again. With no paths, Kit discovers skills in
 // the user and project skill directories. With paths, Kit loads only those
 // skill files or directories.
