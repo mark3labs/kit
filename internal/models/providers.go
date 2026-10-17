@@ -1952,7 +1952,17 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 		return nil, wrapProviderErr("custom", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	var providerOpts fantasy.ProviderOptions
+	if effort := thinkingLevelToReasoningEffort(config.ThinkingLevel); effort != nil {
+		providerOpts = openai.NewProviderOptions(&openai.ProviderOptions{
+			ReasoningEffort: effort,
+		})
+	}
+
+	return &ProviderResult{
+		Model:           model,
+		ProviderOptions: providerOpts,
+	}, nil
 }
 
 func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
