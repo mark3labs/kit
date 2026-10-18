@@ -376,7 +376,8 @@ func (m *Kit) applyComposedSystemPrompt() {
 // RefreshSystemPrompt manually recomposes the system prompt from the current
 // skills and context files and applies it to the agent. Call this after a
 // batch of low-level mutations or to force a re-render of the date/cwd
-// section. Most callers don't need to invoke this directly because
+// section. The cwd is Options.SessionDir when set, else the process
+// working directory. Most callers don't need to invoke this directly because
 // AddSkill, RemoveSkill, SetSkills, AddContextFile, RemoveContextFile, and
 // SetContextFiles all refresh automatically.
 func (m *Kit) RefreshSystemPrompt() {

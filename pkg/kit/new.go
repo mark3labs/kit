@@ -61,6 +61,7 @@ type resolvedConfig struct {
 	hasCustomSystemPrompt bool
 	systemPromptSource    string
 	basePrompt            string
+	globalBasePrompt      string
 }
 
 // hookSet holds the hook registries pre-created by [New] so the tool wrapper
@@ -288,6 +289,8 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 	if rc.hasCustomSystemPrompt {
 		rc.systemPromptSource = rawPromptInput
 	}
+	// A model switch picks the base prompt again, starting from this one.
+	rc.globalBasePrompt = basePrompt
 
 	// Check for per-model system prompt override when no explicit
 	// global system-prompt was configured by the user.
@@ -354,24 +357,32 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 // base prompt with it.
 func perModelSystemPrompt(v *viper.Viper) (prompt string, ok bool) {
 	modelStr := v.GetString("model")
-	if modelStr == "" {
+	if modelStr == "" || models.LookupModelForSettings(modelStr) == nil {
 		return "", false
 	}
-	mi := models.LookupModelForSettings(modelStr)
-	if mi == nil {
-		return "", false
-	}
-	var perModelParams *models.GenerationParams
+	return modelSystemPrompt(v, modelStr)
+}
+
+// modelSystemPrompt returns the per-model system prompt configured for
+// modelStr, in the lookup order of models.ApplyModelSettings: modelSettings
+// in the store first, then the params of the model's registry entry. Unlike
+// perModelSystemPrompt, it does not require a registry entry. ok follows the
+// rule of perModelSystemPrompt: true for a configured prompt, even when it
+// resolves to empty content.
+func modelSystemPrompt(v *viper.Viper, modelStr string) (prompt string, ok bool) {
+	var params *models.GenerationParams
 	if ms := models.LoadModelSettingsFrom(v); ms != nil {
-		perModelParams = ms[modelStr]
+		params = ms[modelStr]
 	}
-	if perModelParams == nil && mi.Params != nil {
-		perModelParams = mi.Params
+	if params == nil {
+		if mi := models.LookupModelForSettings(modelStr); mi != nil {
+			params = mi.Params
+		}
 	}
-	if perModelParams == nil || perModelParams.SystemPrompt == "" {
+	if params == nil || params.SystemPrompt == "" {
 		return "", false
 	}
-	return models.LoadSystemPromptValue(perModelParams.SystemPrompt), true
+	return models.LoadSystemPromptValue(params.SystemPrompt), true
 }
 
 // resolveModelConfig snapshots the provider config and the scalar settings
