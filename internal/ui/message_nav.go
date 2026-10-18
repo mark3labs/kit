@@ -502,7 +502,9 @@ func (m *AppModel) copySelectedMessage() tea.Cmd {
 	// Reported in the status bar rather than as a scrollback message: printing
 	// one would append an item to the very list being navigated, shifting the
 	// selection's position counter under the reader.
-	m.navNotice = fmt.Sprintf("Copied %d chars to clipboard.", len(text))
+	m.navCopied = len([]rune(text))
+	m.navNotice = fmt.Sprintf("Copied %d chars to clipboard.", m.navCopied)
+	m.clipboardFailed = false
 	return clipboard.CopyToClipboard(text)
 }
 
