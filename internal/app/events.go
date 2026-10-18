@@ -318,6 +318,8 @@ type ExtensionPrintEvent struct {
 	BorderColor string
 	// Subtitle is optional muted text below the content for Level="block".
 	Subtitle string
+	// Markdown renders Text as styled markdown for Level="block".
+	Markdown bool
 }
 
 // PromptResponse carries the user's answer to an interactive prompt. The TUI

@@ -16,6 +16,7 @@ ctx.PrintBlock(ext.PrintBlockOpts{         // custom styled block
     Text:        "content",
     BorderColor: "#a6e3a1",
     Subtitle:    "my-ext",
+    Markdown:    false,                     // true renders Text as markdown (TUI only)
 })
 ctx.RenderMessage("renderer-name", "content")  // use a registered message renderer
 ```
@@ -204,10 +205,11 @@ switched off" from "this model cannot reason at all", pair it with
 
 ```go
 ctx.SetUIVisibility(ext.UIVisibility{
-    HideStartupMessage: true,
-    HideStatusBar:      true,
-    HideSeparator:      true,
-    HideInputHint:      true,
+    HideStartupMessage:     true,
+    HideStatusBar:          true,
+    HideSeparator:          true,
+    HideInputHint:          true,
+    HideMCPStartupMessages: true, // per-server "loaded" messages, not failure messages
 })
 ```
 

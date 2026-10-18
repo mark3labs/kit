@@ -858,10 +858,11 @@ func uiVisibilityProviderForUI(k *kit.Kit) func() *ui.UIVisibility {
 			return nil
 		}
 		return &ui.UIVisibility{
-			HideStartupMessage: v.HideStartupMessage,
-			HideStatusBar:      v.HideStatusBar,
-			HideSeparator:      v.HideSeparator,
-			HideInputHint:      v.HideInputHint,
+			HideStartupMessage:     v.HideStartupMessage,
+			HideStatusBar:          v.HideStatusBar,
+			HideSeparator:          v.HideSeparator,
+			HideInputHint:          v.HideInputHint,
+			HideMCPStartupMessages: v.HideMCPStartupMessages,
 		}
 	}
 }
@@ -1453,6 +1454,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		EmitTerminalResize:       act.emitTerminalResize,
 		ReadTerminalCapabilities: sessionTerminalCapabilityReader(),
 		EmitTurnStateChange:      act.emitTurnStateChange,
+		EmitMCPToolsReady:        act.emitMCPToolsReady,
 		ThinkingLevel:            snap.thinkingLevel,
 		ModelMode:                snap.modelMode,
 		ModelModes:               snap.modelModes,

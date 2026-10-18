@@ -2,6 +2,7 @@ package kit
 
 import (
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -199,6 +200,9 @@ type ExtensionAPI interface {
 	EmitThinkingLevelChange(newLevel, previousLevel, source string)
 	EmitTerminalResize(width, height int)
 	EmitTurnStateChange(state, previous string)
+	// EmitMCPToolsReady fires OnMCPToolsReady with the MCP servers that have
+	// loaded. Call it once, after background MCP loading has finished.
+	EmitMCPToolsReady()
 	EmitCustomEvent(name, data string)
 	EmitBeforeFork(targetID string, isUserMsg bool, userText string) (cancelled bool, reason string)
 	EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string)
@@ -657,6 +661,40 @@ func (e *extensionAPI) EmitTurnStateChange(state, previous string) {
 			Previous: previous,
 		})
 	}
+}
+
+func (e *extensionAPI) EmitMCPToolsReady() {
+	if e.kit.extRunner != nil && e.kit.extRunner.HasHandlers(extensions.MCPToolsReady) {
+		_, _ = e.kit.extRunner.Emit(extensions.MCPToolsReadyEvent{
+			Servers: e.loadedMCPServers(),
+		})
+	}
+}
+
+// loadedMCPServers lists the loaded MCP servers for OnMCPToolsReady, sorted
+// by name, each with its tool names sorted. Ownership comes from the tool
+// records, as in ListMCPServers: server names can themselves contain "__".
+func (e *extensionAPI) loadedMCPServers() []extensions.MCPServerInfo {
+	names := e.kit.GetLoadedServerNames()
+	if len(names) == 0 {
+		return nil
+	}
+	slices.Sort(names)
+
+	toolsByServer := make(map[string][]string, len(names))
+	if manager := e.kit.agent.GetMCPToolManager(); manager != nil {
+		for _, tool := range manager.GetTools() {
+			toolsByServer[tool.ServerName] = append(toolsByServer[tool.ServerName], tool.OriginalName)
+		}
+	}
+
+	servers := make([]extensions.MCPServerInfo, 0, len(names))
+	for _, name := range names {
+		toolNames := toolsByServer[name]
+		slices.Sort(toolNames)
+		servers = append(servers, extensions.MCPServerInfo{Name: name, Tools: toolNames})
+	}
+	return servers
 }
 
 func (e *extensionAPI) EmitCustomEvent(name, data string) {

@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllEventTypes_Count(t *testing.T) {
 	all := AllEventTypes()
-	if len(all) != 37 {
-		t.Fatalf("expected 37 event types, got %d", len(all))
+	if len(all) != 38 {
+		t.Fatalf("expected 38 event types, got %d", len(all))
 	}
 }
 
@@ -57,6 +57,7 @@ func TestEventType_TypeMethod(t *testing.T) {
 		{ThinkingLevelChangeEvent{NewLevel: "high"}, ThinkingLevelChange},
 		{TerminalResizeEvent{Width: 120, Height: 40}, TerminalResize},
 		{TurnStateChangeEvent{State: "working"}, TurnStateChange},
+		{MCPToolsReadyEvent{Servers: []MCPServerInfo{{Name: "fs"}}}, MCPToolsReady},
 		{ContextPrepareEvent{Messages: []ContextMessage{{Index: 0, Role: "user", Content: "hi"}}}, ContextPrepare},
 		{BeforeForkEvent{TargetID: "abc"}, BeforeFork},
 		{BeforeSessionSwitchEvent{Reason: "new"}, BeforeSessionSwitch},

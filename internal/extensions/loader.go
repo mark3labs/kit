@@ -626,6 +626,7 @@ func initExtension(path string, initFn func(API)) (*LoadedExtension, error) {
 		onThinkingLevelChange: notifyReg[ThinkingLevelChangeEvent](reg, ThinkingLevelChange),
 		onTerminalResize:      notifyReg[TerminalResizeEvent](reg, TerminalResize),
 		onTurnStateChange:     notifyReg[TurnStateChangeEvent](reg, TurnStateChange),
+		onMCPToolsReady:       notifyReg[MCPToolsReadyEvent](reg, MCPToolsReady),
 		onContextPrepare:      resultReg[ContextPrepareEvent, ContextPrepareResult](reg, ContextPrepare),
 		onBeforeFork:          resultReg[BeforeForkEvent, BeforeForkResult](reg, BeforeFork),
 		onBeforeSessionSwitch: resultReg[BeforeSessionSwitchEvent, BeforeSessionSwitchResult](reg, BeforeSessionSwitch),

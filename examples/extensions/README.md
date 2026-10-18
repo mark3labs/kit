@@ -40,6 +40,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `ask-question.go` | Agent asks the user multiple-choice questions in a themed modal popup | `RegisterTool`, `SetWidget` + `Render`, `SetEditor`, `GetTheme` |
 | `compact-notify.go` | Compact mode notifications | `PrintBlock` |
 | `branded-output.go` | Custom styled output | `PrintBlock` with colors |
+| `mcp-table.go` | One table of the loaded MCP servers instead of a message per server | `OnMCPToolsReady`, `SetUIVisibility`, `PrintBlock` with `Markdown` |
 
 ### Input & Editor
 

@@ -4,7 +4,7 @@
 
 ## Lifecycle Events
 
-Kit provides 30 lifecycle events. Each handler receives an event struct and a `Context`.
+Kit provides 31 lifecycle events. Each handler receives an event struct and a `Context`.
 
 ### Session Events
 
@@ -202,7 +202,18 @@ api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
 api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
     // e.State, e.Previous string — "working" or "idle"
 })
+
+// Background loading of the configured MCP servers finished. Fires once.
+api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+    // e.Servers []ext.MCPServerInfo, sorted by name; servers that failed to
+    // load are not listed. s.Name string, s.Tools []string (sorted, no prefix)
+})
 ```
+
+`OnMCPToolsReady` pairs with `UIVisibility.HideMCPStartupMessages`: hide the
+message Kit prints for each loaded server, then print one summary from the
+handler, for example with `ctx.PrintBlock(ext.PrintBlockOpts{Text: table,
+Markdown: true})`.
 
 `OnTurnStateChange` is a **superset of `OnAgentStart`/`OnAgentEnd`**: it also
 covers work that never reaches the agent loop (shell commands run with `!`) and
