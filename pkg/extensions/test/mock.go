@@ -49,6 +49,10 @@ type MockContext struct {
 	// Options
 	Options map[string]string
 
+	// System prompt returned by GetSystemPrompt (configurable for testing)
+	SystemPrompt       string
+	SystemPromptSource string
+
 	// Prompt results (configurable for testing)
 	PromptSelectResult      extensions.PromptSelectResult
 	PromptConfirmResult     extensions.PromptConfirmResult
@@ -110,6 +114,7 @@ func (m *MockContext) ToContext() extensions.Context {
 		SetOption:         m.setOption,
 		SetModel:          m.setModel,
 		GetAllTools:       m.getAllTools,
+		GetSystemPrompt:   m.getSystemPrompt,
 		SetActiveTools:    m.setActiveTools,
 		Exit:              m.exit,
 		Complete:          m.complete,
@@ -314,6 +319,12 @@ func (m *MockContext) getAllTools() []extensions.ToolInfo {
 	return nil
 }
 
+func (m *MockContext) getSystemPrompt() (string, string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.SystemPrompt, m.SystemPromptSource
+}
+
 func (m *MockContext) setActiveTools(names []string) {}
 
 func (m *MockContext) exit() {}
@@ -440,4 +451,12 @@ func (m *MockContext) SetPromptMultiSelectResult(result extensions.PromptMultiSe
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PromptMultiSelectResult = result
+}
+
+// SetSystemPrompt configures the text and source returned by GetSystemPrompt.
+func (m *MockContext) SetSystemPrompt(text, source string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.SystemPrompt = text
+	m.SystemPromptSource = source
 }

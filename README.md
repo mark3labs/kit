@@ -495,7 +495,7 @@ kit -e examples/extensions/minimal.go
 - **Template Parsing**: Parse and render templates with `{{variables}}` (`ParseTemplate`, `RenderTemplate`), parse CLI-style arguments (`ParseArguments`, `SimpleParseArguments`), and evaluate model conditionals (`EvaluateModelConditional`, `RenderWithModelConditionals`)
 - **Model Resolution**: Resolve model fallback chains (`ResolveModelChain`), query model capabilities (`GetModelCapabilities`, `CheckModelAvailable`), and extract provider/model ID (`GetCurrentProvider`, `GetCurrentModelID`)
 - **Model Pricing**: Per-million-token costs on `ModelCapabilities.Pricing` and `ModelInfoEntry.Pricing` — check `Pricing.Known` before rendering a cost, since local and OpenAI-compatible models report no pricing
-- **Usage & Environment**: Session tokens and cost via `GetSessionUsage` (including `IsOAuth`, since subscriptions report `$0` cost), terminal dimensions via `GetTerminalSize`, and reasoning effort via `GetThinkingLevel`
+- **Usage & Environment**: Session tokens and cost via `GetSessionUsage` (including `IsOAuth`, since subscriptions report `$0` cost), terminal dimensions via `GetTerminalSize`, reasoning effort via `GetThinkingLevel`, and the composed system prompt with its configured source via `GetSystemPrompt`
 
 ### Extension Examples
 

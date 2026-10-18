@@ -2081,6 +2081,14 @@ func (a *Agent) RequestSnapshot() (string, []fantasy.AgentTool) {
 	return a.systemPrompt, a.composeModelTools()
 }
 
+// GetSystemPrompt returns the managed system prompt. The agent sends this
+// prompt to the model on its next request.
+func (a *Agent) GetSystemPrompt() string {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+	return a.systemPrompt
+}
+
 // SetSystemPrompt updates the agent's system prompt and rebuilds the underlying
 // fantasy agent so subsequent turns use the new prompt. Safe to call while the
 // agent is idle; if invoked during an in-flight turn the new prompt takes
