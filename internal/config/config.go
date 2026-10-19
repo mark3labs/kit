@@ -230,15 +230,16 @@ type GenerationParams struct {
 // or other custom/ prefixed models. These models are loaded from the config file
 // and merged into the custom provider in the model registry.
 type CustomModelConfig struct {
-	Name         string `json:"name" yaml:"name"`
-	BaseURL      string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey       string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	APIModelName string `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
-	Family       string `json:"family,omitempty" yaml:"family,omitempty"`
-	Attachment   bool   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
-	Reasoning    bool   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
-	Temperature  bool   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	Knowledge    string `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	Name            string   `json:"name" yaml:"name"`
+	BaseURL         string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey          string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	APIModelName    string   `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
+	Family          string   `json:"family,omitempty" yaml:"family,omitempty"`
+	Attachment      bool     `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Reasoning       bool     `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	ReasoningLevels []string `json:"reasoningLevels,omitempty" yaml:"reasoningLevels,omitempty"`
+	Temperature     bool     `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Knowledge       string   `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 	// Cost is a pointer so an omitted "cost" block (pricing unknown) stays
 	// distinguishable from an explicitly configured zero rate (a free model).
 	// Must match models.CustomModelConfig, which is what actually decodes

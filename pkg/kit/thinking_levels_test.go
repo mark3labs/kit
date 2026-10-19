@@ -7,7 +7,7 @@ import (
 
 func TestThinkingLevelsVocabulary(t *testing.T) {
 	levels := ThinkingLevels()
-	want := []string{"off", "none", "minimal", "low", "medium", "high"}
+	want := []string{"off", "none", "minimal", "low", "medium", "high", "xhigh"}
 	if !slices.Equal(levels, want) {
 		t.Errorf("ThinkingLevels() = %v, want %v", levels, want)
 	}

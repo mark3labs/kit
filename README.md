@@ -192,7 +192,7 @@ model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
-thinking-level: off       # off, none, minimal, low, medium, high
+thinking-level: off       # model-specific effort; off omits the field
 no-core-tools: false      # set to true to disable all built-in core tools
 exclude-core-tools:       # List of core tools to exclude, mutually exclusive to `include-core-tools`
 #include-core-tools:
@@ -229,6 +229,42 @@ no-agents: false          # set to true to disable named agent discovery (built-
 All of the above keys can also be set programmatically via the SDK
 (`kit.Options.MaxTokens`, `Options.Temperature`, `Options.ThinkingLevel`, etc.)
 without touching config files — see [SDK options](#with-options).
+
+### Model-specific reasoning effort
+
+`/thinking` lists the current model's catalog choices. Kit preserves their exact
+spelling and order, including `xhigh`, `max`, and future named efforts. `off`
+omits the effort field; it does not guarantee that the model stops reasoning.
+`none` is a literal provider effort. Explicit CLI and SDK requests for an
+unsupported effort on a graded model return an error before a request is sent.
+The TUI reports any suggested substitution.
+
+When metadata is missing, the default ladder is `off`, `none`, `minimal`, `low`,
+`medium`, `high`, `xhigh`. Unknown-capability OpenAI-compatible endpoints also
+accept explicit effort strings; the remote provider decides whether they are
+valid. Token-budget adapters retain their finite controls. If an adapter cannot
+encode a selected effort, Kit returns an error instead of silently dropping it.
+
+Custom endpoints can declare an authoritative list in YAML or JSON:
+
+```yaml
+customModels:
+  jundot-qwen:
+    name: Qwen3.8-27B
+    baseUrl: http://localhost:8000/v1
+    apiModelName: Qwen3.8-27B-oQ6e-fp16-mtp
+    reasoning: true
+    reasoningLevels: [low, medium, xhigh]
+    limit:
+      context: 262144
+      output: 32768
+```
+
+A non-empty list requires `reasoning: true`. Entries must be non-blank strings;
+`off` is reserved. Duplicates are removed in order. Invalid models are excluded
+with a configuration warning. An omitted or empty list leaves capabilities
+unknown. `params.thinkingLevel` and `modelSettings` set defaults, not capability
+lists. No model-name inference or effort translation is applied.
 
 ### Environment Variables
 
@@ -320,7 +356,7 @@ mcpServers:
 --stop-sequences         Custom stop sequences (comma-separated)
 --frequency-penalty      Penalize frequent tokens 0.0-2.0 (default: 0.0)
 --presence-penalty       Penalize present tokens 0.0-2.0 (default: 0.0)
---thinking-level         Extended thinking level: off, none, minimal, low, medium, high (default: off)
+--thinking-level         Model-specific reasoning effort (default: off; /thinking lists choices)
 
 # System
 --config                 Config file path (default: ~/.kit.yml)
@@ -889,7 +925,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,             // 0 = auto-resolve (env → config → per-model → 8192 floor)
-    ThinkingLevel:    "medium",          // "off", "none", "minimal", "low", "medium", "high"
+    ThinkingLevel:    "medium",          // model-specific; see SupportedThinkingLevels
     Temperature:      ptr(float32(0.2)), // pointer so 0.0 != unset; nil = provider default
     TopP:             nil,                // nil = leave provider/per-model default
     TopK:             nil,

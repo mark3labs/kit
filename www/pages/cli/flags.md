@@ -177,7 +177,7 @@ other per-server fields, use the [config file](/configuration#mcp-server-configu
 | `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
 | `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
 | `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
-| `--thinking-level` | — | `off` | Extended thinking level: off, none, minimal, low, medium, high |
+| `--thinking-level` | — | `off` | Model-specific reasoning effort (`/thinking` lists choices). `off` omits effort; `none` is literal |
 
 ## System
 

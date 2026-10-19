@@ -187,8 +187,20 @@ func TestSupportedThinkingLevelsIsConsistent(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		for modelID := range models {
+		for modelID, info := range models {
 			levels := SupportedThinkingLevels(provider, modelID)
+			if info.ReasoningIsGraded {
+				want := []ThinkingLevel{ThinkingOff}
+				for _, value := range info.ReasoningLevels {
+					level := ThinkingLevel(value)
+					if value != "" && !slices.Contains(want, level) {
+						want = append(want, level)
+					}
+				}
+				if !slices.Equal(levels, want) {
+					t.Errorf("%s/%s: got %v, want complete metadata %v", provider, modelID, levels, want)
+				}
+			}
 			if !slices.Contains(levels, ThinkingOff) {
 				t.Errorf("%s/%s: 'off' missing from supported levels %v", provider, modelID, levels)
 			}

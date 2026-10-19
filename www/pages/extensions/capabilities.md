@@ -296,7 +296,8 @@ ctx.RemoveStatus("mode")
 ## Thinking level
 
 ```go
-level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+level := ctx.GetThinkingLevel()  // exact model-specific effort, including future names
+// off omits effort; none is a literal provider value
 
 api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
     // e.NewLevel, e.PreviousLevel string

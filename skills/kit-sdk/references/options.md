@@ -71,7 +71,7 @@ host, err := kit.New(ctx, &kit.Options{
     // resolve a value (KIT_* env → .kit.yml → modelSettings/customModels →
     // 8192 floor for MaxTokens, provider defaults for samplers).
     MaxTokens:        16384,             // 0 = auto-resolve; non-zero suppresses right-sizing
-    ThinkingLevel:    "medium",          // "off", "none", "minimal", "low", "medium", "high" ("" = default)
+    ThinkingLevel:    "medium",          // model-specific effort ("" = default)
     Temperature:      ptrFloat32(0.2),   // pointer so explicit 0.0 != unset
     TopP:             nil,                // nil = leave provider/per-model default
     TopK:             nil,                // nil = leave provider/per-model default
@@ -169,7 +169,7 @@ host, err := kit.NewIsolatedAgent(ctx,
 | Field | Type | Empty/nil means | Notes |
 |-------|------|-----------------|-------|
 | `MaxTokens` | `int` | Auto-resolve (env → config → per-model → 8192 floor) | Non-zero suppresses `rightSizeMaxTokens` |
-| `ThinkingLevel` | `string` | Auto-resolve (→ `"off"`) | Valid: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"` |
+| `ThinkingLevel` | `string` | Auto-resolve (→ `"off"`) | Model-specific catalog choices, including future names. `off` omits effort; `none` is literal. Use `SupportedThinkingLevels`; explicit unsupported graded selections return an error. Default ladder: off, none, minimal, low, medium, high, xhigh |
 | `Temperature` | `*float32` | Leave provider/per-model default | Pointer so explicit `0.0` ≠ unset |
 | `TopP` | `*float32` | Leave provider/per-model default | |
 | `TopK` | `*int32` | Leave provider/per-model default | |

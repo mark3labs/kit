@@ -90,11 +90,9 @@ func ResolveProviderBaseURL(providerID string) (string, error) {
 	return models.ResolveProviderBaseURL(providerID)
 }
 
-// ThinkingLevels returns every reasoning level Kit understands, from least to
-// most effort: "off", "none", "minimal", "low", "medium", "high".
-//
-// This is the full vocabulary, not the set any particular model accepts. Use
-// [SupportedThinkingLevels] to narrow it to a model.
+// ThinkingLevels returns the default ladder for unknown model capabilities:
+// off, none, minimal, low, medium, high, xhigh. This is not an exhaustive
+// vocabulary. [SupportedThinkingLevels] returns model-specific catalog choices.
 func ThinkingLevels() []string {
 	levels := models.ThinkingLevels()
 	out := make([]string, len(levels))
@@ -124,8 +122,8 @@ func SupportedThinkingLevels(provider, modelID string) []string {
 }
 
 // IsThinkingLevelSupported reports whether a model accepts the named reasoning
-// level. Unknown levels and unknown models report true, so callers are never
-// blocked on missing catalog data.
+// level. Graded models require exact membership, including spelling and case.
+// Unknown-capability models are permissive; the remote provider is authoritative.
 func IsThinkingLevelSupported(provider, modelID, level string) bool {
 	return models.IsValidThinkingLevelForModel(models.ParseThinkingLevel(level), provider, modelID)
 }
