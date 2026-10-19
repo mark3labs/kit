@@ -50,11 +50,7 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 	}
 }
 
-func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, imageLimits media.Limits) (fantasy.ToolResponse, error) {
-	return executeReadFS(ctx, call, workDir, imageLimits, nil)
-}
-
-// executeReadFS is executeRead with an optional FileSystem for text files.
+// executeReadFS reads text files through an optional FileSystem; nil uses local disk.
 // Images are always read from the local disk.
 func executeReadFS(ctx context.Context, call fantasy.ToolCall, workDir string, imageLimits media.Limits, fs FileSystem) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {

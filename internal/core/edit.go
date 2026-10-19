@@ -82,10 +82,6 @@ func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
 	}
 }
 
-func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
-	return executeEditFS(ctx, call, workDir, localFS{})
-}
-
 func executeEditFS(ctx context.Context, call fantasy.ToolCall, workDir string, fs FileSystem) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
