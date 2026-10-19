@@ -783,7 +783,8 @@ content. Bundled resources remain filesystem-based and best-effort.</p>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inspect current state (snapshot copies — safe to mutate).</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">skills </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctxFiles </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctxFiles </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">prompt </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetSystemPrompt</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#6A737D;--shiki-dark:#6A737D">// the composed prompt the agent sends</span></span></code></pre>
 <p>Key points:</p>
 <ul>
 <li>
@@ -1774,6 +1775,7 @@ host.SetContextFiles(activeContextForUser)
 // Inspect current state (snapshot copies — safe to mutate).
 skills := host.GetSkills()
 ctxFiles := host.GetContextFiles()
+prompt := host.GetSystemPrompt() // the composed prompt the agent sends
 \`\`\`
 
 Key points:

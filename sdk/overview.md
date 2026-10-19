@@ -778,6 +778,7 @@ host.SetContextFiles(activeContextForUser)
 // Inspect current state (snapshot copies — safe to mutate).
 skills := host.GetSkills()
 ctxFiles := host.GetContextFiles()
+prompt := host.GetSystemPrompt() // the composed prompt the agent sends
 ```
 
 Key points:
