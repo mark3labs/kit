@@ -1355,8 +1355,7 @@ func runInputPumpUntil(conn *clientConn, opts AttachOptions, finish func(), setO
 					}
 				}
 				suppressRel = true // the matching release is ours
-				fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
-				return true // swallow the press bytes
+				return true        // swallow the press bytes
 			}
 			suppressRel = false // forwarding the press; forward its release too
 		}
