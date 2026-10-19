@@ -512,11 +512,12 @@ selected model:
 levels := host.SupportedThinkingLevels()
 ```
 
-Unknown models and models with a token-budget or on/off reasoning control
-(rather than named levels) accept every level, so callers are never blocked on
-missing catalog data. `SetThinkingLevel` accepts any level, substituting a
-supported one when needed — check `SupportedThinkingLevels` first when the
-exact level matters.
+Unknown-capability models pass named efforts through metadata validation;
+provider adapters may still reject values they cannot encode. For graded models,
+`SetThinkingLevel` requires exact membership and returns an error without changing
+the current selection. Use `SuggestThinkingLevel` to choose a supported substitute.
+Inherited model-switch values and persisted preferences may fall back to `off`
+when an adapter cannot represent them; explicit CLI/SDK requests remain strict.
 
 ### Deprecation status
 

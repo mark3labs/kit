@@ -1011,6 +1011,7 @@ func restorePersistedPreferences() {
 	if !thinkingFlagChanged && !viper.InConfig("thinking-level") {
 		if pref := ui.LoadThinkingLevelPreference(); pref != "" {
 			viper.Set("thinking-level", pref)
+			viper.Set("internal-thinking-level-inherited", true)
 		}
 	}
 }

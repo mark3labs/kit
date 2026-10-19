@@ -160,6 +160,7 @@ func applyOptionOverrides(v *viper.Viper, opts *Options) {
 	}
 	if opts.ThinkingLevel != "" {
 		v.Set("thinking-level", opts.ThinkingLevel)
+		v.Set("internal-thinking-level-inherited", false)
 	}
 	if opts.ModelMode != "" {
 		v.Set("model_mode", opts.ModelMode)

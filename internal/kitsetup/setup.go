@@ -157,20 +157,21 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 	mainGPU := int32(v.GetInt("main-gpu"))
 
 	cfg := &models.ProviderConfig{
-		UserAgent:      v.GetString("internal-user-agent"),
-		ModelString:    v.GetString("model"),
-		ModelMode:      v.GetString("model_mode"),
-		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: v.GetString("provider-api-key"),
-		ProviderURL:    v.GetString("provider-url"),
-		ProviderWire:   v.GetString("provider-wire"),
-		MaxTokens:      v.GetInt("max-tokens"),
-		StopSequences:  v.GetStringSlice("stop-sequences"),
-		NumGPU:         &numGPU,
-		MainGPU:        &mainGPU,
-		TLSSkipVerify:  v.GetBool("tls-skip-verify"),
-		ThinkingLevel:  models.ParseThinkingLevel(v.GetString("thinking-level")),
-		ConfigStore:    v,
+		UserAgent:              v.GetString("internal-user-agent"),
+		ModelString:            v.GetString("model"),
+		ModelMode:              v.GetString("model_mode"),
+		SystemPrompt:           systemPrompt,
+		ProviderAPIKey:         v.GetString("provider-api-key"),
+		ProviderURL:            v.GetString("provider-url"),
+		ProviderWire:           v.GetString("provider-wire"),
+		MaxTokens:              v.GetInt("max-tokens"),
+		StopSequences:          v.GetStringSlice("stop-sequences"),
+		NumGPU:                 &numGPU,
+		MainGPU:                &mainGPU,
+		TLSSkipVerify:          v.GetBool("tls-skip-verify"),
+		ThinkingLevel:          models.ParseThinkingLevel(v.GetString("thinking-level")),
+		ThinkingLevelInherited: v.GetBool("internal-thinking-level-inherited"),
+		ConfigStore:            v,
 	}
 
 	// Only set generation parameter pointers when the user has explicitly

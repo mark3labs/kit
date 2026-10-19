@@ -840,14 +840,15 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		mode = ""
 	}
 	cfg := &models.ProviderConfig{
-		ModelString:    modelString,
-		MaxTokens:      m.v.GetInt("max-tokens"),
-		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
-		ThinkingLevel:  thinkingLevel,
-		ModelMode:      mode,
-		DisableCaching: false, // Caching enabled by default, works with thinking
-		ConfigStore:    m.v,
-		SessionIDFunc:  m.GetSessionID,
+		ModelString:            modelString,
+		MaxTokens:              m.v.GetInt("max-tokens"),
+		TLSSkipVerify:          m.v.GetBool("tls-skip-verify"),
+		ThinkingLevel:          thinkingLevel,
+		ThinkingLevelInherited: modelString != m.modelString,
+		ModelMode:              mode,
+		DisableCaching:         false, // Caching enabled by default, works with thinking
+		ConfigStore:            m.v,
+		SessionIDFunc:          m.GetSessionID,
 		// Instance provider factories (snapshot of Options.Providers).
 		ProviderFactories: m.providers,
 	}
@@ -3701,6 +3702,7 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 	}
 	previous := m.v.GetString("thinking-level")
 	m.v.Set("thinking-level", level)
+	m.v.Set("internal-thinking-level-inherited", false)
 	if err := m.setModelLocked(ctx, m.modelString); err != nil {
 		m.v.Set("thinking-level", previous)
 		return err

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -203,7 +204,10 @@ type ProviderConfig struct {
 	MainGPU          *int32
 	TLSSkipVerify    bool
 	ThinkingLevel    ThinkingLevel
-	DisableCaching   bool // Opt-out: set to true to disable automatic prompt caching
+	// ThinkingLevelInherited permits omission for restored preferences or
+	// model-switch carryover that an adapter cannot encode.
+	ThinkingLevelInherited bool
+	DisableCaching         bool // Opt-out: set to true to disable automatic prompt caching
 
 	// ConfigStore is the per-instance configuration store used to resolve
 	// "explicitly set" precedence checks (isExplicitlySet), per-model
@@ -305,6 +309,28 @@ func catalogProviderID(provider string) string {
 // transport, using the provider's api URL as the base. Providers with an api
 // URL but an unrecognized npm package fall back to the OpenAI-compatible wire.
 func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
+	result, err := createProvider(ctx, config)
+	var unsupported *unsupportedEffortError
+	if err != nil && config.ThinkingLevelInherited && errors.As(err, &unsupported) {
+		config.ThinkingLevel = ThinkingOff
+		config.ThinkingLevelInherited = false
+		if config.ConfigStore != nil {
+			config.ConfigStore.Set("thinking-level", "off")
+		}
+		return createProvider(ctx, config)
+	}
+	return result, err
+}
+
+// unsupportedEffortError distinguishes capability failures from auth/network
+// errors: only inherited preferences may fall back on capability failures.
+type unsupportedEffortError struct{ error }
+
+func effortError(format string, args ...any) error {
+	return &unsupportedEffortError{fmt.Errorf(format, args...)}
+}
+
+func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
 	identity, err := httpclient.ResolveUserAgent(config.UserAgent)
 	if err != nil {
 		return nil, err
@@ -395,7 +421,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	ApplyModelSettings(config, modelInfo)
 	config.ThinkingLevel = ParseThinkingLevel(string(config.ThinkingLevel))
 	if !hasFactory && !IsValidThinkingLevelForModel(config.ThinkingLevel, lookupProvider, modelName) {
-		return nil, fmt.Errorf("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))
+		return nil, effortError("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))
 	}
 
 	// Auto-raise MaxTokens toward the model's known output ceiling when the
@@ -404,7 +430,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	rightSizeMaxTokens(config, modelInfo)
 
 	if !hasFactory && (provider == "anthropic" || provider == "google-vertex-anthropic") && (modelInfo == nil || !modelInfo.ReasoningIsGraded) && config.ThinkingLevel != ThinkingOff && thinkingBudgetTokens(config.ThinkingLevel) == 0 {
-		return nil, fmt.Errorf("anthropic budget adapter cannot encode named effort %q; use off, none, minimal, low, medium, or high", config.ThinkingLevel)
+		return nil, effortError("anthropic budget adapter cannot encode named effort %q; use off, none, minimal, low, medium, or high", config.ThinkingLevel)
 	}
 
 	// Registered factories build the model themselves. Kit does not add
@@ -458,10 +484,10 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			result.ProviderOptions = fantasy.ProviderOptions{google.Name: &google.ProviderOptions{ThinkingConfig: &google.ThinkingConfig{ThinkingLevel: &level}}}
 		}
 		if len(result.ProviderOptions) == 0 {
-			return nil, fmt.Errorf("provider adapter for %s/%s cannot encode reasoning effort %q; select off or use an effort-capable wire", provider, modelName, config.ThinkingLevel)
+			return nil, effortError("provider adapter for %s/%s cannot encode reasoning effort %q; select off or use an effort-capable wire", provider, modelName, config.ThinkingLevel)
 		}
 		if opts, ok := result.ProviderOptions[openai.Name].(*openai.ResponsesProviderOptions); ok && opts.ReasoningEffort != nil && !openai.IsResponsesReasoningModel(modelName) {
-			return nil, fmt.Errorf("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
+			return nil, effortError("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
 		}
 	}
 
@@ -863,7 +889,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 	}
 
 	if config.ThinkingLevel != "" && config.ThinkingLevel != ThinkingOff && !openai.IsResponsesReasoningModel(modelName) {
-		return nil, fmt.Errorf("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
+		return nil, effortError("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
 	}
 	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
@@ -920,7 +946,12 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	var providerOpts fantasy.ProviderOptions
+	if metadata := GetGlobalRegistry().LookupModel(info.ID, modelName); metadata != nil && metadata.ReasoningIsGraded && config.ThinkingLevel != "" && config.ThinkingLevel != ThinkingOff {
+		level := string(config.ThinkingLevel)
+		providerOpts = fantasy.ProviderOptions{google.Name: &google.ProviderOptions{ThinkingConfig: &google.ThinkingConfig{ThinkingLevel: &level}}}
+	}
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 // versionSegmentRe matches a trailing API version segment in a URL path,
