@@ -14,6 +14,12 @@ import (
 //
 // Protected: .env*, .git/, secrets/, credentials*, *.pem, *.key
 //
+// The checks look for fixed strings in the path and in the shell command.
+// They help against mistakes. They do not stop a call that changes the
+// same file in another way, for example "echo x >.env" or "sed -i" in the
+// shell. If the input can come from an untrusted source, protect these
+// files with file permissions.
+//
 // Usage: kit -e examples/extensions/protected-paths.go
 func Init(api ext.API) {
 	// Tools that modify files.

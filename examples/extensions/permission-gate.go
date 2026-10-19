@@ -14,6 +14,12 @@ import (
 //
 // Dangerous patterns: rm -rf, sudo, chmod 777, mkfs, dd, > /dev/
 //
+// The check looks for these strings in the command. It helps against
+// mistakes. It does not stop a command that does the same thing in another
+// form, for example "rm -fr" or "find . -delete". If the input can come
+// from an untrusted source, limit what the account that runs Kit can
+// reach: files, network and credentials.
+//
 // Usage: kit -e examples/extensions/permission-gate.go
 func Init(api ext.API) {
 	// Patterns that require user confirmation.
