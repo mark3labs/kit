@@ -572,7 +572,7 @@ mcpServers:
 # Code mode: one "codemode" tool that runs a JavaScript program which calls
 # the other tools, so intermediate results do not fill the context
 # codemode:
-#   enabled: false                         # or --codemode, or include "codemode" in include-core-tools
+#   enabled: true                          # set false or use --codemode=false to disable
 #   timeout: 30                            # seconds per script
 #   max-tool-calls: 50                     # tool calls per script
 #   max-output-bytes: 100000               # result size the model receives (rest goes to a temp file)
@@ -703,7 +703,8 @@ func GetConfigPath() string {
 // CodeModeConfig is the "codemode" configuration section. Zero values use
 // the built-in defaults.
 type CodeModeConfig struct {
-	Enabled        bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Enabled defaults to true when omitted. A pointer preserves explicit false.
+	Enabled        *bool             `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Timeout        int               `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds
 	MaxToolCalls   int               `json:"max-tool-calls,omitempty" yaml:"max-tool-calls,omitempty"`
 	MaxOutputBytes int               `json:"max-output-bytes,omitempty" yaml:"max-output-bytes,omitempty"`

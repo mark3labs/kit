@@ -439,7 +439,7 @@ func init() {
 	rootCmd.PersistentFlags().
 		StringSliceVar(&excludeCoreToolsFlag, "exclude-core-tools", nil, "comma-separated list of core tools to exclude")
 	rootCmd.PersistentFlags().
-		BoolVar(&codeModeFlag, "codemode", false, "enable code mode: the model can run JavaScript that calls the other tools")
+		BoolVar(&codeModeFlag, "codemode", true, "enable code mode: the model can run JavaScript that calls the other tools (use --codemode=false to disable)")
 	// The shell tool runs one command string through this shell. The value is
 	// the shell plus its own leading arguments. Empty leaves the built-in
 	// default, which is bash.

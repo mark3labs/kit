@@ -203,7 +203,7 @@ shell: "bash"             # shell the shell tool runs commands through, plus
 shell-timeout: 120        # default per-call timeout in seconds
 shell-max-timeout: 600    # ceiling a single call may request
 codemode:                 # one "codemode" tool runs JavaScript that calls the
-  enabled: false          # other tools; intermediate results stay out of context
+  enabled: true           # other tools; intermediate results stay out of context
   mcp-exposure: direct    # direct | codemode (scripts only) | deferred | model-only
 
 # Images read by the read tool. PNG, JPEG, GIF and WebP files are sent to the
@@ -299,7 +299,7 @@ mcpServers:
 --no-core-tools          Disable all built-in core tools (shell, read, write, edit, grep, find, ls, subagent)
 --include-core-tools
 --exclude-core-tools     Mutually exclusive lists of core tool names to include or not to include in agent
---codemode               Enable code mode: the model can run JavaScript that calls the other tools
+--codemode               Enable code mode (default on; --codemode=false disables): the model can run JavaScript that calls the other tools
 --shell                  Shell the shell tool runs commands through, e.g. "/bin/dash" or "busybox ash" (default "bash")
 
 --prompt-template        Load a specific prompt template by name

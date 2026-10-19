@@ -18,23 +18,28 @@ Use it to:
 - loop over many items (files, issues, records),
 - read large outputs and keep only the facts you need.
 
-Code mode is off by default.
+Code mode is on by default. Tool exposure stays `direct`: the model can
+call tools directly or through a script, including MCP tools.
 
-## Enable it
+## Disable or select it
 
 ```bash
-kit --codemode
+kit --codemode=false
 ```
 
 Or in `.kit.yml`:
 
 ```yaml
 codemode:
-  enabled: true
+  enabled: false
 ```
 
-Naming it in `include-core-tools` also enables it. `--codemode` works together
-with `--no-core-tools`: the model then reaches MCP tools only through scripts.
+`--no-core-tools` disables code mode along with the other core tools.
+An explicit `--codemode` enables it with `--no-core-tools`, so scripts can
+call MCP tools. MCP tools remain directly available unless you change their
+exposure. Tool include and exclude lists apply to code mode too; an explicit
+`--codemode` adds it back. An explicit disable takes precedence over naming
+`codemode` in the tool list.
 
 ## What a script looks like
 
@@ -179,7 +184,10 @@ host, err := kit.New(ctx, &kit.Options{
 })
 ```
 
-Zero fields fall back to the `codemode` config section. To use code mode with
+Code mode is enabled by default in the SDK. Set
+`CodeMode: &kit.CodeModeOptions{Disabled: true}` to disable it. `Disabled`
+takes precedence over `Enabled` and configuration. Other zero fields fall
+back to the `codemode` config section. To use code mode with
 a custom tool set, add `kit.NewCodeModeTool(opts)` to `Options.Tools` or
 `Options.ExtraTools`; Kit gives it the live tool set.
 

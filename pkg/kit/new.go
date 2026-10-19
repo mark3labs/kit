@@ -434,7 +434,13 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 		return err
 	}
 	rc.codeMode = codeModeCfg
-	rc.toolList = withCodeModeTool(rc.toolList, codeModeEnabled)
+	// Default enablement must not bypass an explicit tool selection or disable
+	// all core tools. An explicit enable still permits code mode with MCP only.
+	explicitCodeMode := (v.IsSet("codemode.enabled") && v.GetBool("codemode.enabled")) ||
+		(opts.CodeMode != nil && opts.CodeMode.Enabled)
+	if !codeModeEnabled || explicitCodeMode {
+		rc.toolList = withCodeModeTool(rc.toolList, codeModeEnabled)
+	}
 
 	rc.maxSteps = v.GetInt("max-steps")
 	rc.streaming = v.GetBool("stream")

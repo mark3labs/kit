@@ -176,18 +176,13 @@ func TestCodeModeVisibilityAndDescription(t *testing.T) {
 	}
 }
 
-func TestDefaultCoreToolNamesExcludeCodeMode(t *testing.T) {
-	for _, n := range DefaultCoreToolNames() {
-		if n == CodeModeToolName {
-			t.Fatal("code mode must be opt-in")
-		}
-	}
+func TestDefaultCoreToolNamesIncludeCodeMode(t *testing.T) {
 	found := false
-	for _, n := range ListAllCoreToolNames() {
+	for _, n := range DefaultCoreToolNames() {
 		found = found || n == CodeModeToolName
 	}
 	if !found {
-		t.Fatal("code mode must be a valid core tool name")
+		t.Fatal("code mode must be enabled by default")
 	}
 }
 

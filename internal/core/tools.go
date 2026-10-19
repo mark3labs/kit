@@ -185,29 +185,14 @@ var coreTools = map[string]initTool{
 	CodeModeToolName: NewCodeModeTool,
 }
 
-// optInCoreTools are core tools that are valid names but are not part of
-// the default "all core tools" set. A user enables them by name.
-var optInCoreTools = map[string]bool{
-	CodeModeToolName: true,
-}
-
-// ListAllCoreToolNames always returns the full list of available core
-// tools, including opt-in tools. It can be used to validate a user provided
-// tool list.
+// ListAllCoreToolNames returns all available core tool names.
 func ListAllCoreToolNames() []string {
 	return slices.Sorted(maps.Keys(coreTools))
 }
 
-// DefaultCoreToolNames returns the core tools enabled when the user names
-// none: every core tool except the opt-in ones (code mode).
+// DefaultCoreToolNames returns the core tools enabled when none are named.
 func DefaultCoreToolNames() []string {
-	var out []string
-	for _, n := range ListAllCoreToolNames() {
-		if !optInCoreTools[n] {
-			out = append(out, n)
-		}
-	}
-	return out
+	return ListAllCoreToolNames()
 }
 
 // CodingTools returns the default set of core tools for a coding agent:

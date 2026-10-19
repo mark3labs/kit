@@ -60,9 +60,9 @@ func TestResolveCodeModeOptionsOverride(t *testing.T) {
 	}
 }
 
-func TestCodeModeIsOptIn(t *testing.T) {
-	if slices.Contains(handleCoreToolList(nil, false), CodeModeToolName) {
-		t.Fatal("code mode must not be in the default core tool set")
+func TestCodeModeDefaultToolList(t *testing.T) {
+	if !slices.Contains(handleCoreToolList(nil, false), CodeModeToolName) {
+		t.Fatal("code mode must be in the default core tool set")
 	}
 	if !slices.Contains(handleCoreToolList([]string{"read", CodeModeToolName}, false), CodeModeToolName) {
 		t.Fatal("naming code mode must enable it")
@@ -86,5 +86,81 @@ func TestNewCodeModeTool(t *testing.T) {
 	}
 	if _, err := NewCodeModeTool(CodeModeOptions{Exposure: map[string]string{"x": "nope"}}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestResolveCodeModeDefaultsAndDisabling(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  *bool
+		options *CodeModeOptions
+		want    bool
+	}{
+		{name: "default", want: true},
+		{name: "zero options", options: &CodeModeOptions{}, want: true},
+		{name: "config disabled", config: new(bool)},
+		{name: "SDK disabled", options: &CodeModeOptions{Disabled: true}},
+		{name: "SDK enable overrides config", config: new(bool), options: &CodeModeOptions{Enabled: true}, want: true},
+		{name: "disabled wins", options: &CodeModeOptions{Enabled: true, Disabled: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := viper.New()
+			if tc.config != nil {
+				v.Set("codemode.enabled", *tc.config)
+			}
+			enabled, cfg, err := resolveCodeMode(&Options{CodeMode: tc.options}, v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if enabled != tc.want {
+				t.Fatalf("enabled = %v, want %v", enabled, tc.want)
+			}
+			for _, name := range []string{"read", "server__tool", "custom"} {
+				if got := cfg.Policy.Resolve(name); got != codemode.ExposureDirect {
+					t.Fatalf("%s exposure = %s", name, got)
+				}
+			}
+			original := []string{"read", CodeModeToolName}
+			got := withCodeModeTool(original, enabled)
+			if slices.Contains(got, CodeModeToolName) != tc.want {
+				t.Fatalf("tools = %v", got)
+			}
+			if original[1] != CodeModeToolName {
+				t.Fatal("modified caller tool list")
+			}
+		})
+	}
+}
+
+func TestCodeModeResolvedToolSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		opts   Options
+		values map[string]any
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "disable core", opts: Options{DisableCoreTools: true}},
+		{name: "explicit enable with no core", opts: Options{DisableCoreTools: true, CodeMode: &CodeModeOptions{Enabled: true}}, want: true},
+		{name: "SDK selection", opts: Options{CoreToolList: []string{"read"}}},
+		{name: "exclude", values: map[string]any{"exclude-core-tools": []string{CodeModeToolName}}},
+		{name: "include", values: map[string]any{"include-core-tools": []string{"read"}}},
+		{name: "config disable", values: map[string]any{"codemode.enabled": false}},
+		{name: "SDK disable named tool", opts: Options{CoreToolList: []string{CodeModeToolName}, CodeMode: &CodeModeOptions{Disabled: true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := viper.New()
+			setSDKDefaults(v)
+			for key, value := range tc.values {
+				v.Set(key, value)
+			}
+			rc := &resolvedConfig{}
+			if err := resolveModelConfig(v, &tc.opts, nil, rc); err != nil {
+				t.Fatal(err)
+			}
+			if got := slices.Contains(rc.toolList, CodeModeToolName); got != tc.want {
+				t.Fatalf("tools = %v, want code mode %v", rc.toolList, tc.want)
+			}
+		})
 	}
 }

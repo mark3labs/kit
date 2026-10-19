@@ -38,11 +38,13 @@ const (
 // intermediate results do not use context.
 //
 // Zero fields fall back to the "codemode" config section, then to the
-// built-in defaults.
+// built-in defaults. Code mode is enabled by default.
 type CodeModeOptions struct {
 	// Enabled turns code mode on. Naming "codemode" in CoreToolList also
-	// turns it on.
+	// turns it on unless Disabled is true.
 	Enabled bool
+	// Disabled turns code mode off and takes precedence over Enabled and config.
+	Disabled bool
 	// Timeout bounds one script run. Default 30s.
 	Timeout time.Duration
 	// MaxToolCalls bounds the tool calls one script can make. Default 50.
@@ -71,7 +73,7 @@ type CodeModeOptions struct {
 // returns whether code mode is enabled and the tool configuration.
 func resolveCodeMode(opts *Options, v *viper.Viper) (bool, core.CodeModeConfig, error) {
 	o := CodeModeOptions{
-		Enabled:        v.GetBool("codemode.enabled"),
+		Enabled:        !v.IsSet("codemode.enabled") || v.GetBool("codemode.enabled"),
 		Timeout:        time.Duration(v.GetInt("codemode.timeout")) * time.Second,
 		MaxToolCalls:   v.GetInt("codemode.max-tool-calls"),
 		MaxOutputBytes: v.GetInt("codemode.max-output-bytes"),
@@ -82,7 +84,7 @@ func resolveCodeMode(opts *Options, v *viper.Viper) (bool, core.CodeModeConfig, 
 		Exposure:       v.GetStringMapString("codemode.exposure"),
 	}
 	if c := opts.CodeMode; c != nil {
-		o.Enabled = o.Enabled || c.Enabled
+		o.Enabled = (o.Enabled || c.Enabled) && !c.Disabled
 		if c.Timeout > 0 {
 			o.Timeout = c.Timeout
 		}
@@ -153,7 +155,10 @@ func (o CodeModeOptions) toolConfig() (core.CodeModeConfig, error) {
 // when code mode is enabled. It is added even when core tools are disabled,
 // so code mode can expose MCP tools on their own.
 func withCodeModeTool(toolList []string, enabled bool) []string {
-	if !enabled || slices.Contains(toolList, CodeModeToolName) {
+	if !enabled {
+		return slices.DeleteFunc(slices.Clone(toolList), func(name string) bool { return name == CodeModeToolName })
+	}
+	if slices.Contains(toolList, CodeModeToolName) {
 		return toolList
 	}
 	// slices.Clip drops any spare capacity, so the append cannot write into

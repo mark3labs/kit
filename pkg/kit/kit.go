@@ -1447,8 +1447,8 @@ type Options struct {
 
 	// CodeMode configures code mode: one tool that runs a JavaScript
 	// program which calls the other tools and returns a small result. Code
-	// mode is off unless CodeMode.Enabled is set, the "codemode.enabled"
-	// config value is true, or CoreToolList names "codemode". Zero fields
+	// mode is on by default. Set CodeMode.Disabled or set the
+	// "codemode.enabled" config value to false to disable it. Zero fields
 	// fall back to the "codemode" config section.
 	CodeMode *CodeModeOptions
 
