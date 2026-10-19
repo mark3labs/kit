@@ -96,16 +96,23 @@ func writeHostBook(hosts []HostEntry) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".hosts-*")
+	return writeJSONFileAtomic(path, ".hosts-*", b, 0o600)
+}
+
+// writeJSONFileAtomic writes data followed by one newline using a same-directory
+// temporary file and rename. The parent directory must already exist. It does
+// not marshal or validate JSON, or normalize existing trailing newlines.
+func writeJSONFileAtomic(path, tmpPattern string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), tmpPattern)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
 		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(perm); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -290,23 +297,7 @@ func writeAllowlist(clients []ClientEntry) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".authorized-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return writeJSONFileAtomic(path, ".authorized-*", b, 0o600)
 }
 
 // AuthorizeClient stores a freshly paired client's public key. The

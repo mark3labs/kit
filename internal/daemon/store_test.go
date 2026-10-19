@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -184,6 +186,180 @@ func TestAllowlistAuthorizeLookupRevoke(t *testing.T) {
 	}
 	if _, err := RevokeClient(fp1); err == nil {
 		t.Fatal("expected error revoking unknown client")
+	}
+}
+
+func TestWriteJSONFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.json")
+	for _, data := range []string{`{"value":"long initial value"}`, `{"value":1}`} {
+		if err := writeJSONFileAtomic(path, ".store-*", []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assertStoreBytes(t, path, data+"\n")
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+			t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
+		}
+		assertNoStoreTemps(t, dir, ".store-*")
+	}
+}
+
+func TestWriteJSONFileAtomicRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.json")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(path, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFileAtomic(path, ".store-*", []byte(`{}`), 0o600); err == nil {
+		t.Fatal("expected rename error replacing a non-empty directory")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatal("destination is no longer a directory")
+	}
+	assertStoreBytes(t, sentinel, "unchanged")
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "sentinel" {
+		t.Fatalf("destination contents changed: %v", entries)
+	}
+	assertNoStoreTemps(t, dir, ".store-*")
+}
+
+func assertStoreBytes(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("file bytes = %q, want %q", got, want)
+	}
+}
+
+func assertNoStoreTemps(t *testing.T, dir, pattern string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, pattern))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files remain: %v", matches)
+	}
+}
+
+func TestWriteHostBookOutput(t *testing.T) {
+	isolateConfig(t)
+	stamp := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	hosts := []HostEntry{
+		{Name: "beta", EndpointID: "endpoint-b", HostFP: "fp-b", AddedAt: stamp, LastUsed: stamp},
+		{Name: "alpha", EndpointID: "endpoint-a", HostFP: "fp-a", AddedAt: stamp, LastUsed: stamp},
+	}
+	if err := writeHostBook(hosts); err != nil {
+		t.Fatal(err)
+	}
+	path, err := hostBookPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStoreBytes(t, path, `{
+  "hosts": [
+    {
+      "name": "alpha",
+      "endpoint_id": "endpoint-a",
+      "host_fp": "fp-a",
+      "added_at": "2026-01-02T03:04:05Z",
+      "last_used": "2026-01-02T03:04:05Z"
+    },
+    {
+      "name": "beta",
+      "endpoint_id": "endpoint-b",
+      "host_fp": "fp-b",
+      "added_at": "2026-01-02T03:04:05Z",
+      "last_used": "2026-01-02T03:04:05Z"
+    }
+  ]
+}
+`)
+	assertNoStoreTemps(t, filepath.Dir(path), ".hosts-*")
+}
+
+func TestWriteAllowlistOutput(t *testing.T) {
+	isolateConfig(t)
+	stamp := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	clients := []ClientEntry{
+		{FP: "fp-b", PubKey: "key-b", Label: "beta", AddedAt: stamp, LastSeen: stamp},
+		{FP: "fp-a", PubKey: "key-a", Label: "alpha", AddedAt: stamp, LastSeen: stamp},
+	}
+	if err := writeAllowlist(clients); err != nil {
+		t.Fatal(err)
+	}
+	path, err := allowlistPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStoreBytes(t, path, `{
+  "clients": [
+    {
+      "fp": "fp-a",
+      "pubkey": "key-a",
+      "label": "alpha",
+      "added_at": "2026-01-02T03:04:05Z",
+      "last_seen": "2026-01-02T03:04:05Z"
+    },
+    {
+      "fp": "fp-b",
+      "pubkey": "key-b",
+      "label": "beta",
+      "added_at": "2026-01-02T03:04:05Z",
+      "last_seen": "2026-01-02T03:04:05Z"
+    }
+  ]
+}
+`)
+	assertNoStoreTemps(t, filepath.Dir(path), ".authorized-*")
+}
+
+func TestStoreDirectoryErrorContext(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		path   func() (string, error)
+		write  func() error
+		prefix string
+	}{
+		{"host book", hostBookPath, func() error { return writeHostBook(nil) }, "daemon: host book dir:"},
+		{"allowlist", allowlistPath, func() error { return writeAllowlist(nil) }, "daemon: allowlist dir:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateConfig(t)
+			path, err := tc.path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := filepath.Dir(path)
+			if err := os.MkdirAll(filepath.Dir(parent), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(parent, []byte("not a directory"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.write(); err == nil || !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Fatalf("write error = %v, want prefix %q", err, tc.prefix)
+			}
+		})
 	}
 }
 
