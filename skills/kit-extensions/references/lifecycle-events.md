@@ -181,7 +181,7 @@ api.OnModelChange(func(e ext.ModelChangeEvent, ctx ext.Context) {
 
 // Extended-thinking effort level changed.
 api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
-    // e.NewLevel, e.PreviousLevel string — off, none, minimal, low, medium, high
+    // e.NewLevel, e.PreviousLevel string — exact model-specific effort names
     // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"
     //   ("model_fallback" = automatic downgrade because the newly selected
     //    model does not support the previous level)

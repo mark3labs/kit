@@ -1,8 +1,10 @@
 package models
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -26,19 +28,51 @@ func loadCustomModelsFrom(v *viper.Viper) map[string]ModelInfo {
 		return nil
 	}
 
-	var customModels map[string]CustomModelConfig
-	if err := v.UnmarshalKey("customModels", &customModels); err != nil {
-		log.Printf("Warning: Failed to parse customModels: %v", err)
-		return nil
-	}
-
+	customModels := v.GetStringMap("customModels")
 	result := make(map[string]ModelInfo, len(customModels))
-	for modelID, cfg := range customModels {
+	for modelID := range customModels {
+		var cfg CustomModelConfig
+		if err := v.UnmarshalKey("customModels."+modelID, &cfg); err != nil {
+			log.Printf("Warning: custom model %q: failed to parse configuration: %v; excluding model", modelID, err)
+			continue
+		}
+		// Inspect raw values before Viper's weak decoding can turn numbers
+		// into strings. An invalid declaration must not become unrestricted.
+		if err := validateCustomReasoningLevels(v.Get("customModels."+modelID+".reasoningLevels"), cfg); err != nil {
+			log.Printf("Warning: custom model %q: %v; excluding model", modelID, err)
+			continue
+		}
 		info := modelConfigToModelInfo(modelID, cfg)
 		result[modelID] = info
 	}
 
 	return result
+}
+
+// validateCustomReasoningLevels checks the declaration before registry insertion.
+func validateCustomReasoningLevels(raw any, cfg CustomModelConfig) error {
+	if raw != nil {
+		switch values := raw.(type) {
+		case []any:
+			for _, value := range values {
+				if _, ok := value.(string); !ok {
+					return fmt.Errorf("reasoningLevels must contain only strings")
+				}
+			}
+		case []string:
+		default:
+			return fmt.Errorf("reasoningLevels must be a list of strings")
+		}
+	}
+	if len(cfg.ReasoningLevels) > 0 && !cfg.Reasoning {
+		return fmt.Errorf("reasoningLevels requires reasoning: true")
+	}
+	for _, value := range cfg.ReasoningLevels {
+		if strings.TrimSpace(value) == "" || value == "off" {
+			return fmt.Errorf("invalid reasoningLevels entry %q: blank and reserved off values are not allowed", value)
+		}
+	}
+	return nil
 }
 
 // customCost converts a configured pricing block into a Cost. A nil block means
@@ -73,6 +107,13 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 			Output:  cfg.Limit.Output,
 		},
 	}
+
+	for _, level := range cfg.ReasoningLevels {
+		if !slices.Contains(info.ReasoningLevels, level) {
+			info.ReasoningLevels = append(info.ReasoningLevels, level)
+		}
+	}
+	info.ReasoningIsGraded = len(info.ReasoningLevels) > 0
 
 	// Convert custom model generation params if any are set.
 	if p := convertGenerationParams(cfg.Params); p != nil {
@@ -300,15 +341,16 @@ type GenerationParams struct {
 // CustomModelConfig defines a custom model configuration loaded from the config file.
 // This is a duplicate here to avoid circular dependencies with internal/config.
 type CustomModelConfig struct {
-	Name         string `json:"name" yaml:"name"`
-	BaseURL      string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey       string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	APIModelName string `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
-	Family       string `json:"family,omitempty" yaml:"family,omitempty"`
-	Attachment   bool   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
-	Reasoning    bool   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
-	Temperature  bool   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	Knowledge    string `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	Name            string   `json:"name" yaml:"name"`
+	BaseURL         string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey          string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	APIModelName    string   `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
+	Family          string   `json:"family,omitempty" yaml:"family,omitempty"`
+	Attachment      bool     `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Reasoning       bool     `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	ReasoningLevels []string `json:"reasoningLevels,omitempty" yaml:"reasoningLevels,omitempty"`
+	Temperature     bool     `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Knowledge       string   `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 	// Cost is a pointer so that an omitted "cost" block (unknown pricing) is
 	// distinguishable from an explicitly configured zero rate (a genuinely
 	// free model). A value type would collapse both to 0.

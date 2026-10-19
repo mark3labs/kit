@@ -59,7 +59,8 @@ func WithMaxTokens(n int) Option { return func(o *Options) { o.MaxTokens = n } }
 func WithModelMode(mode string) Option { return func(o *Options) { o.ModelMode = mode } }
 
 // WithThinkingLevel sets the reasoning effort for models that support extended
-// thinking. Valid values: "off", "none", "minimal", "low", "medium", "high".
+// thinking. Values are model-specific; use SupportedThinkingLevels to list them.
+// off omits effort; none is a literal provider effort. Names are case-sensitive.
 // An empty string lets the precedence chain resolve a level.
 func WithThinkingLevel(level string) Option { return func(o *Options) { o.ThinkingLevel = level } }
 

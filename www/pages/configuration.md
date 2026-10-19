@@ -38,7 +38,7 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
-| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high. Levels a model does not accept are substituted with the nearest supported one at runtime. |
+| `thinking-level` | string | `off` | Model-specific reasoning effort. `/thinking` lists catalog choices; explicit unsupported CLI/SDK values return an error. `off` omits effort; `none` is literal. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
@@ -54,6 +54,37 @@ stream: true
 | `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
 | `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
 | `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/<name>`) |
+
+## Model-specific reasoning levels
+
+Catalog effort names are preserved exactly, including `xhigh`, `max`, and future
+values. Without graded metadata the default ladder is `off`, `none`, `minimal`,
+`low`, `medium`, `high`, `xhigh`. Unknown OpenAI-compatible endpoints may accept
+other explicit strings. An adapter that cannot encode the selection returns an
+error rather than silently dropping it. Token-budget controls remain finite.
+
+Declare custom endpoint capabilities with `reasoningLevels` (YAML or JSON):
+
+```yaml
+customModels:
+  jundot-qwen:
+    name: Qwen3.8-27B
+    baseUrl: http://localhost:8000/v1
+    apiModelName: Qwen3.8-27B-oQ6e-fp16-mtp
+    reasoning: true
+    reasoningLevels: [low, medium, xhigh]
+    limit:
+      context: 262144
+      output: 32768
+```
+
+A non-empty list requires `reasoning: true`; blank, non-string, and reserved
+`off` entries are invalid. Invalid models are excluded with a warning. Order is
+preserved and duplicates removed. Omitted/empty lists keep capabilities unknown.
+`params.thinkingLevel` and `modelSettings` remain defaults, not capability lists.
+`off` omits the field, which does not guarantee that the provider stops reasoning.
+The TUI reports substitutions; explicit CLI/SDK invalid selections fail before
+network I/O. There are no effort translation maps.
 
 ## Environment variables
 

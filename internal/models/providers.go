@@ -120,11 +120,13 @@ const (
 	ThinkingLow     ThinkingLevel = "low"
 	ThinkingMedium  ThinkingLevel = "medium"
 	ThinkingHigh    ThinkingLevel = "high"
+	ThinkingXHigh   ThinkingLevel = "xhigh"
 )
 
-// ThinkingLevels returns the ordered list of available thinking levels for cycling.
+// ThinkingLevels returns the default ladder for models with unknown capabilities.
+// Model-specific lists can contain other named efforts.
 func ThinkingLevels() []ThinkingLevel {
-	return []ThinkingLevel{ThinkingOff, ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh}
+	return []ThinkingLevel{ThinkingOff, ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh}
 }
 
 // thinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off" or "none".
@@ -161,18 +163,17 @@ func ThinkingLevelDescription(level ThinkingLevel) string {
 	case ThinkingHigh:
 		return "Deep reasoning (~20k tokens)"
 	default:
-		return "No reasoning"
+		return "Model-specific reasoning effort"
 	}
 }
 
-// ParseThinkingLevel converts a string to a ThinkingLevel, defaulting to ThinkingOff.
+// ParseThinkingLevel preserves named efforts exactly. Empty means omission (off).
+// Model-specific validation is separate from parsing.
 func ParseThinkingLevel(s string) ThinkingLevel {
-	switch ThinkingLevel(s) {
-	case ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
-		return ThinkingLevel(s)
-	default:
+	if s == "" {
 		return ThinkingOff
 	}
+	return ThinkingLevel(s)
 }
 
 // ProviderConfig holds configuration for creating LLM providers.
@@ -392,11 +393,19 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// only applied for fields where the user hasn't explicitly set a value
 	// via CLI flag or global config.
 	ApplyModelSettings(config, modelInfo)
+	config.ThinkingLevel = ParseThinkingLevel(string(config.ThinkingLevel))
+	if !hasFactory && !IsValidThinkingLevelForModel(config.ThinkingLevel, lookupProvider, modelName) {
+		return nil, fmt.Errorf("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))
+	}
 
 	// Auto-raise MaxTokens toward the model's known output ceiling when the
 	// user hasn't explicitly set --max-tokens and no per-model override
 	// applied. Runs after ApplyModelSettings so explicit modelSettings win.
 	rightSizeMaxTokens(config, modelInfo)
+
+	if !hasFactory && (provider == "anthropic" || provider == "google-vertex-anthropic") && (modelInfo == nil || !modelInfo.ReasoningIsGraded) && config.ThinkingLevel != ThinkingOff && thinkingBudgetTokens(config.ThinkingLevel) == 0 {
+		return nil, fmt.Errorf("anthropic budget adapter cannot encode named effort %q; use off, none, minimal, low, medium, or high", config.ThinkingLevel)
+	}
 
 	// Registered factories build the model themselves. Kit does not add
 	// automatic prompt-cache options to their result: the factory owns its
@@ -440,6 +449,20 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 
 	if createErr != nil {
 		return nil, createErr
+	}
+	if config.ThinkingLevel != ThinkingOff {
+		// Google exposes a native string-valued thinking level. Do not turn
+		// arbitrary effort names into invented token budgets.
+		if modelInfo != nil && modelInfo.ReasoningIsGraded && result.Model.Provider() == google.Name {
+			level := string(config.ThinkingLevel)
+			result.ProviderOptions = fantasy.ProviderOptions{google.Name: &google.ProviderOptions{ThinkingConfig: &google.ThinkingConfig{ThinkingLevel: &level}}}
+		}
+		if len(result.ProviderOptions) == 0 {
+			return nil, fmt.Errorf("provider adapter for %s/%s cannot encode reasoning effort %q; select off or use an effort-capable wire", provider, modelName, config.ThinkingLevel)
+		}
+		if opts, ok := result.ProviderOptions[openai.Name].(*openai.ResponsesProviderOptions); ok && opts.ReasoningEffort != nil && !openai.IsResponsesReasoningModel(modelName) {
+			return nil, fmt.Errorf("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
+		}
 	}
 
 	// Anthropic's pinned SDK exposes ExtraBody, so mode options can be sent
@@ -741,7 +764,18 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	return &ProviderResult{Model: model, ProviderOptions: chatEffortOptions(config.ThinkingLevel, info.ID)}, nil
+}
+
+// chatEffortOptions uses the adapter's typed extra-body facility to preserve
+// arbitrary effort names (its ReasoningEffort field has a closed enum check).
+func chatEffortOptions(level ThinkingLevel, namespace string) fantasy.ProviderOptions {
+	if level == "" || level == ThinkingOff {
+		return nil
+	}
+	return fantasy.ProviderOptions{namespace: &openaicompat.ProviderOptions{
+		ExtraBody: map[string]any{"reasoning_effort": string(level)},
+	}}
 }
 
 // createAutoRoutedAnthropicProvider creates an anthropic provider for
@@ -779,7 +813,13 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
-	return &ProviderResult{Model: model, MessageCacheControl: true}, nil
+	var providerOpts fantasy.ProviderOptions
+	if metadata := GetGlobalRegistry().LookupModel(info.ID, modelName); metadata != nil && metadata.ReasoningIsGraded {
+		if effort, ok := anthropicEffortForLevel(config.ThinkingLevel); ok {
+			providerOpts = anthropic.NewProviderOptions(&anthropic.ProviderOptions{Effort: &effort})
+		}
+	}
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true}, nil
 }
 
 // createAutoRoutedOpenAIProvider creates an openai provider for
@@ -822,6 +862,9 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
+	if config.ThinkingLevel != "" && config.ThinkingLevel != ThinkingOff && !openai.IsResponsesReasoningModel(modelName) {
+		return nil, fmt.Errorf("responses adapter cannot encode reasoning effort %q for model %q; use the openai-compat wire if available", config.ThinkingLevel, modelName)
+	}
 	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
@@ -1021,9 +1064,11 @@ func clearConflictingAnthropicSamplingParams(config *ProviderConfig) {
 // returned map is nil (no extra options needed).
 func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
 	if !openai.IsResponsesModel(modelName) {
+		if effort := thinkingLevelToReasoningEffort(config.ThinkingLevel); effort != nil {
+			return fantasy.ProviderOptions{openai.Name: &openai.ProviderOptions{ReasoningEffort: effort}}
+		}
 		return nil
 	}
-
 	if openai.IsResponsesReasoningModel(modelName) {
 		reasoningSummary := "auto"
 		opts := &openai.ResponsesProviderOptions{
@@ -1049,36 +1094,21 @@ func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantas
 // thinkingLevelToReasoningEffort maps a ThinkingLevel to an OpenAI ReasoningEffort.
 // Returns nil for ThinkingOff (use the model's default).
 func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort {
-	switch level {
-	case ThinkingNone:
-		return new(openai.ReasoningEffortNone)
-	case ThinkingMinimal:
-		return new(openai.ReasoningEffortMinimal)
-	case ThinkingLow:
-		return new(openai.ReasoningEffortLow)
-	case ThinkingMedium:
-		return new(openai.ReasoningEffortMedium)
-	case ThinkingHigh:
-		return new(openai.ReasoningEffortHigh)
-	default:
+	if level == "" || level == ThinkingOff {
 		return nil
 	}
+	return new(openai.ReasoningEffort(level))
 }
 
 // catalogReasoningLevel maps a Kit ThinkingLevel onto the effort name used by
 // the models.dev catalog. ThinkingOff has no catalog equivalent: it means "do
 // not ask for reasoning at all" rather than an effort setting.
 func catalogReasoningLevel(level ThinkingLevel) (string, bool) {
-	switch level {
-	case ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
-		return string(level), true
-	default:
-		return "", false
-	}
+	return string(level), level != "" && level != ThinkingOff
 }
 
-// SupportedThinkingLevels returns the thinking levels the given model accepts,
-// in the order ThinkingLevels reports them.
+// SupportedThinkingLevels returns off followed by the model's published efforts
+// in catalog order. Without graded metadata it returns the default ladder.
 //
 // The list is derived from the catalog's reasoning metadata. When the catalog
 // has nothing usable for the model — an unknown model, or one that takes a
@@ -1091,11 +1121,17 @@ func SupportedThinkingLevels(provider, modelName string) []ThinkingLevel {
 	all := ThinkingLevels()
 	info := GetGlobalRegistry().LookupModel(provider, modelName)
 	if info == nil || !info.ReasoningIsGraded {
+		// Classic Anthropic thinking has numeric budgets, not arbitrary
+		// named efforts. Keep its existing finite controls.
+		if info != nil && info.Reasoning && (provider == "anthropic" || provider == "google-vertex-anthropic") {
+			return all[:len(all)-1]
+		}
 		return all
 	}
-	out := make([]ThinkingLevel, 0, len(all))
-	for _, l := range all {
-		if IsValidThinkingLevelForModel(l, provider, modelName) {
+	out := []ThinkingLevel{ThinkingOff}
+	for _, value := range info.ReasoningLevels {
+		l := ThinkingLevel(value)
+		if value != "" && !slices.Contains(out, l) {
 			out = append(out, l)
 		}
 	}
@@ -1128,6 +1164,9 @@ func IsValidThinkingLevelForModel(level ThinkingLevel, provider, modelName strin
 		info := GetGlobalRegistry().LookupModel(provider, modelName)
 		if info == nil {
 			return true
+		}
+		if !info.ReasoningIsGraded && info.Reasoning && (provider == "anthropic" || provider == "google-vertex-anthropic") {
+			return thinkingBudgetTokens(level) > 0
 		}
 		return info.SupportsReasoningLevel(catalogLevel)
 	}
@@ -1181,7 +1220,7 @@ func SuggestThinkingLevelFallback(level ThinkingLevel, provider, modelName strin
 	// Otherwise walk outward along the effort scale for the nearest supported
 	// level, preferring the lower one on a tie so a fallback never silently
 	// costs more than what was asked for.
-	scale := ThinkingLevels()
+	scale := append(ThinkingLevels(), ThinkingLevel("max"))
 	idx := slices.Index(scale, level)
 	if idx >= 0 {
 		for d := 1; d < len(scale); d++ {
@@ -1196,23 +1235,13 @@ func SuggestThinkingLevelFallback(level ThinkingLevel, provider, modelName strin
 	return ThinkingOff
 }
 
-// anthropicEffortForLevel maps a Kit ThinkingLevel onto the Anthropic
-// output_config.effort value. Only Kit's graded levels have an effort
-// equivalent; "off", "none", and "minimal" have no effort name, so the caller
-// must coerce those to a supported graded level first (see
-// SuggestThinkingLevelFallback). Returns ok=false for a level with no effort
-// mapping.
+// anthropicEffortForLevel preserves named efforts in output_config.effort.
+// off is Kit's omission control, not a provider effort.
 func anthropicEffortForLevel(level ThinkingLevel) (anthropic.Effort, bool) {
-	switch level {
-	case ThinkingLow:
-		return anthropic.EffortLow, true
-	case ThinkingMedium:
-		return anthropic.EffortMedium, true
-	case ThinkingHigh:
-		return anthropic.EffortHigh, true
-	default:
+	if level == "" || level == ThinkingOff {
 		return "", false
 	}
+	return anthropic.Effort(level), true
 }
 
 // buildAnthropicProviderOptions returns fantasy.ProviderOptions configured for
@@ -1429,6 +1458,18 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 		return createOpenAICodexProvider(ctx, config, modelName, apiKey)
 	}
 
+	// Chat-completions uses the compatible adapter's typed ExtraBody facility
+	// so future effort strings are not rejected by a compiled enum whitelist.
+	if !openai.IsResponsesModel(modelName) {
+		chatConfig := *config
+		chatConfig.ProviderAPIKey = apiKey
+		baseURL := config.ProviderURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		return createAutoRoutedOpenAICompatProvider(ctx, &chatConfig, modelName, &ProviderInfo{ID: "openai", Name: "OpenAI", API: baseURL})
+	}
+
 	// Regular OpenAI API key flow
 	var opts []openai.Option
 	opts = append(opts, openai.WithUserAgent(config.UserAgent), openai.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
@@ -1606,9 +1647,7 @@ func buildCodexProviderOptions(config *ProviderConfig, modelName string) fantasy
 		opts.Instructions = &config.SystemPrompt
 	}
 
-	if openai.IsResponsesReasoningModel(modelName) {
-		opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
-	}
+	opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
 
 	return fantasy.ProviderOptions{openai.Name: opts}
 }
@@ -1855,7 +1894,12 @@ func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, model
 		return nil, wrapProviderErr("OpenRouter", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	var providerOpts fantasy.ProviderOptions
+	if config.ThinkingLevel != "" && config.ThinkingLevel != ThinkingOff {
+		effort := openrouter.ReasoningEffort(config.ThinkingLevel)
+		providerOpts = openrouter.NewProviderOptions(&openrouter.ProviderOptions{Reasoning: &openrouter.ReasoningOptions{Effort: &effort}})
+	}
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -1900,7 +1944,12 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 		return nil, wrapProviderErr("Vercel", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	var providerOpts fantasy.ProviderOptions
+	if config.ThinkingLevel != "" && config.ThinkingLevel != ThinkingOff {
+		effort := vercel.ReasoningEffort(config.ThinkingLevel)
+		providerOpts = vercel.NewProviderOptions(&vercel.ProviderOptions{Reasoning: &vercel.ReasoningOptions{Effort: &effort}})
+	}
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -1931,13 +1980,13 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	// <think> tag extraction is handled transparently at the agent layer,
 	// so no provider-level hooks are needed here.
-	var opts []openai.Option
-	opts = append(opts, openai.WithUserAgent(config.UserAgent), openai.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
-	opts = append(opts, openai.WithBaseURL(baseURL))
-	opts = append(opts, openai.WithAPIKey(apiKey))
-	opts = append(opts, openai.WithName("custom"))
+	var opts []openaicompat.Option
+	opts = append(opts, openaicompat.WithUserAgent(config.UserAgent), openaicompat.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
+	opts = append(opts, openaicompat.WithBaseURL(baseURL))
+	opts = append(opts, openaicompat.WithAPIKey(apiKey))
+	opts = append(opts, openaicompat.WithName("custom"))
 
-	p, err := openai.New(opts...)
+	p, err := openaicompat.New(opts...)
 	if err != nil {
 		return nil, wrapProviderErr("custom", "provider", err)
 	}
@@ -1952,7 +2001,11 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 		return nil, wrapProviderErr("custom", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	var providerOpts fantasy.ProviderOptions
+	if modelInfo == nil || modelInfo.Reasoning {
+		providerOpts = chatEffortOptions(config.ThinkingLevel, "custom")
+	}
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {

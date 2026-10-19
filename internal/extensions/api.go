@@ -900,8 +900,8 @@ type Context struct {
 	GetTerminalSize func() (int, int)
 
 	// GetThinkingLevel returns the active extended-thinking effort level:
-	// "off", "none", "minimal", "low", "medium", or "high". Models that do
-	// not support reasoning report "off".
+	// a model-specific named effort, preserved exactly. "off" omits the effort;
+	// "none" is a literal provider effort.
 	//
 	// Pair with GetModelCapabilities("").Reasoning to tell "reasoning is
 	// switched off" apart from "this model cannot reason at all".

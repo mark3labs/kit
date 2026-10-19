@@ -89,7 +89,7 @@ var SlashCommands = []SlashCommand{
 	},
 	{
 		Name:        "/thinking",
-		Description: "Set thinking/reasoning level (off, none, minimal, low, medium, high)",
+		Description: "Set model-specific reasoning effort (no argument lists choices)",
 		Category:    "System",
 		Aliases:     []string{"/think"},
 		// No Complete function: /thinking opens a modal picker (like /model),

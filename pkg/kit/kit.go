@@ -819,17 +819,16 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 
 	// Validate and adjust thinking level for the target model.
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
-	if thinkingLevel != models.ThinkingOff {
+	if modelString != m.modelString && m.modelString != "" && thinkingLevel != models.ThinkingOff {
 		parts := strings.SplitN(modelString, "/", 2)
 		if len(parts) == 2 {
 			providerName, modelName := parts[0], parts[1]
 			if !models.IsValidThinkingLevelForModel(thinkingLevel, providerName, modelName) {
 				fallback := models.SuggestThinkingLevelFallback(thinkingLevel, providerName, modelName)
-				if fallback != models.ThinkingOff {
-					// Adjust the thinking level in the instance store so the change persists.
-					m.v.Set("thinking-level", string(fallback))
-					thinkingLevel = fallback
-				}
+				// Model switches use the ranked fallback; explicit level setters
+				// validate before this path and never silently substitute.
+				m.v.Set("thinking-level", string(fallback))
+				thinkingLevel = fallback
 			}
 		}
 	}
@@ -1312,8 +1311,9 @@ type Options struct {
 	MaxTokens int
 
 	// ThinkingLevel sets the reasoning effort for models that support
-	// extended thinking. Valid values: "off", "none", "minimal", "low",
-	// "medium", "high". "" = let the precedence chain resolve a level
+	// extended thinking. Values are model-specific and case-sensitive; see
+	// [SupportedThinkingLevels]. off omits effort; none is a provider value.
+	// "" = let the precedence chain resolve a level
 	// (env → config → per-model → "off"). Use [Kit.SetThinkingLevel]
 	// to change at runtime.
 	ThinkingLevel string
@@ -3687,15 +3687,25 @@ func (m *Kit) GetThinkingLevel() string {
 // With message-level caching, both thinking and caching work together.
 // Caching reduces costs by 60-90% for repeated context.
 //
-// A level the active model does not accept is replaced with the nearest
-// supported one rather than rejected. Check [Kit.SupportedThinkingLevels]
-// first when the exact level matters.
+// Named efforts are preserved exactly. An unsupported effort for a model with
+// published graded levels returns an error before provider recreation.
 func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
+	m.promptOptsMu.Lock()
+	defer m.promptOptsMu.Unlock()
+	provider, modelName, err := ParseModelString(m.modelString)
+	if err != nil {
+		return err
+	}
+	if !IsThinkingLevelSupported(provider, modelName, level) {
+		return fmt.Errorf("model %s does not support thinking level %q; supported: %v", m.modelString, level, m.SupportedThinkingLevels())
+	}
+	previous := m.v.GetString("thinking-level")
 	m.v.Set("thinking-level", level)
-	// Recreate agent with new thinking config by re-running SetModel
-	// with the same model string. SetModel rebuilds the provider and
-	// passes the updated viper config (including thinking-level).
-	return m.SetModel(ctx, m.modelString)
+	if err := m.setModelLocked(ctx, m.modelString); err != nil {
+		m.v.Set("thinking-level", previous)
+		return err
+	}
+	return nil
 }
 
 // SupportedThinkingLevels returns the reasoning levels the currently selected

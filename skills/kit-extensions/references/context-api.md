@@ -194,7 +194,8 @@ width, not bytes or runes, when fitting to `width`.
 ### Thinking Level
 
 ```go
-level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+level := ctx.GetThinkingLevel()  // exact model-specific effort, including future names
+// off omits effort; none is a literal provider value
 ```
 
 Models without reasoning support report `"off"`. To distinguish "reasoning is

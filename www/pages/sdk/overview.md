@@ -315,7 +315,7 @@ entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
 host, _ := kit.New(ctx, &kit.Options{
     Model:          "anthropic/claude-sonnet-4-5-20250929",
     MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
-    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
+    ThinkingLevel:  "high",            // model-specific effort; see SupportedThinkingLevels
     Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
     ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
     ProviderURL:    "https://proxy.internal/v1",
@@ -482,11 +482,15 @@ Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
 line accepts `"none"` but not `"minimal"`, the o-series accepts neither, and
 Anthropic's budget-based models accept every level. The catalog carries this
 per model, so consumers can query it rather than guessing from the model name.
+Catalog choices preserve exact spelling and can include `xhigh`, `max`, and future
+names outside the default ladder. `off` omits effort; `none` is a literal provider
+effort. Explicit unsupported SDK selections on graded models return an error.
+Custom lists are documented in [configuration](/configuration#model-specific-reasoning-levels).
 
 ```go
-// The full vocabulary Kit understands.
+// The default ladder, not an exhaustive catalog vocabulary.
 levels := kit.ThinkingLevels()
-// ["off", "none", "minimal", "low", "medium", "high"]
+// ["off", "none", "minimal", "low", "medium", "high", "xhigh"]
 
 // Narrow to what a specific model accepts.
 supported := kit.SupportedThinkingLevels("openai", "o3")

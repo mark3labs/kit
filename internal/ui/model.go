@@ -4129,7 +4129,11 @@ func (m *AppModel) copyNotice(n int) string {
 
 // cycleThinkingLevel advances to the next thinking level and applies it.
 func (m *AppModel) cycleThinkingLevel() {
-	levels := []string{"off", "none", "minimal", "low", "medium", "high"}
+	supported := models.SupportedThinkingLevels(m.providerName, m.modelName)
+	levels := make([]string, len(supported))
+	for i, level := range supported {
+		levels[i] = string(level)
+	}
 	current := m.thinkingLevel
 	if current == "" {
 		current = "off"
@@ -6612,10 +6616,6 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 
 	// Parse and validate the level.
 	level := models.ParseThinkingLevel(args)
-	if string(level) != strings.ToLower(args) {
-		m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, none, minimal, low, medium, high", args))
-		return nil
-	}
 
 	// Levels the active model does not accept are substituted rather than
 	// sent, since the provider would reject the request outright.
@@ -6623,7 +6623,7 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 		fallback := models.SuggestThinkingLevelFallback(level, m.providerName, m.modelName)
 		if fallback == models.ThinkingOff && level != models.ThinkingOff {
 			m.printSystemMessage(fmt.Sprintf(
-				"Model %s does not support the '%s' thinking level.", m.modelName, level))
+				"Model %s does not support the '%s' thinking level. Supported: %v", m.modelName, level, models.SupportedThinkingLevels(m.providerName, m.modelName)))
 			return nil
 		}
 		m.printSystemMessage(fmt.Sprintf(
