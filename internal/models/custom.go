@@ -30,15 +30,19 @@ func loadCustomModelsFrom(v *viper.Viper) map[string]ModelInfo {
 
 	customModels := v.GetStringMap("customModels")
 	result := make(map[string]ModelInfo, len(customModels))
-	for modelID := range customModels {
+	for modelID, raw := range customModels {
+		// Decode each entry independently. Keep IDs containing dots opaque
+		// rather than treating them as Viper key-path segments.
+		entry := viper.New()
+		entry.Set("model", raw)
 		var cfg CustomModelConfig
-		if err := v.UnmarshalKey("customModels."+modelID, &cfg); err != nil {
+		if err := entry.UnmarshalKey("model", &cfg); err != nil {
 			log.Printf("Warning: custom model %q: failed to parse configuration: %v; excluding model", modelID, err)
 			continue
 		}
 		// Inspect raw values before Viper's weak decoding can turn numbers
 		// into strings. An invalid declaration must not become unrestricted.
-		if err := validateCustomReasoningLevels(v.Get("customModels."+modelID+".reasoningLevels"), cfg); err != nil {
+		if err := validateCustomReasoningLevels(entry.Get("model.reasoningLevels"), cfg); err != nil {
 			log.Printf("Warning: custom model %q: %v; excluding model", modelID, err)
 			continue
 		}

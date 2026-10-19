@@ -90,6 +90,15 @@ func TestCustomReasoningDeclarations(t *testing.T) {
 			t.Fatalf("accepted %s", raw)
 		}
 	}
+	v := viper.New()
+	v.Set("customModels", map[string]any{
+		"qwen3.8": map[string]any{"reasoning": true, "reasoningLevels": []string{"Future"}},
+		"invalid": map[string]any{"reasoning": true, "reasoningLevels": []any{map[string]any{"bad": true}}},
+	})
+	loaded := loadCustomModelsFrom(v)
+	if len(loaded) != 1 || !slices.Equal(loaded["qwen3.8"].ReasoningLevels, []string{"Future"}) {
+		t.Fatalf("invalid neighbor or dotted ID changed valid model: %+v", loaded)
+	}
 	cfg := CustomModelConfig{Reasoning: true, ReasoningLevels: []string{"low", "Future", "low"}}
 	info := modelConfigToModelInfo("copy", cfg)
 	cfg.ReasoningLevels[0] = "changed"
