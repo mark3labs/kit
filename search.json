@@ -123,6 +123,7 @@
         "GitHub integration",
         "Interactive slash commands",
         "Prompt history",
+        "Copying text",
         "Cancelling operations",
         "External editor",
         "Mid-turn steering",
@@ -137,7 +138,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4098
+      "wordCount": 4321
     },
     {
       "id": "cli/flags",

@@ -226,11 +226,20 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/export [path]` | Export session as JSONL (default: auto-generated path) |
 | `/import <path>` | Import a session from a JSONL file |
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
+| `/copy` | Copy the last message to the clipboard (alias: `/cp`) |
 | `/quit` | Exit Kit |
 
 ### Prompt history
 
 Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
+
+### Copying text
+
+Drag with the mouse over the conversation to select text. Double-click selects a word, triple-click a line. Kit copies the selection when you release the button. The selection stays highlighted, and the status bar shows how many characters Kit copied. Both disappear at the next key, paste or click, or when the text under the selection changes, for example after a resize.
+
+Kit writes the copy to the system clipboard, on Linux with `wl-copy`, `xclip` or `xsel`. It sends the same text to the terminal as an OSC 52 sequence. On Linux and the BSDs, Kit also sets the primary selection, so a middle click in another window pastes the text. If Kit cannot write the system clipboard, it tells you once, with the reason and the tool to install. The status bar also says so after a copy with the mouse or in message navigation. Without a display, for example over SSH, there is no system clipboard to write. The copy then depends on OSC 52, and Kit reports nothing.
+
+In most terminals, holding **Shift** while you drag uses the terminal's own selection instead. To copy a whole message, use `/copy` for the last one, or press **Ctrl+X m**, move to the message and press **y**.
 
 ### Cancelling operations
 
