@@ -11,7 +11,7 @@
       "title": "Code Mode",
       "description": "Let the model write a JavaScript program that calls Kit's tools, so intermediate results do not fill the context.",
       "headings": [
-        "Enable it",
+        "Disable or select it",
         "What a script looks like",
         "Rules for scripts",
         "Helpers",
@@ -22,7 +22,7 @@
         "SDK"
       ],
       "tags": [],
-      "wordCount": 1031
+      "wordCount": 1114
     },
     {
       "id": "advanced/json-output",
@@ -159,7 +159,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1445
+      "wordCount": 1449
     },
     {
       "id": "configuration",
