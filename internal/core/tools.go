@@ -210,12 +210,6 @@ func DefaultCoreToolNames() []string {
 	return out
 }
 
-// IsOptInCoreTool reports whether name is a core tool that is off unless
-// named explicitly.
-func IsOptInCoreTool(name string) bool {
-	return optInCoreTools[NormalizeCoreToolName(name)]
-}
-
 // CodingTools returns the default set of core tools for a coding agent:
 // shell, read, write, edit.
 func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
