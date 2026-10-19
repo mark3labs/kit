@@ -18,12 +18,13 @@ import (
 func Init(api ext.API) {
 	// Tools that modify files.
 	writeTools := map[string]bool{
-		"Write": true,
-		"Edit":  true,
-		"Bash":  true,
+		"write": true,
+		"edit":  true,
+		"shell": true,
+		"bash":  true,
 	}
 
-	// Path patterns to protect (checked against the file_path / filePath field).
+	// Path patterns to protect (checked against the path field and shell commands).
 	protectedPatterns := []string{
 		".env",
 		".git/",
@@ -57,17 +58,13 @@ func Init(api ext.API) {
 			return nil
 		}
 
-		// For Write/Edit: check the file_path / filePath field.
-		if tc.ToolName == "Write" || tc.ToolName == "Edit" {
+		// For write and edit: check the path field.
+		if tc.ToolName == "write" || tc.ToolName == "edit" {
 			var input map[string]any
 			if err := json.Unmarshal([]byte(tc.Input), &input); err != nil {
 				return nil
 			}
-			// Try both naming conventions.
-			filePath, _ := input["file_path"].(string)
-			if filePath == "" {
-				filePath, _ = input["filePath"].(string)
-			}
+			filePath, _ := input["path"].(string)
 			if isProtected(filePath) {
 				return &ext.ToolCallResult{
 					Block:  true,
@@ -77,8 +74,8 @@ func Init(api ext.API) {
 			return nil
 		}
 
-		// For Bash: check if the command references protected paths.
-		if tc.ToolName == "Bash" {
+		// For the shell tool: check if the command references protected paths.
+		if tc.ToolName == "shell" || tc.ToolName == "bash" {
 			var input struct {
 				Command string `json:"command"`
 			}

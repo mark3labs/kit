@@ -30,7 +30,7 @@ func Init(api ext.API) {
 	}
 
 	api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
-		if tc.ToolName != "Bash" {
+		if tc.ToolName != "shell" && tc.ToolName != "bash" {
 			return nil
 		}
 
