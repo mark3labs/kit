@@ -194,6 +194,8 @@ func Symbols() interp.Exports {
 			"ThinkingLevelChangeEvent": reflect.ValueOf((*ThinkingLevelChangeEvent)(nil)),
 			"TerminalResizeEvent":      reflect.ValueOf((*TerminalResizeEvent)(nil)),
 			"TurnStateChangeEvent":     reflect.ValueOf((*TurnStateChangeEvent)(nil)),
+			"MCPToolsReadyEvent":       reflect.ValueOf((*MCPToolsReadyEvent)(nil)),
+			"MCPServerInfo":            reflect.ValueOf((*MCPServerInfo)(nil)),
 
 			// Step lifecycle events
 			"StepStartEvent":      reflect.ValueOf((*StepStartEvent)(nil)),

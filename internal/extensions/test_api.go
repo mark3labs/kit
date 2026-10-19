@@ -129,6 +129,12 @@ func NewTestAPI(ext *LoadedExtension) API {
 				return nil
 			})
 		},
+		onMCPToolsReady: func(h func(MCPToolsReadyEvent, Context)) {
+			reg(MCPToolsReady, func(e Event, c Context) Result {
+				h(e.(MCPToolsReadyEvent), c)
+				return nil
+			})
+		},
 		onContextPrepare: func(h func(ContextPrepareEvent, Context) *ContextPrepareResult) {
 			reg(ContextPrepare, func(e Event, c Context) Result {
 				r := h(e.(ContextPrepareEvent), c)

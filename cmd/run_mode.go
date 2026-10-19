@@ -105,6 +105,7 @@ type uiActions struct {
 	emitThinkingLevelChange func(string, string, string)
 	emitTerminalResize      func(int, int)
 	emitTurnStateChange     func(string, string)
+	emitMCPToolsReady       func()
 	setThinkingLevel        func(string) error
 	setModelMode            func(string) error
 	switchSession           func(string) error
@@ -590,6 +591,7 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			k.Extensions().EmitTerminalResize(width, height)
 		},
 		emitTurnStateChange: k.Extensions().EmitTurnStateChange,
+		emitMCPToolsReady:   k.Extensions().EmitMCPToolsReady,
 		setThinkingLevel: func(level string) error {
 			return k.SetThinkingLevel(context.Background(), level)
 		},

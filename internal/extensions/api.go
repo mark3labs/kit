@@ -1267,6 +1267,10 @@ type PrintBlockOpts struct {
 	// Subtitle is optional text shown below the content in muted style
 	// (e.g. extension name, timestamp). Empty means no subtitle line.
 	Subtitle string
+	// Markdown, when true, renders Text as styled markdown, as
+	// WidgetContent.Markdown does for widgets. Interactive TUI only;
+	// elsewhere Text is printed as it is.
+	Markdown bool
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,6 +1310,7 @@ type API struct {
 	onThinkingLevelChange     func(func(ThinkingLevelChangeEvent, Context))
 	onTerminalResize          func(func(TerminalResizeEvent, Context))
 	onTurnStateChange         func(func(TurnStateChangeEvent, Context))
+	onMCPToolsReady           func(func(MCPToolsReadyEvent, Context))
 	onContextPrepare          func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
 	onBeforeFork              func(func(BeforeForkEvent, Context) *BeforeForkResult)
 	onBeforeSessionSwitch     func(func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult)
@@ -1512,6 +1517,28 @@ func (a *API) OnTerminalResize(handler func(TerminalResizeEvent, Context)) {
 //	})
 func (a *API) OnTurnStateChange(handler func(TurnStateChangeEvent, Context)) {
 	a.onTurnStateChange(handler)
+}
+
+// OnMCPToolsReady registers a handler that fires once, when the background
+// loading of the configured MCP servers has finished. The event lists the
+// servers that loaded, with their tools. It does not fire when no MCP
+// servers are configured. Interactive TUI only.
+//
+// Kit announces each server with a message of its own as the server loads.
+// To show one summary instead, set UIVisibility.HideMCPStartupMessages in
+// OnSessionStart and print the summary from this handler.
+//
+// Example - one line for all servers:
+//
+//	api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+//	    var names []string
+//	    for _, s := range e.Servers {
+//	        names = append(names, fmt.Sprintf("%s (%d)", s.Name, len(s.Tools)))
+//	    }
+//	    ctx.PrintInfo("MCP: " + strings.Join(names, ", "))
+//	})
+func (a *API) OnMCPToolsReady(handler func(MCPToolsReadyEvent, Context)) {
+	a.onMCPToolsReady(handler)
 }
 
 // OnContextPrepare registers a handler that fires after the context window is
@@ -1913,6 +1940,10 @@ type UIVisibility struct {
 	// submit hint is no longer a separate line below the composer; it lives
 	// in the placeholder and disappears as soon as the user types.
 	HideInputHint bool
+	// HideMCPStartupMessages hides the message Kit prints when an MCP server
+	// has loaded. It does not hide failure messages. Pair it with
+	// OnMCPToolsReady to show one summary of all servers instead.
+	HideMCPStartupMessages bool
 }
 
 // ---------------------------------------------------------------------------
@@ -2626,6 +2657,27 @@ type TurnStateChangeEvent struct {
 }
 
 func (e TurnStateChangeEvent) Type() EventType { return TurnStateChange }
+
+// MCPServerInfo describes one loaded MCP server in an MCPToolsReadyEvent.
+type MCPServerInfo struct {
+	// Name is the server name from the mcpServers config.
+	Name string
+	// Tools lists the server's tools by the names the server gives them,
+	// without the "server__" prefix that the model sees. Sorted.
+	Tools []string
+}
+
+// MCPToolsReadyEvent fires once, when the background loading of the
+// configured MCP servers has finished, successfully or not.
+//
+// Interactive TUI only.
+type MCPToolsReadyEvent struct {
+	// Servers lists the servers that loaded, sorted by name. A server that
+	// failed to load is not listed.
+	Servers []MCPServerInfo
+}
+
+func (e MCPToolsReadyEvent) Type() EventType { return MCPToolsReady }
 
 // ContextPrepareEvent fires after the context window is built from the session
 // tree and before the messages are sent to the LLM. Handlers can inspect the

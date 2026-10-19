@@ -8,7 +8,7 @@ ogImage: /og-image.png
 
 ## Lifecycle events
 
-Extensions can hook into 30 lifecycle events:
+Extensions can hook into 31 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -34,6 +34,7 @@ Extensions can hook into 30 lifecycle events:
 | `OnThinkingLevelChange` | Extended-thinking effort level changed |
 | `OnTerminalResize` | Terminal resized (also fires once at startup) |
 | `OnTurnStateChange` | UI entered or left the working state |
+| `OnMCPToolsReady` | Background loading of the MCP servers finished (once) |
 | `OnContextPrepare` | Context being assembled for the model |
 | `OnBeforeFork` | Before forking a conversation branch |
 | `OnBeforeSessionSwitch` | Before switching sessions |
@@ -329,6 +330,43 @@ path back to idle, including cancellation and error.
 
 Interactive TUI only — like `OnTerminalResize`, this does not fire in headless,
 ACP, or script mode.
+
+## MCP tools ready
+
+```go
+api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+    // e.Servers []ext.MCPServerInfo, sorted by name
+    // s.Name string, s.Tools []string (sorted, without the "server__" prefix)
+})
+```
+
+Fires once, when the background loading of the configured MCP servers has
+finished. `Servers` lists the servers that loaded. A server that failed to load
+is not listed. The event does not fire when no MCP servers are configured.
+
+Kit prints a message for each server as it loads. To show one summary instead,
+hide these messages in `OnSessionStart` and print the summary when the event
+arrives. `PrintBlock` with `Markdown: true` renders a markdown table:
+
+```go
+api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    ctx.SetUIVisibility(ext.UIVisibility{HideMCPStartupMessages: true})
+})
+
+api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+    table := "| MCP server | Tools |\n|---|---|\n"
+    for _, s := range e.Servers {
+        table += "| " + s.Name + " | " + strings.Join(s.Tools, ", ") + " |\n"
+    }
+    ctx.PrintBlock(ext.PrintBlockOpts{Text: table, Markdown: true})
+})
+```
+
+`HideMCPStartupMessages` hides only the messages for servers that loaded.
+`examples/extensions/mcp-table.go` is a complete extension with an option to
+choose between the table, no messages, and the default messages.
+
+Interactive TUI only, like `OnTerminalResize`.
 
 ## Shortcuts
 

@@ -395,6 +395,9 @@ type UIVisibility struct {
 	// submit hint is no longer a separate line below the composer; it lives
 	// in the placeholder and disappears as soon as the user types.
 	HideInputHint bool
+	// HideMCPStartupMessages hides the message for each MCP server that has
+	// loaded. It does not hide failure messages.
+	HideMCPStartupMessages bool
 }
 
 // AppModelOptions holds configuration passed to NewAppModel.
@@ -612,6 +615,10 @@ type AppModelOptions struct {
 	// EmitTurnStateChange fires the OnTurnStateChange extension event when
 	// the UI enters or leaves the working state. May be nil.
 	EmitTurnStateChange func(state, previous string)
+
+	// EmitMCPToolsReady fires the OnMCPToolsReady extension event once
+	// background MCP loading has finished. May be nil.
+	EmitMCPToolsReady func()
 
 	// KillSession stops the hosted daemon session. A nil callback makes /kill quit Kit.
 	KillSession func() error
@@ -955,6 +962,9 @@ type AppModel struct {
 	// emitTurnStateChange fires the OnTurnStateChange extension event. May be nil.
 	emitTurnStateChange func(state, previous string)
 
+	// emitMCPToolsReady fires the OnMCPToolsReady extension event. May be nil.
+	emitMCPToolsReady func()
+
 	// extEvents serializes extension event dispatch so that rapid events
 	// reach the runner in emission order. See ext_event_dispatcher.go.
 	extEvents *extEventDispatcher
@@ -1252,6 +1262,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitTerminalResize = opts.EmitTerminalResize
 	m.readTerminalCapabilities = opts.ReadTerminalCapabilities
 	m.emitTurnStateChange = opts.EmitTurnStateChange
+	m.emitMCPToolsReady = opts.EmitMCPToolsReady
 	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
 	m.modelMode = opts.ModelMode
@@ -1869,6 +1880,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// strand every animation on screen — the wordmark with a highlight
 		// band frozen across it, the activity dot mid-bounce.
 		return m, m.advanceFrame(msg)
+	case app.MCPToolsReadyEvent:
+		// Handled here, ahead of the modal routing below, because the end of
+		// MCP loading arrives only once: a prompt or overlay open at that
+		// moment would swallow it, and the tool list and OnMCPToolsReady
+		// would never catch up. Refresh tool names, count, and prompts.
+		m.refreshToolNames()
+		m.refreshMCPToolCount()
+		m.refreshMCPPrompts()
+		// Extension handlers may print, so they run off the Update goroutine.
+		m.extEvents.dispatch(m.emitMCPToolsReady)
+		return m, nil
 	case tea.KeyPressMsg:
 		// Typing into the composer does not read the scrollback, so it
 		// leaves buffered chunks for the scheduled flush tick. Flushing
@@ -3300,13 +3322,12 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshSkillItems()
 		m.printSystemMessage("Prompts and skills reloaded.")
 
-	case app.MCPToolsReadyEvent:
-		// Background MCP tool loading completed — refresh tool names, count, and prompts.
-		m.refreshToolNames()
-		m.refreshMCPToolCount()
-		m.refreshMCPPrompts()
-
 	case app.MCPServerLoadedEvent:
+		// An extension that prints its own summary of the servers can hide
+		// the message for each server that loaded, but not a failure.
+		if msg.Error == nil && m.uiVis().HideMCPStartupMessages {
+			break
+		}
 		// A single MCP server finished loading — display a system message.
 		if msg.Error != nil {
 			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
@@ -4967,7 +4988,12 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 	// evt.BorderColor is the extension's own choice and stays fixed; only the
 	// theme-derived parts of the block follow the active palette.
 	msg := NewThemedMessageItem(generateMessageID(), "extension", evt.Text, func() string {
-		return m.renderer.RenderExtensionBlock(evt.Text, evt.BorderColor, evt.Subtitle).Content
+		text := evt.Text
+		if evt.Markdown {
+			// The block lays text into the same column as a bordered widget.
+			text = widgetMarkdown(text, m.width, false)
+		}
+		return m.renderer.RenderExtensionBlock(text, evt.BorderColor, evt.Subtitle).Content
 	})
 	m.messages = append(m.messages, msg)
 

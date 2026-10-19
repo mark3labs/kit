@@ -13,6 +13,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | Extension | Description |
 |-----------|-------------|
 | [`minimal.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/minimal.go) | Clean UI with custom footer |
+| [`mcp-table.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/mcp-table.go) | One table of the loaded MCP servers and their tools instead of a message per server |
 | [`branded-output.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/branded-output.go) | Branded output rendering |
 | [`header-footer-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/header-footer-demo.go) | Custom headers and footers |
 | [`status-footer.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/status-footer.go) | Configurable status bar footer: model, context, cache, cost, clock, turn timing |

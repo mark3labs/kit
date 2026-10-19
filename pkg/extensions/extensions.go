@@ -116,6 +116,10 @@ const TerminalResize = internalext.TerminalResize
 // reaches the agent loop, such as shell commands. Interactive TUI only.
 const TurnStateChange = internalext.TurnStateChange
 
+// MCPToolsReady fires once when the background loading of the configured
+// MCP servers has finished. Interactive TUI only.
+const MCPToolsReady = internalext.MCPToolsReady
+
 // ContextPrepare fires after context is built from the session tree and
 // before the messages are sent to the LLM. Handlers can filter, reorder,
 // or inject messages into the context window.
@@ -626,6 +630,15 @@ type TerminalResizeEvent = internalext.TerminalResizeEvent
 //
 // Interactive TUI only.
 type TurnStateChangeEvent = internalext.TurnStateChangeEvent
+
+// MCPServerInfo describes one loaded MCP server in an MCPToolsReadyEvent:
+// its name and its tool names, sorted.
+type MCPServerInfo = internalext.MCPServerInfo
+
+// MCPToolsReadyEvent fires once, when the background loading of the
+// configured MCP servers has finished. Servers lists the servers that
+// loaded; a server that failed to load is not listed. Interactive TUI only.
+type MCPToolsReadyEvent = internalext.MCPToolsReadyEvent
 
 // ContextPrepareEvent fires after the context window is built from the session
 // tree and before the messages are sent to the LLM. Handlers can inspect the

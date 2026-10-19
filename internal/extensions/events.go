@@ -82,6 +82,10 @@ const (
 	// reaches the agent loop, such as shell commands. Interactive TUI only.
 	TurnStateChange EventType = "turn_state_change"
 
+	// MCPToolsReady fires once when the background loading of the
+	// configured MCP servers has finished. Interactive TUI only.
+	MCPToolsReady EventType = "mcp_tools_ready"
+
 	// ContextPrepare fires after context is built from the session tree and
 	// before the messages are sent to the LLM. Handlers can filter, reorder,
 	// or inject messages into the context window.
@@ -160,7 +164,7 @@ func AllEventTypes() []EventType {
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,
 		ModelChange, ContextPrepare,
-		ThinkingLevelChange, TerminalResize, TurnStateChange,
+		ThinkingLevelChange, TerminalResize, TurnStateChange, MCPToolsReady,
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 		SubagentStart, SubagentChunk, SubagentEnd,
 		StepStart, StepFinish, ReasoningStart, Warnings, Source, Error, Retry,

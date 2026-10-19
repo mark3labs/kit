@@ -73,6 +73,11 @@ type App struct {
 	// Nil in non-interactive mode.
 	program *tea.Program
 
+	// mcpToolsReadyPending records that MCP loading finished before the
+	// program was registered; SetProgram then sends MCPToolsReadyEvent.
+	// Guarded by mu.
+	mcpToolsReadyPending bool
+
 	// cancelStep cancels the current in-flight agent step. It is replaced on
 	// each new step and called by CancelCurrentStep().
 	cancelStep context.CancelFunc
@@ -231,10 +236,23 @@ func (a *App) WaitForIdle(timeout time.Duration) error {
 
 // SetProgram registers the Bubble Tea program used to send events in
 // interactive mode. Must be called before Run() in interactive mode.
+//
+// MCP servers load in the background and can finish before the program
+// exists. NotifyMCPToolsReady records that case, and SetProgram sends the
+// event on its behalf.
 func (a *App) SetProgram(p *tea.Program) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.program = p
+	replay := p != nil && a.mcpToolsReadyPending
+	if replay {
+		a.mcpToolsReadyPending = false
+	}
+	a.mu.Unlock()
+	if replay {
+		// Send blocks until the event loop reads the message, and the loop
+		// starts only when the caller runs the program after SetProgram.
+		go p.Send(MCPToolsReadyEvent{})
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -1557,10 +1575,15 @@ func (a *App) NotifyThemeChange() {
 
 // NotifyMCPToolsReady sends an MCPToolsReadyEvent to the TUI so it refreshes
 // tool names and MCP tool count from provider callbacks. Called when background
-// MCP tool loading completes. In non-interactive mode this is a no-op.
+// MCP tool loading completes. When that happens before the TUI program is
+// registered, SetProgram sends the event later. In non-interactive mode this
+// is a no-op.
 func (a *App) NotifyMCPToolsReady() {
 	a.mu.Lock()
 	prog := a.program
+	if prog == nil {
+		a.mcpToolsReadyPending = true
+	}
 	a.mu.Unlock()
 	if prog != nil {
 		prog.Send(MCPToolsReadyEvent{})
@@ -1675,6 +1698,7 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 			Level:       "block",
 			BorderColor: opts.BorderColor,
 			Subtitle:    opts.Subtitle,
+			Markdown:    opts.Markdown,
 		})
 		return
 	}
