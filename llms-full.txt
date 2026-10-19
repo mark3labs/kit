@@ -1464,7 +1464,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/model [name]` | Switch model or open model selector. The selector lists every model in the catalogue; models whose provider has no credentials are dimmed and cannot be selected — use `/connect` to add a key. Search ranks by match quality alone, so dimmed models stay findable (e.g. type `openrouter/sonnet`). |
 | `/connect [provider]` | Add an API key for a provider. Opens a searchable provider list, then a masked key input. The key is saved to the credentials file and the active model is reconnected when it belongs to that provider. `/connect groq` skips the list. Alias: `/login`. |
 | `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
-| `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
+| `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a model-specific effort switches directly, reporting any substitution. Catalog choices can include `xhigh`, `max`, and future names. `off` omits effort; `none` is literal. |
 | `/compact [focus]` | Summarize older messages to free context |
 | `/subagents` | Open the [read-only subagent inspector](/advanced/subagents#inspecting-subagent-conversations) on the newest retained run. Use `Ctrl+Alt+A` to pick a run. Replaces `/subagent-sessions` and `/agents`; extensions cannot override this command. |
 | `/kill-subagent` | Open a picker of the running subagents and stop the selected one. The parent agent is told that the user killed it. Alias: `/ks`. |
@@ -1936,7 +1936,7 @@ other per-server fields, use the [config file](/configuration#mcp-server-configu
 | `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
 | `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
 | `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
-| `--thinking-level` | — | `off` | Extended thinking level: off, none, minimal, low, medium, high |
+| `--thinking-level` | — | `off` | Model-specific reasoning effort (`/thinking` lists choices). `off` omits effort; `none` is literal |
 
 ## System
 
@@ -1984,7 +1984,7 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
-| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high. Levels a model does not accept are substituted with the nearest supported one at runtime. |
+| `thinking-level` | string | `off` | Model-specific reasoning effort. `/thinking` lists catalog choices; explicit unsupported CLI/SDK values return an error. `off` omits effort; `none` is literal. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
@@ -2000,6 +2000,37 @@ stream: true
 | `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
 | `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
 | `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/<name>`) |
+
+## Model-specific reasoning levels
+
+Catalog effort names are preserved exactly, including `xhigh`, `max`, and future
+values. Without graded metadata the default ladder is `off`, `none`, `minimal`,
+`low`, `medium`, `high`, `xhigh`. Unknown OpenAI-compatible endpoints may accept
+other explicit strings. An adapter that cannot encode the selection returns an
+error rather than silently dropping it. Token-budget controls remain finite.
+
+Declare custom endpoint capabilities with `reasoningLevels` (YAML or JSON):
+
+```yaml
+customModels:
+  jundot-qwen:
+    name: Qwen3.8-27B
+    baseUrl: http://localhost:8000/v1
+    apiModelName: Qwen3.8-27B-oQ6e-fp16-mtp
+    reasoning: true
+    reasoningLevels: [low, medium, xhigh]
+    limit:
+      context: 262144
+      output: 32768
+```
+
+A non-empty list requires `reasoning: true`; blank, non-string, and reserved
+`off` entries are invalid. Invalid models are excluded with a warning. Order is
+preserved and duplicates removed. Omitted/empty lists keep capabilities unknown.
+`params.thinkingLevel` and `modelSettings` remain defaults, not capability lists.
+`off` omits the field, which does not guarantee that the provider stops reasoning.
+The TUI reports substitutions; explicit CLI/SDK invalid selections fail before
+network I/O. There are no effort translation maps.
 
 ## Environment variables
 
@@ -2670,7 +2701,8 @@ ctx.RemoveStatus("mode")
 ## Thinking level
 
 ```go
-level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+level := ctx.GetThinkingLevel()  // exact model-specific effort, including future names
+// off omits effort; none is a literal provider value
 
 api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
     // e.NewLevel, e.PreviousLevel string
@@ -5070,7 +5102,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
-    ThinkingLevel:    "medium",           // "off", "none", "minimal", "low", "medium", "high"
+    ThinkingLevel:    "medium",           // model-specific; see SupportedThinkingLevels
     Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset
     TopP:             nil,                 // nil = provider/per-model default
     TopK:             nil,
@@ -5163,7 +5195,7 @@ defaults for samplers).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
-| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. A level the active model does not accept is substituted with the nearest supported one; call [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) to check first when the exact level matters. |
+| `ThinkingLevel` | `string` | auto-resolved | Case-sensitive, model-specific effort. `off` omits the field; `none` is literal. `""` falls through to config/env/per-model/`"off"`. Explicit unsupported selections return an error; use [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) for catalog choices (which may include future names). |
 | `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
 | `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
 | `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |
@@ -5906,7 +5938,7 @@ entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
 host, _ := kit.New(ctx, &kit.Options{
     Model:          "anthropic/claude-sonnet-4-5-20250929",
     MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
-    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
+    ThinkingLevel:  "high",            // model-specific effort; see SupportedThinkingLevels
     Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
     ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
     ProviderURL:    "https://proxy.internal/v1",
@@ -6073,11 +6105,15 @@ Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
 line accepts `"none"` but not `"minimal"`, the o-series accepts neither, and
 Anthropic's budget-based models accept every level. The catalog carries this
 per model, so consumers can query it rather than guessing from the model name.
+Catalog choices preserve exact spelling and can include `xhigh`, `max`, and future
+names outside the default ladder. `off` omits effort; `none` is a literal provider
+effort. Explicit unsupported SDK selections on graded models return an error.
+Custom lists are documented in [configuration](/configuration#model-specific-reasoning-levels).
 
 ```go
-// The full vocabulary Kit understands.
+// The default ladder, not an exhaustive catalog vocabulary.
 levels := kit.ThinkingLevels()
-// ["off", "none", "minimal", "low", "medium", "high"]
+// ["off", "none", "minimal", "low", "medium", "high", "xhigh"]
 
 // Narrow to what a specific model accepts.
 supported := kit.SupportedThinkingLevels("openai", "o3")
@@ -6099,11 +6135,12 @@ selected model:
 levels := host.SupportedThinkingLevels()
 ```
 
-Unknown models and models with a token-budget or on/off reasoning control
-(rather than named levels) accept every level, so callers are never blocked on
-missing catalog data. `SetThinkingLevel` accepts any level, substituting a
-supported one when needed — check `SupportedThinkingLevels` first when the
-exact level matters.
+Unknown-capability models pass named efforts through metadata validation;
+provider adapters may still reject values they cannot encode. For graded models,
+`SetThinkingLevel` requires exact membership and returns an error without changing
+the current selection. Use `SuggestThinkingLevel` to choose a supported substitute.
+Inherited model-switch values and persisted preferences may fall back to `off`
+when an adapter cannot represent them; explicit CLI/SDK requests remain strict.
 
 ### Deprecation status
 

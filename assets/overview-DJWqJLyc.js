@@ -383,7 +383,7 @@ entirely in-code via <code>Options</code>, without touching <code>.kit.yml</code
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:          </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MaxTokens:      </span><span style="color:#005CC5;--shiki-dark:#79B8FF">16384</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// 0 = auto-resolve (env → config → per-model → floor)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ThinkingLevel:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"high"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,            </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "off" | "none" | "minimal" | "low" | "medium" | "high"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ThinkingLevel:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"high"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,            </span><span style="color:#6A737D;--shiki-dark:#6A737D">// model-specific effort; see SupportedThinkingLevels</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Temperature:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ptrFloat32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">0.2</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),   </span><span style="color:#6A737D;--shiki-dark:#6A737D">// nil = provider/per-model default</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderAPIKey: os.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Getenv</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"MY_SECRET"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">), </span><span style="color:#6A737D;--shiki-dark:#6A737D">// overrides pre-existing viper state</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderURL:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://proxy.internal/v1"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
@@ -534,10 +534,14 @@ counts outside the tracker.</p>
 <p>Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
 line accepts <code>"none"</code> but not <code>"minimal"</code>, the o-series accepts neither, and
 Anthropic's budget-based models accept every level. The catalog carries this
-per model, so consumers can query it rather than guessing from the model name.</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// The full vocabulary Kit understands.</span></span>
+per model, so consumers can query it rather than guessing from the model name.
+Catalog choices preserve exact spelling and can include <code>xhigh</code>, <code>max</code>, and future
+names outside the default ladder. <code>off</code> omits effort; <code>none</code> is a literal provider
+effort. Explicit unsupported SDK selections on graded models return an error.
+Custom lists are documented in <a href="/configuration#model-specific-reasoning-levels">configuration</a>.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// The default ladder, not an exhaustive catalog vocabulary.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">levels </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// ["off", "none", "minimal", "low", "medium", "high"]</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// ["off", "none", "minimal", "low", "medium", "high", "xhigh"]</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Narrow to what a specific model accepts.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">supported </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SupportedThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"o3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
@@ -553,11 +557,12 @@ per model, so consumers can query it rather than guessing from the model name.</
 <p>On a live agent, <code>(*Kit).SupportedThinkingLevels()</code> uses the currently
 selected model:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">levels </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SupportedThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
-<p>Unknown models and models with a token-budget or on/off reasoning control
-(rather than named levels) accept every level, so callers are never blocked on
-missing catalog data. <code>SetThinkingLevel</code> accepts any level, substituting a
-supported one when needed — check <code>SupportedThinkingLevels</code> first when the
-exact level matters.</p>
+<p>Unknown-capability models pass named efforts through metadata validation;
+provider adapters may still reject values they cannot encode. For graded models,
+<code>SetThinkingLevel</code> requires exact membership and returns an error without changing
+the current selection. Use <code>SuggestThinkingLevel</code> to choose a supported substitute.
+Inherited model-switch values and persisted preferences may fall back to <code>off</code>
+when an adapter cannot represent them; explicit CLI/SDK requests remain strict.</p>
 <h3 id="deprecation-status"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#deprecation-status"><span class="icon icon-link"></span></a>Deprecation status</h3>
 <p><code>ModelInfo.Status</code> carries the catalog's lifecycle marker (<code>"deprecated"</code>,
 <code>"beta"</code>, or empty for GA). <code>info.IsDeprecated()</code> is the convenient predicate.
@@ -1307,7 +1312,7 @@ entirely in-code via \`Options\`, without touching \`.kit.yml\` or \`viper.Set()
 host, _ := kit.New(ctx, &kit.Options{
     Model:          "anthropic/claude-sonnet-4-5-20250929",
     MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
-    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
+    ThinkingLevel:  "high",            // model-specific effort; see SupportedThinkingLevels
     Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
     ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
     ProviderURL:    "https://proxy.internal/v1",
@@ -1474,11 +1479,15 @@ Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
 line accepts \`"none"\` but not \`"minimal"\`, the o-series accepts neither, and
 Anthropic's budget-based models accept every level. The catalog carries this
 per model, so consumers can query it rather than guessing from the model name.
+Catalog choices preserve exact spelling and can include \`xhigh\`, \`max\`, and future
+names outside the default ladder. \`off\` omits effort; \`none\` is a literal provider
+effort. Explicit unsupported SDK selections on graded models return an error.
+Custom lists are documented in [configuration](/configuration#model-specific-reasoning-levels).
 
 \`\`\`go
-// The full vocabulary Kit understands.
+// The default ladder, not an exhaustive catalog vocabulary.
 levels := kit.ThinkingLevels()
-// ["off", "none", "minimal", "low", "medium", "high"]
+// ["off", "none", "minimal", "low", "medium", "high", "xhigh"]
 
 // Narrow to what a specific model accepts.
 supported := kit.SupportedThinkingLevels("openai", "o3")
@@ -1500,11 +1509,12 @@ selected model:
 levels := host.SupportedThinkingLevels()
 \`\`\`
 
-Unknown models and models with a token-budget or on/off reasoning control
-(rather than named levels) accept every level, so callers are never blocked on
-missing catalog data. \`SetThinkingLevel\` accepts any level, substituting a
-supported one when needed — check \`SupportedThinkingLevels\` first when the
-exact level matters.
+Unknown-capability models pass named efforts through metadata validation;
+provider adapters may still reject values they cannot encode. For graded models,
+\`SetThinkingLevel\` requires exact membership and returns an error without changing
+the current selection. Use \`SuggestThinkingLevel\` to choose a supported substitute.
+Inherited model-switch values and persisted preferences may fall back to \`off\`
+when an adapter cannot represent them; explicit CLI/SDK requests remain strict.
 
 ### Deprecation status
 

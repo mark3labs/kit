@@ -82,7 +82,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
-    ThinkingLevel:    "medium",           // "off", "none", "minimal", "low", "medium", "high"
+    ThinkingLevel:    "medium",           // model-specific; see SupportedThinkingLevels
     Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset
     TopP:             nil,                 // nil = provider/per-model default
     TopK:             nil,
@@ -175,7 +175,7 @@ defaults for samplers).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
-| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. A level the active model does not accept is substituted with the nearest supported one; call [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) to check first when the exact level matters. |
+| `ThinkingLevel` | `string` | auto-resolved | Case-sensitive, model-specific effort. `off` omits the field; `none` is literal. `""` falls through to config/env/per-model/`"off"`. Explicit unsupported selections return an error; use [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) for catalog choices (which may include future names). |
 | `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
 | `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
 | `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |

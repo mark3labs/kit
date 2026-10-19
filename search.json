@@ -138,7 +138,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4321
+      "wordCount": 4326
     },
     {
       "id": "cli/flags",
@@ -159,7 +159,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1449
+      "wordCount": 1452
     },
     {
       "id": "configuration",
@@ -169,6 +169,7 @@
       "headings": [
         "Basic configuration",
         "All configuration keys",
+        "Model-specific reasoning levels",
         "Environment variables",
         "MCP server configuration",
         "MCP server fields",
@@ -184,7 +185,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 2014
+      "wordCount": 2169
     },
     {
       "id": "development",
@@ -252,7 +253,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4587
+      "wordCount": 4597
     },
     {
       "id": "extensions/examples",
@@ -470,7 +471,7 @@
         "Routing file access and commands"
       ],
       "tags": [],
-      "wordCount": 3998
+      "wordCount": 3988
     },
     {
       "id": "sdk/overview",
@@ -512,7 +513,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5137
+      "wordCount": 5192
     },
     {
       "id": "sdk/sessions",
