@@ -1,6 +1,6 @@
 var e={frontmatter:{title:`Capabilities`,description:`All extension capabilities — lifecycle events, tools, commands, widgets, and more.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 30 lifecycle events:</p>
+<p>Extensions can hook into 31 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -96,6 +96,10 @@ var e={frontmatter:{title:`Capabilities`,description:`All extension capabilities
 <tr>
 <td><code>OnTurnStateChange</code></td>
 <td>UI entered or left the working state</td>
+</tr>
+<tr>
+<td><code>OnMCPToolsReady</code></td>
+<td>Background loading of the MCP servers finished (once)</td>
 </tr>
 <tr>
 <td><code>OnContextPrepare</code></td>
@@ -462,6 +466,32 @@ path back to idle, including cancellation and error.</p>
 </table>
 <p>Interactive TUI only — like <code>OnTerminalResize</code>, this does not fire in headless,
 ACP, or script mode.</p>
+<h2 id="mcp-tools-ready"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-tools-ready"><span class="icon icon-link"></span></a>MCP tools ready</h2>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnMCPToolsReady</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPToolsReadyEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Servers []ext.MCPServerInfo, sorted by name</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // s.Name string, s.Tools []string (sorted, without the "server__" prefix)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Fires once, when the background loading of the configured MCP servers has
+finished. <code>Servers</code> lists the servers that loaded. A server that failed to load
+is not listed. The event does not fire when no MCP servers are configured.</p>
+<p>Kit prints a message for each server as it loads. To show one summary instead,
+hide these messages in <code>OnSessionStart</code> and print the summary when the event
+arrives. <code>PrintBlock</code> with <code>Markdown: true</code> renders a markdown table:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnSessionStart</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">_</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SessionStartEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetUIVisibility</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UIVisibility</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{HideMCPStartupMessages: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnMCPToolsReady</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPToolsReadyEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    table </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "| MCP server | Tools |</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">|---|---|</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, s </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> e.Servers {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        table </span><span style="color:#D73A49;--shiki-dark:#F97583">+=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "| "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> s.Name </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> " | "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Join</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(s.Tools, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">", "</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> " |</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintBlock</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintBlockOpts</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: table, Markdown: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>HideMCPStartupMessages</code> hides only the messages for servers that loaded.
+<code>examples/extensions/mcp-table.go</code> is a complete extension with an option to
+choose between the table, no messages, and the default messages.</p>
+<p>Interactive TUI only, like <code>OnTerminalResize</code>.</p>
 <h2 id="shortcuts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#shortcuts"><span class="icon icon-link"></span></a>Shortcuts</h2>
 <p>Global keyboard shortcuts:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterShortcut</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShortcutDef</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -974,12 +1004,12 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
 
-Extensions can hook into 30 lifecycle events:
+Extensions can hook into 31 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -1005,6 +1035,7 @@ Extensions can hook into 30 lifecycle events:
 | \`OnThinkingLevelChange\` | Extended-thinking effort level changed |
 | \`OnTerminalResize\` | Terminal resized (also fires once at startup) |
 | \`OnTurnStateChange\` | UI entered or left the working state |
+| \`OnMCPToolsReady\` | Background loading of the MCP servers finished (once) |
 | \`OnContextPrepare\` | Context being assembled for the model |
 | \`OnBeforeFork\` | Before forking a conversation branch |
 | \`OnBeforeSessionSwitch\` | Before switching sessions |
@@ -1300,6 +1331,43 @@ path back to idle, including cancellation and error.
 
 Interactive TUI only — like \`OnTerminalResize\`, this does not fire in headless,
 ACP, or script mode.
+
+## MCP tools ready
+
+\`\`\`go
+api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+    // e.Servers []ext.MCPServerInfo, sorted by name
+    // s.Name string, s.Tools []string (sorted, without the "server__" prefix)
+})
+\`\`\`
+
+Fires once, when the background loading of the configured MCP servers has
+finished. \`Servers\` lists the servers that loaded. A server that failed to load
+is not listed. The event does not fire when no MCP servers are configured.
+
+Kit prints a message for each server as it loads. To show one summary instead,
+hide these messages in \`OnSessionStart\` and print the summary when the event
+arrives. \`PrintBlock\` with \`Markdown: true\` renders a markdown table:
+
+\`\`\`go
+api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    ctx.SetUIVisibility(ext.UIVisibility{HideMCPStartupMessages: true})
+})
+
+api.OnMCPToolsReady(func(e ext.MCPToolsReadyEvent, ctx ext.Context) {
+    table := "| MCP server | Tools |\\n|---|---|\\n"
+    for _, s := range e.Servers {
+        table += "| " + s.Name + " | " + strings.Join(s.Tools, ", ") + " |\\n"
+    }
+    ctx.PrintBlock(ext.PrintBlockOpts{Text: table, Markdown: true})
+})
+\`\`\`
+
+\`HideMCPStartupMessages\` hides only the messages for servers that loaded.
+\`examples/extensions/mcp-table.go\` is a complete extension with an option to
+choose between the table, no messages, and the default messages.
+
+Interactive TUI only, like \`OnTerminalResize\`.
 
 ## Shortcuts
 

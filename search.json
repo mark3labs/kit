@@ -225,6 +225,7 @@
         "Status bar",
         "Thinking level",
         "Turn state",
+        "MCP tools ready",
         "Shortcuts",
         "Key names",
         "Reserved and shadowed keys",
@@ -250,7 +251,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4386
+      "wordCount": 4587
     },
     {
       "id": "extensions/examples",
@@ -270,7 +271,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 607
+      "wordCount": 627
     },
     {
       "id": "extensions/loading",
