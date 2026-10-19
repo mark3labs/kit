@@ -112,8 +112,13 @@ type Kit struct {
 	// basePrompt holds the resolved base system prompt text (post file-load,
 	// pre runtime-context composition) captured during New. Used by
 	// RefreshSystemPrompt to recompose after skills/context-file mutations.
+	// A model switch replaces it with the base prompt of the new model.
 	// Protected by runtimeMu.
 	basePrompt string
+	// globalBasePrompt holds the base prompt before any per-model override:
+	// the configured system prompt, or the built-in default when none is
+	// configured. A model switch starts from it. Set in New, then constant.
+	globalBasePrompt string
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -788,9 +793,10 @@ func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.Message
 }
 
 // SetModel changes the active model at runtime. The existing tools and
-// session are preserved. When the new model has a per-model system prompt
-// (from modelSettings or customModels params), it is composed with the
-// current AGENTS.md context and skills before being applied.
+// session are preserved. The system prompt is composed again with the
+// current AGENTS.md context and skills, so runtime changes to either are
+// kept. When no system prompt is configured, a per-model system prompt
+// (from modelSettings or customModels params) replaces the built-in default.
 // The model string should be in "provider/model" format
 // (e.g. "anthropic/claude-sonnet-4-5-20250929").
 // Returns an error if the model string is invalid or the provider cannot
@@ -809,8 +815,6 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 	}
 
 	// Build a provider config from current settings, overriding the model.
-	// Load system prompt properly (handles both file paths and inline content).
-	systemPrompt, _ := config.LoadSystemPrompt(m.v.GetString("system-prompt"))
 	thinkingLevel := models.ParseThinkingLevel(m.v.GetString("thinking-level"))
 
 	// Validate and adjust thinking level for the target model.
@@ -838,7 +842,6 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 	}
 	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
-		SystemPrompt:   systemPrompt,
 		MaxTokens:      m.v.GetInt("max-tokens"),
 		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
@@ -851,29 +854,35 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 	}
 	m.applyEffectiveProviderSettings(cfg, modelString)
 
-	// When the user hasn't set a custom global system prompt, check for a
-	// per-model system prompt. Pre-apply model settings to discover it,
-	// then compose with AGENTS.md context and skills if found.
+	// Compose the system prompt from the base prompt of the new model and
+	// the current skills and context files. The composed prompt in the
+	// store dates from New, so reusing it would drop runtime changes.
+	// When the user hasn't set a custom global system prompt, a configured
+	// per-model system prompt replaces the global base prompt, as in New.
+	basePrompt := m.globalBasePrompt
 	if !m.hasCustomSystemPrompt {
-		// Temporarily clear the system prompt so ApplyModelSettings can
-		// detect that no explicit prompt is set and apply the per-model one.
-		cfg.SystemPrompt = ""
-		models.ApplyModelSettings(cfg, models.LookupModelForSettings(modelString))
-
-		if cfg.SystemPrompt != "" {
-			// Per-model system prompt found — compose with runtime context.
-			cfg.SystemPrompt = m.composeSystemPrompt(cfg.SystemPrompt)
-		} else {
-			// No per-model prompt — restore the global composed prompt.
-			cfg.SystemPrompt = systemPrompt
+		if p, ok := modelSystemPrompt(m.v, modelString); ok {
+			basePrompt = p
 		}
 	}
+	cfg.SystemPrompt = m.composeSystemPrompt(basePrompt)
 
 	fromFactory := m.factoryBacked(modelString)
 	previousModelString := m.modelString
 	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
+
+	// Later runtime changes compose the prompt from the new base prompt.
+	m.runtimeMu.Lock()
+	m.basePrompt = basePrompt
+	m.runtimeMu.Unlock()
+	// A runtime change during the switch may have published a prompt from
+	// the old base prompt, or the switch may have replaced its prompt.
+	// Publish once more under publicationMu so the agent has the current
+	// state. Holding publicationMu across agent.SetModel instead would
+	// block runtime changes while the agent waits for MCP loading.
+	m.applyComposedSystemPrompt()
 
 	m.modelString = modelString
 	m.activeModelFromFactory = fromFactory
@@ -950,7 +959,15 @@ func (m *Kit) GetSystemPromptSource() string {
 // It acquires a read lock on runtimeMu while snapshotting contextFiles and
 // skills, so callers must not hold the write lock.
 func (m *Kit) composeSystemPrompt(basePrompt string) string {
-	cwd, _ := os.Getwd()
+	// Report the working directory as New does: the session directory when
+	// one is set, else the process working directory.
+	var cwd string
+	if m.opts != nil {
+		cwd = m.opts.SessionDir
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 	pb := skills.NewPromptBuilder(basePrompt)
 
 	m.runtimeMu.RLock()
@@ -1816,6 +1833,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		hasCustomSystemPrompt: rc.hasCustomSystemPrompt,
 		systemPromptSource:    rc.systemPromptSource,
 		basePrompt:            rc.basePrompt,
+		globalBasePrompt:      rc.globalBasePrompt,
 		beforeToolCall:        hooks.beforeToolCall,
 		afterToolResult:       hooks.afterToolResult,
 		beforeTurn:            hooks.beforeTurn,

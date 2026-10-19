@@ -2017,6 +2017,12 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 		_ = a.providerCloser.Close()
 	}
 
+	// Swap the provider, the prompt and the fantasy agent under promptMu,
+	// as SetSystemPrompt and SetExtraTools do. RequestSnapshot and the
+	// rebuilds in those methods read these fields under the same lock.
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+
 	// Swap fields.
 	a.model = providerResult.Model
 	a.providerCloser = providerResult.Closer
