@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -58,6 +59,12 @@ type ScrollList struct {
 
 	// Character-level text selection (crush-style).
 	sel selection.State
+
+	// copied is the text of the selection as it was copied on mouse
+	// release, or "" when no copied selection is shown. The selection stays
+	// highlighted after the copy, so the user can see what was copied, for
+	// as long as it still marks that text.
+	copied string
 
 	// lineCache maps item ID → the item's rendered output and its lines.
 	// View, hit-testing and text selection all need an item as lines;
@@ -130,6 +137,7 @@ func (s *ScrollList) SetItems(items []MessageItem) {
 	if s.autoScroll && !s.sel.MouseDown {
 		s.GotoBottom()
 	}
+	s.dropStaleSelection()
 }
 
 // pruneHeightCache evicts height-cache entries for items that are no longer
@@ -162,6 +170,9 @@ func (s *ScrollList) pruneHeightCache() {
 // an item's content (e.g. AppendChunk on a streaming message).
 func (s *ScrollList) InvalidateItemHeight(id string) {
 	delete(s.heightCache, id)
+	if s.copied != "" && s.selectionCovers(id) {
+		s.dropStaleSelection()
+	}
 }
 
 // InvalidateHeights drops every cached height, forcing each item to be
@@ -170,6 +181,7 @@ func (s *ScrollList) InvalidateItemHeight(id string) {
 // block can occupy a different number of lines than the one it replaces.
 func (s *ScrollList) InvalidateHeights() {
 	clear(s.heightCache)
+	s.dropStaleSelection()
 }
 
 // SetSelectedIndex sets the message framed by the selection border, or -1 to
@@ -226,6 +238,9 @@ func (s *ScrollList) SetWidth(width int) {
 	s.width = width
 	// Width change invalidates all cached heights.
 	clear(s.heightCache)
+	// Text wraps anew at the new width, which can move the text under a
+	// copied selection.
+	s.dropStaleSelection()
 	s.clampOffset()
 }
 
@@ -245,6 +260,9 @@ func (s *ScrollList) HandleMouseDown(x, y int) bool {
 	if itemIdx < 0 {
 		return false
 	}
+
+	// The click starts a new selection, which replaces a copied one.
+	s.copied = ""
 
 	// Multi-click detection (crush-style).
 	now := time.Now()
@@ -339,6 +357,61 @@ func (s *ScrollList) HasSelection() bool {
 // ClearSelection clears the current text selection.
 func (s *ScrollList) ClearSelection() {
 	s.sel.Clear()
+	s.copied = ""
+}
+
+// KeepSelection records that the current selection was copied as text. The
+// selection then stays highlighted until EndKeptSelection or
+// ClearSelection, or until the text under it changes.
+func (s *ScrollList) KeepSelection(text string) {
+	s.copied = text
+}
+
+// CopiedChars returns the number of characters in the text that a kept
+// selection shows, or 0 when no copied selection is shown.
+func (s *ScrollList) CopiedChars() int {
+	return utf8.RuneCountInString(s.copied)
+}
+
+// EndKeptSelection clears a selection kept after a copy. After a double
+// click it keeps the click history, unlike ClearSelection, so the click
+// that ends the copied word can still make a triple click. After a drag,
+// the next click is a new single click, as it was when the copy cleared
+// the selection.
+func (s *ScrollList) EndKeptSelection() {
+	if s.copied == "" {
+		return
+	}
+	clicks := s.sel
+	s.ClearSelection()
+	if clicks.ClickCount >= 2 {
+		s.sel.LastClickTime = clicks.LastClickTime
+		s.sel.LastClickX = clicks.LastClickX
+		s.sel.LastClickY = clicks.LastClickY
+		s.sel.ClickCount = clicks.ClickCount
+	}
+}
+
+// selectionCovers reports whether the text selection includes the item with
+// the given ID.
+func (s *ScrollList) selectionCovers(id string) bool {
+	r := s.sel.GetRange()
+	for i := max(r.StartItemIdx, 0); i <= r.EndItemIdx && i < len(s.items); i++ {
+		if s.items[i].ID() == id {
+			return true
+		}
+	}
+	return false
+}
+
+// dropStaleSelection clears a kept selection when the text under it is no
+// longer the copied text. The selection marks text by item, line and
+// column, so a change to the items can make it mark other text, and the
+// highlight would then show something that was not copied.
+func (s *ScrollList) dropStaleSelection() {
+	if s.copied != "" && s.ExtractSelectedText() != s.copied {
+		s.ClearSelection()
+	}
 }
 
 // ExtractSelectedText returns the plain text content of the current selection

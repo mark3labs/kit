@@ -1041,6 +1041,21 @@ type AppModel struct {
 	// the next navigation keystroke.
 	navNotice string
 
+	// navCopied is the number of characters of the copy that navNotice
+	// acknowledges, so the notice can say when the copy missed the system
+	// clipboard. Every site that sets navNotice sets it too.
+	navCopied int
+
+	// clipboardNote reports a failed write to the system clipboard. It waits
+	// for a quiet scrollback (see quietScrollback). clipboardNoted makes the
+	// report appear only once.
+	clipboardNote  string
+	clipboardNoted bool
+
+	// clipboardFailed records that the latest copy did not reach the system
+	// clipboard, so that the status bar does not claim it did.
+	clipboardFailed bool
+
 	// cwd is the working directory for @file path resolution.
 	cwd   string
 	shell []string // shell for the ! and !! commands; empty means bash
@@ -1658,6 +1673,23 @@ func tildeHome(path string) string {
 // nothing on the overwhelming majority of messages, when the clock is either
 // already running or not wanted.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Before any mode can consume them: the next key, paste or click ends
+	// the selection kept after a mouse copy, and a failed write to the
+	// system clipboard is noted for its report (see clipboardNote).
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseClickMsg:
+		if m.scrollList != nil {
+			m.scrollList.EndKeptSelection()
+		}
+	case clipboard.NativeCopyFailedMsg:
+		m.clipboardFailed = true
+		if !m.clipboardNoted {
+			m.clipboardNoted = true
+			m.clipboardNote = fmt.Sprintf(
+				"Could not write the system clipboard (%s). Copies still go to the terminal as OSC 52, which not every terminal supports.",
+				strings.TrimSuffix(msg.Err.Error(), "."))
+		}
+	}
 	if m.subagentView != nil {
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
@@ -1702,6 +1734,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		placementCmd = m.completeGfxFlush()
 	}
 	model, cmd := m.update(msg)
+	if m.clipboardNote != "" && m.quietScrollback() {
+		m.printSystemMessage(m.clipboardNote)
+		m.clipboardNote = ""
+	}
 	cmds := []tea.Cmd{cmd, placementCmd}
 	if capabilityCmd != nil {
 		cmds = append(cmds, capabilityCmd)
@@ -2217,14 +2253,20 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		if m.scrollList.HandleMouseUp() {
 			// Selection completed — extract text and copy to clipboard.
-			if m.scrollList.HasSelection() {
-				text := m.scrollList.ExtractSelectedText()
-				if text != "" {
-					cmd := clipboard.CopyToClipboard(text)
-					cmds = append(cmds, cmd)
-				}
-				// Clear selection after copy (crush-style: copy on mouse-up).
+			text := m.scrollList.ExtractSelectedText()
+			if text == "" {
 				m.scrollList.ClearSelection()
+			} else {
+				cmds = append(cmds, clipboard.CopySelection(text))
+				m.clipboardFailed = false
+				// The selection stays highlighted, so the user can see
+				// what was copied, and the status bar says how much. In
+				// message navigation, the navigation notice says it.
+				m.scrollList.KeepSelection(text)
+				if m.state == stateMessageNav {
+					m.navCopied = len([]rune(text))
+					m.navNotice = fmt.Sprintf("Copied %d chars to clipboard.", m.navCopied)
+				}
 			}
 		}
 
@@ -3975,6 +4017,7 @@ func (m *AppModel) renderStatusBar() string {
 	// dialog carries its own, and showing both would advertise two sets of
 	// bindings for one keyboard.
 	var leftSide string
+	var hasNotice bool // the left side answers something the user just did
 	if m.navActive() {
 		var trailing string
 		switch {
@@ -3984,13 +4027,23 @@ func (m *AppModel) renderStatusBar() string {
 			// A notice displaces the key hints rather than crowding in beside
 			// them: it is transient and answers something the user just did,
 			// whereas the hints are always one Esc away from being needed.
-			trailing = "  " + lipgloss.NewStyle().Foreground(theme.Success).Render(m.navNotice)
+			notice := lipgloss.NewStyle().Foreground(theme.Success).Render(m.navNotice)
+			if m.navCopied > 0 {
+				notice = m.copyNotice(m.navCopied)
+			}
+			trailing = "  " + notice
+			hasNotice = true
 		default:
 			trailing = veryMuted.Render("  ↑/↓ move · u/U user · y copy · enter open · esc exit")
 		}
 		leftSide = " " + lipgloss.NewStyle().
 			Foreground(theme.Accent).
 			Render("MESSAGE NAV") + trailing
+	} else if n := m.scrollList.CopiedChars(); n > 0 {
+		// Like the navigation notice, the copy notice displaces the path,
+		// for as long as the copied selection stays highlighted.
+		leftSide = " " + m.copyNotice(n)
+		hasNotice = true
 	} else if m.cwd != "" {
 		left := tildeHome(m.cwd)
 		if m.gitBranch != "" {
@@ -4046,6 +4099,11 @@ func (m *AppModel) renderStatusBar() string {
 		rightParts = rightParts[:len(rightParts)-1]
 		rightSide = strings.Join(rightParts, sep)
 	}
+	// A notice on the left outlasts the model label, where the notice fits
+	// on its own: it is transient and answers something the user just did.
+	if hasNotice && !fits(leftSide, middleSide, rightSide) && fits(leftSide, middleSide, "") {
+		rightSide = ""
+	}
 	if !fits(leftSide, middleSide, rightSide) {
 		leftSide = ""
 	}
@@ -4055,6 +4113,18 @@ func (m *AppModel) renderStatusBar() string {
 
 	gap := max(m.width-lipgloss.Width(leftSide)-lipgloss.Width(middleSide)-lipgloss.Width(rightSide), 1)
 	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
+}
+
+// copyNotice renders the status bar acknowledgement for a copy of n
+// characters, as a warning when the copy did not reach the system clipboard.
+func (m *AppModel) copyNotice(n int) string {
+	theme := style.GetTheme()
+	if m.clipboardFailed {
+		return lipgloss.NewStyle().Foreground(theme.Warning).
+			Render(fmt.Sprintf("Copied %d chars; system clipboard failed.", n))
+	}
+	return lipgloss.NewStyle().Foreground(theme.Success).
+		Render(fmt.Sprintf("Copied %d chars to clipboard.", n))
 }
 
 // cycleThinkingLevel advances to the next thinking level and applies it.
@@ -4951,6 +5021,27 @@ func stepResumeNotice(e app.StepResumeEvent) string {
 	}
 	return fmt.Sprintf("Provider stream failed: %s\nRestarting the step in %s (resume %d). Partial output of the step was discarded; completed steps are kept.",
 		reason, e.Delay.Round(100*time.Millisecond), e.Resume)
+}
+
+// quietScrollback reports whether a message can be added to the end of the
+// scrollback without harm: the composer has focus, and no item at the end
+// still receives chunks. After such an item, a message would make the next
+// chunk start a new item and split the stream. Message navigation must not
+// add to the list it browses either.
+func (m *AppModel) quietScrollback() bool {
+	if m.state != stateInput || len(m.pendingStreamChunks) > 0 {
+		return false
+	}
+	if len(m.messages) == 0 {
+		return true
+	}
+	switch last := m.messages[len(m.messages)-1].(type) {
+	case *StreamingMessageItem:
+		return !last.streaming
+	case *StreamingBashOutputItem:
+		return last.complete
+	}
+	return true
 }
 
 // printSystemMessage renders a system-level message into the ScrollList.
@@ -6848,7 +6939,7 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 	}
 
 	m.printSystemMessage(fmt.Sprintf(
-		"Copied last %s message to clipboard (%d chars).", role, len(text),
+		"Copied last %s message to clipboard (%d chars).", role, len([]rune(text)),
 	))
 	return clipboard.CopyToClipboard(text)
 }

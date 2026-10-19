@@ -793,6 +793,7 @@ During an interactive session, use these slash commands:
 | `Ctrl+]` | Session prefix in any daemon-hosted session (`kit` with a daemon running, `kit attach`, `kit remote`): `d` detach · `s` switch · `c` new · `n`/`p` cycle · `w` across hosts |
 | `ESC ESC` | Cancel the current operation (tool call or streaming) |
 | `↑` / `↓` | Navigate prompt history |
+| Mouse drag | Select text in the conversation. Kit copies it on release and keeps it highlighted until the next key or click, or until the text changes. On Linux and the BSDs it also sets the primary selection for middle-click paste in other windows |
 
 ## Go SDK
 
