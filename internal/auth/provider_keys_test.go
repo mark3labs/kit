@@ -121,6 +121,9 @@ func TestProviderAPIKeyDedicatedSlots(t *testing.T) {
 	}
 }
 
+// TestProviderAPIKeyAliases checks that a key stored under an alias, such as
+// gemini or bedrock, is found under the catalog ID, and that an empty
+// provider or key is refused.
 func TestProviderAPIKeyAliases(t *testing.T) {
 	cm := newTestCredentialManager(t)
 	if err := cm.SetProviderAPIKey("Gemini", "g-key"); err != nil {
@@ -128,6 +131,12 @@ func TestProviderAPIKeyAliases(t *testing.T) {
 	}
 	if key, _ := cm.GetProviderAPIKey("google"); key != "g-key" {
 		t.Errorf("gemini alias not mapped to google: %q", key)
+	}
+	if err := cm.SetProviderAPIKey("bedrock", "b-key"); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := cm.GetProviderAPIKey("amazon-bedrock"); key != "b-key" {
+		t.Errorf("bedrock alias not mapped to amazon-bedrock: %q", key)
 	}
 	if err := cm.SetProviderAPIKey("", "x"); err == nil {
 		t.Error("expected error for empty provider")
@@ -156,6 +165,60 @@ func TestLookupStoredAPIKeyUsesXDGConfigHome(t *testing.T) {
 	}
 	if got := LookupStoredAPIKey("groq"); got != "gsk_1" {
 		t.Errorf("LookupStoredAPIKey = %q, want gsk_1", got)
+	}
+}
+
+// TestLookupStoredAPIKeyWithRegion checks that a key stored with a region
+// is found with that region, also through the bedrock alias, and that
+// SetProviderAPIKeyWithRegion replaces the region, also with an empty one.
+func TestLookupStoredAPIKeyWithRegion(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cm, err := NewCredentialManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.SetProviderAPIKeyWithRegion("bedrock", "ABSK-1", " eu-central-1 "); err != nil {
+		t.Fatal(err)
+	}
+	if key, region := LookupStoredAPIKeyWithRegion("amazon-bedrock"); key != "ABSK-1" || region != "eu-central-1" {
+		t.Errorf("amazon-bedrock = (%q, %q), want (ABSK-1, eu-central-1)", key, region)
+	}
+	// SetProviderAPIKeyWithRegion replaces the region, also with an empty one.
+	if err := cm.SetProviderAPIKeyWithRegion("amazon-bedrock", "ABSK-2", ""); err != nil {
+		t.Fatal(err)
+	}
+	if key, region := LookupStoredAPIKeyWithRegion("amazon-bedrock"); key != "ABSK-2" || region != "" {
+		t.Errorf("after SetProviderAPIKeyWithRegion = (%q, %q), want (ABSK-2, \"\")", key, region)
+	}
+	if key, region := LookupStoredAPIKeyWithRegion("groq"); key != "" || region != "" {
+		t.Errorf("groq = (%q, %q), want nothing stored", key, region)
+	}
+}
+
+// TestSetProviderAPIKeyKeepsRegion checks that a key rotated with the
+// key-only setter keeps the region stored with the previous key, also
+// through the bedrock alias. /connect and kit.SetProviderAPIKey use this
+// setter.
+func TestSetProviderAPIKeyKeepsRegion(t *testing.T) {
+	cm := newTestCredentialManager(t)
+	if err := cm.SetProviderAPIKeyWithRegion("amazon-bedrock", "ABSK-1", "eu-central-1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, rotation := range []struct{ providerID, apiKey string }{
+		{"amazon-bedrock", "ABSK-2"},
+		{"bedrock", "ABSK-3"},
+	} {
+		if err := cm.SetProviderAPIKey(rotation.providerID, rotation.apiKey); err != nil {
+			t.Fatal(err)
+		}
+		key, region, err := cm.GetProviderAPIKeyWithRegion("amazon-bedrock")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key != rotation.apiKey || region != "eu-central-1" {
+			t.Errorf("after SetProviderAPIKey(%q) = (%q, %q), want (%q, \"eu-central-1\")",
+				rotation.providerID, key, region, rotation.apiKey)
+		}
 	}
 }
 

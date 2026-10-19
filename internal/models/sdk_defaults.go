@@ -125,10 +125,12 @@ func ResolveProviderBaseURL(providerID string) (string, error) {
 
 // createGoogleVertexProvider creates a Google Gemini provider that targets the
 // Vertex AI backend (rather than the public generativelanguage.googleapis.com
-// endpoint). It requires the same project/region environment variables as
-// google-vertex-anthropic.
+// endpoint). Like google-vertex-anthropic, it takes the project and region
+// from the `providers` config section, else from the environment.
 func createGoogleVertexProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	settings := providerSettings("google-vertex")
 	projectID := firstNonEmpty(
+		settings.Project,
 		os.Getenv("GOOGLE_VERTEX_PROJECT"),
 		os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		os.Getenv("GCLOUD_PROJECT"),
@@ -136,12 +138,13 @@ func createGoogleVertexProvider(ctx context.Context, config *ProviderConfig, mod
 	)
 	if projectID == "" {
 		return nil, fmt.Errorf(
-			"google Vertex project ID not provided, set GOOGLE_VERTEX_PROJECT, " +
-				"GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable",
+			"google Vertex project ID not provided, set providers.google-vertex.project in the config, " +
+				"or the GOOGLE_VERTEX_PROJECT, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable",
 		)
 	}
 
 	region := firstNonEmpty(
+		settings.Region,
 		os.Getenv("GOOGLE_VERTEX_LOCATION"),
 		os.Getenv("CLOUD_ML_REGION"),
 	)

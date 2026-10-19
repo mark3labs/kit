@@ -33,7 +33,7 @@ Available providers:
   - openai:    OpenAI API (OAuth and API key)
   - copilot:   GitHub Copilot (GitHub device login)
   - any other provider from the model database (API key), e.g. google,
-    openrouter, groq, deepseek, opencode
+    amazon-bedrock, openrouter, groq, deepseek, opencode
 
 Keys are stored in $XDG_CONFIG_HOME/.kit/credentials.json (mode 0600) and
 take precedence over the provider's environment variable. Inside the TUI,
@@ -70,6 +70,8 @@ Available providers:
 Flags:
   --set-default   Set this provider's default model as the system default
   --api-key       Store this key without prompting (API-key providers)
+  --region        AWS region the key belongs to (amazon-bedrock only;
+                  without it, the region stored before is kept)
 
 Examples:
   kit auth login anthropic
@@ -77,7 +79,8 @@ Examples:
   kit auth login copilot
   kit auth login copilot --set-default
   kit auth login groq
-  kit auth login google --api-key AIza...`,
+  kit auth login google --api-key AIza...
+  kit auth login amazon-bedrock --region eu-central-1`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogin,
 }
@@ -125,6 +128,7 @@ Example:
 var (
 	loginSetDefault bool
 	loginAPIKey     string
+	loginRegion     string
 )
 
 // defaultModels maps providers to their recommended default models.
@@ -155,6 +159,8 @@ func setDefaultModelIfRequested(provider string) error {
 	return nil
 }
 
+// init adds the login, logout and status subcommands to 'kit auth' and
+// registers the flags of 'kit auth login'.
 func init() {
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
@@ -162,11 +168,21 @@ func init() {
 
 	authLoginCmd.Flags().BoolVar(&loginSetDefault, "set-default", false, "Set this provider's default model as the system default after login")
 	authLoginCmd.Flags().StringVar(&loginAPIKey, "api-key", "", "Store this API key without prompting (API-key providers only)")
+	authLoginCmd.Flags().StringVar(&loginRegion, "region", "", "AWS region the key belongs to (amazon-bedrock only; without it, the stored region is kept)")
 }
 
 // runAuthLogin dispatches OAuth login to the selected provider.
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	provider := strings.ToLower(args[0])
+
+	switch provider {
+	case "anthropic", "openai", "copilot", "github-copilot":
+		// These have their own login flows; loginProviderAPIKey refuses
+		// --region for the rest.
+		if strings.TrimSpace(loginRegion) != "" {
+			return fmt.Errorf("--region applies to amazon-bedrock only")
+		}
+	}
 
 	switch provider {
 	case "anthropic":
@@ -182,12 +198,18 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 
 // loginProviderAPIKey stores an API key for any provider that authenticates
 // with a plain key. The provider must exist in the model database; the key
-// comes from --api-key or a hidden prompt.
+// comes from --api-key or a hidden prompt. An Amazon Bedrock key is stored
+// with its AWS region, from --region or a prompt.
 func loginProviderAPIKey(provider string) error {
 	registry := models.GetGlobalRegistry()
 	info := registry.GetProviderInfo(provider)
 	if info == nil {
 		return fmt.Errorf("unknown provider: %s (see 'kit models' for provider IDs)", provider)
+	}
+	bedrock := info.ID == "amazon-bedrock"
+	region := strings.TrimSpace(loginRegion)
+	if region != "" && !bedrock {
+		return fmt.Errorf("--region applies to amazon-bedrock only")
 	}
 	displayName := info.Name
 	if displayName == "" {
@@ -227,11 +249,32 @@ func loginProviderAPIKey(provider string) error {
 		return fmt.Errorf("API key cannot be empty")
 	}
 
-	if err := cm.SetProviderAPIKey(provider, apiKey); err != nil {
+	if bedrock && region == "" {
+		// A new key from the same team keeps the region stored before:
+		// without --region it is kept, and the prompt starts with it.
+		_, region, _ = cm.GetProviderAPIKeyWithRegion(provider)
+		if loginAPIKey == "" {
+			err := huh.NewInput().
+				Title("AWS region of the key").
+				Description("For example eu-central-1. Leave it empty to use AWS_REGION.").
+				Value(&region).
+				Run()
+			if err != nil {
+				return fmt.Errorf("failed to read region: %w", err)
+			}
+			region = strings.TrimSpace(region)
+		}
+	}
+
+	if err := cm.SetProviderAPIKeyWithRegion(provider, apiKey, region); err != nil {
 		return fmt.Errorf("failed to store API key: %w", err)
 	}
 
-	fmt.Printf("✅ Stored %s API key.\n", displayName)
+	if region != "" {
+		fmt.Printf("✅ Stored %s API key for region %s.\n", displayName, region)
+	} else {
+		fmt.Printf("✅ Stored %s API key.\n", displayName)
+	}
 	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
 	fmt.Printf("\n🎉 %s/* models can be used now. Pick one with --model or /model.\n", provider)
 
@@ -360,6 +403,9 @@ func runProviderLogout(displayName string, has func(*kit.CredentialManager) (boo
 	return nil
 }
 
+// runAuthStatus prints the stored credentials of each provider: the type,
+// the date they were stored and, for an API key with a region, the region.
+// It never prints a key.
 func runAuthStatus(cmd *cobra.Command, args []string) error {
 	cm, err := newCredentialManager()
 	if err != nil {
@@ -467,6 +513,10 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		for _, id := range ids {
 			creds := store.Providers[id]
 			if creds == nil || creds.APIKey == "" {
+				continue
+			}
+			if creds.Region != "" {
+				fmt.Printf("  %s: ✓ stored %s, region %s\n", id, creds.CreatedAt.Format("2006-01-02 15:04:05"), creds.Region)
 				continue
 			}
 			fmt.Printf("  %s: ✓ stored %s\n", id, creds.CreatedAt.Format("2006-01-02 15:04:05"))

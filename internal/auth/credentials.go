@@ -28,6 +28,7 @@ type CredentialStore struct {
 type ProviderCredentials struct {
 	Type      string    `json:"type"`              // always "api_key"
 	APIKey    string    `json:"api_key,omitempty"` // the stored key
+	Region    string    `json:"region,omitempty"`  // the key's region (amazon-bedrock)
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -661,14 +662,16 @@ func GetAnthropicAPIKey(flagValue string, userAgents ...string) (string, string,
 // ---------------------------------------------------------------------------
 
 // providerKeyAlias maps user-facing provider aliases onto the ID used as the
-// storage key so "copilot" and "github-copilot" (or "gemini" and "google")
-// resolve to the same entry.
+// storage key so "copilot" and "github-copilot" (or "gemini" and "google",
+// or "bedrock" and "amazon-bedrock") resolve to the same entry.
 func providerKeyAlias(providerID string) string {
 	switch strings.ToLower(strings.TrimSpace(providerID)) {
 	case "gemini":
 		return "google"
 	case "github-copilot":
 		return "copilot"
+	case "bedrock":
+		return "amazon-bedrock"
 	default:
 		return strings.ToLower(strings.TrimSpace(providerID))
 	}
@@ -678,8 +681,21 @@ func providerKeyAlias(providerID string) string {
 // are routed to their dedicated credential slots so the existing resolution
 // paths (which also handle OAuth) pick the key up; every other provider is
 // written to the generic Providers map. Copilot only supports OAuth and is
-// rejected.
+// rejected. A rotated key keeps the region stored with the previous key;
+// SetProviderAPIKeyWithRegion changes the region.
 func (cm *CredentialManager) SetProviderAPIKey(providerID, apiKey string) error {
+	_, region, err := cm.GetProviderAPIKeyWithRegion(providerID)
+	if err != nil {
+		return err
+	}
+	return cm.SetProviderAPIKeyWithRegion(providerID, apiKey, region)
+}
+
+// SetProviderAPIKeyWithRegion is SetProviderAPIKey for a key that belongs to
+// one cloud region, such as an Amazon Bedrock API key. The region is stored
+// with the key in the generic Providers map and replaces the stored region,
+// also when it is empty. The Anthropic and OpenAI slots have no region.
+func (cm *CredentialManager) SetProviderAPIKeyWithRegion(providerID, apiKey, region string) error {
 	providerID = providerKeyAlias(providerID)
 	apiKey = strings.TrimSpace(apiKey)
 	if providerID == "" {
@@ -713,6 +729,7 @@ func (cm *CredentialManager) SetProviderAPIKey(providerID, apiKey string) error 
 	store.Providers[providerID] = &ProviderCredentials{
 		Type:      "api_key",
 		APIKey:    apiKey,
+		Region:    strings.TrimSpace(region),
 		CreatedAt: time.Now(),
 	}
 	return cm.SaveCredentials(store)
@@ -799,6 +816,35 @@ func LookupStoredAPIKey(providerID string) string {
 		return ""
 	}
 	return key
+}
+
+// GetProviderAPIKeyWithRegion returns the API key stored for a provider in
+// the generic Providers map and the region stored with it, read in one go
+// so the two always belong together. Both are empty when none is stored.
+func (cm *CredentialManager) GetProviderAPIKeyWithRegion(providerID string) (apiKey, region string, err error) {
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return "", "", err
+	}
+	creds, ok := store.Providers[providerKeyAlias(providerID)]
+	if !ok || creds == nil || creds.Type != "api_key" {
+		return "", "", nil
+	}
+	return creds.APIKey, creds.Region, nil
+}
+
+// LookupStoredAPIKeyWithRegion is the best-effort form of
+// GetProviderAPIKeyWithRegion, like LookupStoredAPIKey.
+func LookupStoredAPIKeyWithRegion(providerID string) (apiKey, region string) {
+	cm, err := NewCredentialManager()
+	if err != nil {
+		return "", ""
+	}
+	apiKey, region, err = cm.GetProviderAPIKeyWithRegion(providerID)
+	if err != nil {
+		return "", ""
+	}
+	return apiKey, region
 }
 
 // WithUserAgent returns an independent manager with the same credential path.
