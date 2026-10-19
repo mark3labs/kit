@@ -953,6 +953,19 @@ func (m *Kit) GetSystemPromptSource() string {
 	return m.systemPromptSource
 }
 
+// GetSystemPrompt returns the system prompt the agent sends to the model.
+// It is the base prompt composed with AGENTS.md content, skills metadata,
+// the date and the working directory. After a runtime change to the skills
+// or context files, it reports the recomposed prompt. A system prompt
+// returned by a BeforeTurn hook is not part of it; Kit adds that prompt to
+// the conversation as a separate system message.
+func (m *Kit) GetSystemPrompt() string {
+	if m.agent == nil {
+		return ""
+	}
+	return m.agent.GetSystemPrompt()
+}
+
 // composeSystemPrompt takes a base system prompt and composes it with the
 // current runtime context: AGENTS.md content, skills metadata, and date/cwd.
 // This mirrors the composition done during Kit.New() initialization.

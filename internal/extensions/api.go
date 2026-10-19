@@ -563,6 +563,28 @@ type Context struct {
 	//   }
 	GetAllTools func() []ToolInfo
 
+	// GetSystemPrompt returns the system prompt the agent sends to the
+	// model, and the configured source of its base prompt.
+	//
+	// text is the base prompt composed with AGENTS.md content, skills
+	// metadata, the date and the working directory. After a runtime change
+	// to the skills or context files, it returns the recomposed prompt. A
+	// system prompt returned from OnBeforeAgentStart is not part of it: Kit
+	// adds that prompt to the conversation as a separate system message.
+	//
+	// source is the configured system-prompt value: a file path, or the
+	// text itself when the prompt is set inline. It is empty when the
+	// built-in default prompt or a per-model prompt is in use.
+	//
+	// Example:
+	//
+	//   text, source := ctx.GetSystemPrompt()
+	//   if source == "" {
+	//       source = "default or per-model prompt"
+	//   }
+	//   ctx.PrintBlock(ext.PrintBlockOpts{Text: text, Subtitle: source})
+	GetSystemPrompt func() (text, source string)
+
 	// SetActiveTools restricts the agent to only the named tools. Tools not
 	// in the list are blocked from execution (the LLM receives an error if
 	// it tries to call them). Pass nil or an empty slice to re-enable all

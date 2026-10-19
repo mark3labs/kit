@@ -277,6 +277,23 @@ ctx.SetActiveTools([]string{"read", "grep"})  // restrict to these tools only
 ctx.SetActiveTools(nil)                 // re-enable all tools
 ```
 
+### System Prompt
+
+```go
+text, source := ctx.GetSystemPrompt()
+```
+
+`text` is the system prompt the agent sends to the model: the base prompt
+composed with AGENTS.md content, skills metadata, the date and the working
+directory. After a runtime change to the skills or context files, it returns
+the recomposed prompt. A system prompt returned from `OnBeforeAgentStart` is
+not part of it: Kit adds that prompt to the conversation as a separate system
+message.
+
+`source` is the configured `system-prompt` value: a file path, or the text
+itself when the prompt is set inline. It is empty when the built-in default
+prompt or a per-model prompt is in use.
+
 ### LLM Completions
 
 Make standalone LLM calls (bypasses the agent tool loop):

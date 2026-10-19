@@ -778,6 +778,7 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
   instance
 - `AddContextFile(*ContextFile)` / `AddContextFileContent(path, content)` / `LoadAndAddContextFile(path)` / `RemoveContextFile(path)` / `SetContextFiles([])` - Manage AGENTS.md-style context files at runtime
 - `RefreshSystemPrompt()` - Re-apply the composed system prompt to the agent
+- `GetSystemPrompt()` - Get the composed system prompt the agent sends to the model
 - `NewTool[T]` / `NewParallelTool[T]` - Create a typed custom tool
 - `NewRawTool(name, desc, schema, fn)` - Create a schema-driven tool when the
   input shape isn't known at compile time (skill/MCP catalogs)

@@ -92,6 +92,9 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		GetAllTools: func() []extensions.ToolInfo {
 			return kitInstance.Extensions().GetToolInfos()
 		},
+		GetSystemPrompt: func() (string, string) {
+			return kitInstance.GetSystemPrompt(), kitInstance.GetSystemPromptSource()
+		},
 		SetActiveTools: func(names []string) {
 			kitInstance.Extensions().SetActiveTools(names)
 		},

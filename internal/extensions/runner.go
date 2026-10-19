@@ -323,6 +323,9 @@ func normalizeContext(ctx Context) Context {
 	if ctx.GetAllTools == nil {
 		ctx.GetAllTools = func() []ToolInfo { return nil }
 	}
+	if ctx.GetSystemPrompt == nil {
+		ctx.GetSystemPrompt = func() (string, string) { return "", "" }
+	}
 	if ctx.SetActiveTools == nil {
 		ctx.SetActiveTools = func([]string) {}
 	}
