@@ -3470,7 +3470,9 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 		if opts.ProviderURL != "" || opts.ProviderAPIKey != "" {
 			m.endpointProvider = endpointProviderFor(m.v, targetModel)
 		}
-		if err := m.SetModel(ctx, targetModel); err != nil {
+		// promptOptsMu is already held here and in the restore below, so
+		// call setModelLocked: SetModel would take the lock again and block.
+		if err := m.setModelLocked(ctx, targetModel); err != nil {
 			// Revert config keys we may have set, then unwind prior restores.
 			m.endpointProvider = prevEndpointProvider
 			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
@@ -3487,7 +3489,7 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 			// Use a fresh context: the rollback must complete even if the
 			// caller's ctx was canceled or expired during the call, otherwise
 			// the per-call model override would leak into subsequent calls.
-			_ = m.SetModel(context.Background(), prevModel)
+			_ = m.setModelLocked(context.Background(), prevModel)
 		})
 	}
 
