@@ -140,7 +140,12 @@ func TestMCPOAuthIdentity(t *testing.T) {
 			if err := handler.ProcessAuthorizationResponse(ctx, "code", "state", "verifier"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := handler.RefreshToken(ctx, "refresh"); err != nil {
+			// Refresh the stored token so the handler can verify its issuer.
+			token, err := oauth.TokenStore.GetToken(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := handler.RefreshToken(ctx, token.RefreshToken); err != nil {
 				t.Fatal(err)
 			}
 			if seen["/.well-known/oauth-authorization-server"] == 0 || seen["/register"] != 1 || seen["/token"] != 2 {

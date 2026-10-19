@@ -12,8 +12,8 @@
   "devDependencies": {
     "@tomehq/cli": "^0.9.0",
     "@tomehq/theme": "^0.9.0",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "overrides": {
     "typescript": "^6.0.3"
