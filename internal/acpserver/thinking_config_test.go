@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestThinkingConfigPreservesDynamicLevels checks ACP choices and the restored current value.
 func TestThinkingConfigPreservesDynamicLevels(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

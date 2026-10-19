@@ -326,10 +326,12 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 // errors: only inherited preferences may fall back on capability failures.
 type unsupportedEffortError struct{ error }
 
+// effortError marks an adapter or metadata capability failure for inherited fallback.
 func effortError(format string, args ...any) error {
 	return &unsupportedEffortError{fmt.Errorf(format, args...)}
 }
 
+// createProvider resolves settings and creates one provider without fallback retries.
 func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
 	identity, err := httpclient.ResolveUserAgent(config.UserAgent)
 	if err != nil {
@@ -1905,6 +1907,7 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, providerID
 	return &ProviderResult{Model: model}, nil
 }
 
+// createOpenRouterProvider attaches native named effort options for OpenRouter.
 func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	apiKey := resolveAPIKey(config.ProviderAPIKey, "openrouter", []string{"OPENROUTER_API_KEY"})
 	if apiKey == "" {
@@ -1951,6 +1954,7 @@ func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelNam
 	return &ProviderResult{Model: model}, nil
 }
 
+// createVercelProvider attaches native named effort options for the gateway.
 func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	apiKey := resolveAPIKey(config.ProviderAPIKey, "vercel", []string{"VERCEL_API_KEY"})
 	if apiKey == "" {
@@ -1983,6 +1987,7 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
+// createCustomProvider resolves endpoint overrides and forwards compatible chat options.
 func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	// Resolve base URL: per-model override > global provider-url flag/config
 	registry := GetGlobalRegistry()

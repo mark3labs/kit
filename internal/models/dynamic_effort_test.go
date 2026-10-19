@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestDynamicEffortMetadata checks lossless catalog effort parsing and membership.
 func TestDynamicEffortMetadata(t *testing.T) {
 	var opts []modelsDBReasoningOption
 	if err := json.Unmarshal([]byte(`[{"type":"effort","values":["low",null,"","xhigh","Future"]},{"type":"toggle"},{"type":"budget_tokens","min":1,"max":100},{"type":"effort","values":["xhigh","max","null"]}]`), &opts); err != nil {
@@ -55,6 +56,7 @@ func TestDynamicEffortMetadata(t *testing.T) {
 	}
 }
 
+// TestCustomReasoningDeclarations checks YAML/JSON validation and list ownership.
 func TestCustomReasoningDeclarations(t *testing.T) {
 	for _, format := range []string{"yaml", "json"} {
 		t.Run(format, func(t *testing.T) {
@@ -115,6 +117,7 @@ func TestCustomReasoningDeclarations(t *testing.T) {
 	}
 }
 
+// TestChatEffortWire captures generate and streaming requests on compatible routes.
 func TestChatEffortWire(t *testing.T) {
 	for _, route := range []string{"custom", "auto"} {
 		for _, level := range []ThinkingLevel{ThinkingOff, ThinkingNone, ThinkingXHigh, "max", "Future"} {

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestNativeEffortWire checks native effort fields through the provider handoff.
 func TestNativeEffortWire(t *testing.T) {
 	for _, route := range []string{"openai", "forced", "anthropic"} {
 		for _, level := range []ThinkingLevel{ThinkingOff, ThinkingNone, ThinkingXHigh, "max", "Future"} {
@@ -82,6 +83,7 @@ func TestNativeEffortWire(t *testing.T) {
 	}
 }
 
+// TestForcedResponsesUnsupportedEffortIsExplicit prevents silent adapter no-ops.
 func TestForcedResponsesUnsupportedEffortIsExplicit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -91,6 +93,7 @@ func TestForcedResponsesUnsupportedEffortIsExplicit(t *testing.T) {
 	}
 }
 
+// TestInvalidGradedEffortFailsBeforeIO verifies validation precedes credentials and I/O.
 func TestInvalidGradedEffortFailsBeforeIO(t *testing.T) {
 	_, err := CreateProvider(context.Background(), &ProviderConfig{ModelString: "openai/o3", ThinkingLevel: "typo", ConfigStore: viper.New()})
 	if err == nil || !strings.Contains(err.Error(), "does not support thinking level") {

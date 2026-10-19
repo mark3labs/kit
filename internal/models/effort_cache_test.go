@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestEffortCatalogCachePreservesProviderIdentity checks cached per-provider effort lists.
 func TestEffortCatalogCachePreservesProviderIdentity(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	var providers map[string]modelsDBProvider

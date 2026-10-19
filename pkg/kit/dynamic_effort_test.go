@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestDynamicEffortSDKRoundTrip checks startup, setters, predicates, and model recreation.
 func TestDynamicEffortSDKRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

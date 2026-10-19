@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestThinkingPickerAndCycleUseModelLevels checks picker/cycle agreement and wraparound.
 func TestThinkingPickerAndCycleUseModelLevels(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	viper.Set("customModels", map[string]any{"effort-fixture": map[string]any{"reasoning": true, "reasoningLevels": []string{"low", "medium", "xhigh", "Future"}}})

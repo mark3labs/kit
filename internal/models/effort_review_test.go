@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestAutoGoogleEffortUsesNativeNamespace checks effort serialization through a proxy ID.
 func TestAutoGoogleEffortUsesNativeNamespace(t *testing.T) {
 	captured := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +52,7 @@ func TestAutoGoogleEffortUsesNativeNamespace(t *testing.T) {
 	}
 }
 
+// TestInheritedUnsupportedEffortFallsBack distinguishes carryover from explicit requests.
 func TestInheritedUnsupportedEffortFallsBack(t *testing.T) {
 	for _, model := range []string{"ungraded", "non-reasoning", "graded"} {
 		t.Run(model, func(t *testing.T) {
