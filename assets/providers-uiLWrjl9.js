@@ -42,8 +42,8 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 </tr>
 <tr>
 <td><strong>AWS Bedrock</strong></td>
-<td><code>bedrock/</code></td>
-<td>Bedrock models</td>
+<td><code>bedrock/</code> or <code>amazon-bedrock/</code></td>
+<td>Claude models on Bedrock. See <a href="#aws-bedrock">AWS Bedrock</a></td>
 </tr>
 <tr>
 <td><strong>Google Vertex</strong></td>
@@ -138,6 +138,46 @@ carry the target model reports a normal unknown-model error.</p>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> logout</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> copilot</span><span style="color:#6A737D;--shiki-dark:#6A737D">      # Remove credentials</span></span></code></pre>
 <p>The experimental <code>copilot/</code> provider requires an active GitHub Copilot subscription
 and uses GitHub device login; no OpenAI account or OpenAI API key is required.</p>
+<h3 id="aws-bedrock"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#aws-bedrock"><span class="icon icon-link"></span></a>AWS Bedrock</h3>
+<p>Kit's Bedrock provider runs Anthropic's Claude models. <code>bedrock/</code> and
+<code>amazon-bedrock/</code> name the same provider; after the prefix comes the Bedrock
+model ID, for example <code>bedrock/eu.anthropic.claude-opus-5-5</code>.</p>
+<p>Kit uses the first of these credentials it finds:</p>
+<ol>
+<li>A Bedrock API key stored in Kit with <code>kit auth login amazon-bedrock</code>.
+Kit sends it as a bearer token, also when <code>AWS_BEARER_TOKEN_BEDROCK</code> is
+set.</li>
+<li><code>AWS_BEARER_TOKEN_BEDROCK</code>.</li>
+<li>The default chain of the AWS SDK: <code>AWS_ACCESS_KEY_ID</code> and
+<code>AWS_SECRET_ACCESS_KEY</code>, a profile in <code>~/.aws</code> (<code>AWS_PROFILE</code>), or SSO.</li>
+</ol>
+<p>A key belongs to one AWS account and region, so Kit stores the region with
+the key. <code>kit auth login amazon-bedrock</code> asks for both; <code>--api-key</code> and
+<code>--region</code> set them without asking. Without <code>--region</code>, a new key keeps the
+region stored before, so a rotated key needs only <code>--api-key</code>. The entry in
+the credentials file:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">"providers"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: {</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "amazon-bedrock"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: { </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"type"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"api_key"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"api_key"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"ABSK..."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"region"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"eu-central-1"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>With a stored key, the region is the one stored with it, else <code>AWS_REGION</code>,
+else <code>AWS_DEFAULT_REGION</code>. When none of them is set, Kit stops with an error
+instead of guessing a region. With AWS credentials (2 and 3), the AWS SDK
+finds the region: <code>AWS_REGION</code>, <code>AWS_DEFAULT_REGION</code> or the profile.</p>
+<h3 id="google-vertex"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#google-vertex"><span class="icon icon-link"></span></a>Google Vertex</h3>
+<p><code>google-vertex-anthropic/</code> runs Claude models on Vertex AI, and
+<code>google-vertex/</code> runs Gemini models. Kit signs in with Google Application
+Default Credentials: <code>gcloud auth application-default login</code>, or a service
+account file in <code>GOOGLE_APPLICATION_CREDENTIALS</code>.</p>
+<p>The project comes from <code>providers.&lt;provider&gt;.project</code> in the config, else
+from <code>GOOGLE_VERTEX_PROJECT</code>, <code>GOOGLE_CLOUD_PROJECT</code>, <code>GCLOUD_PROJECT</code> or
+<code>CLOUDSDK_CORE_PROJECT</code>. The region comes from <code>providers.&lt;provider&gt;.region</code>,
+else from <code>GOOGLE_VERTEX_LOCATION</code> or <code>CLOUD_ML_REGION</code>, else it is
+<code>global</code>. For <code>google-vertex-anthropic</code>, Kit also reads
+<code>ANTHROPIC_VERTEX_PROJECT_ID</code> and <code>ANTHROPIC_VERTEX_REGION</code>.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">providers</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  google-vertex-anthropic</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    project</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">my-project</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    region</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">europe-west1</span></span></code></pre>
 <h3 id="custom-provider-url"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-provider-url"><span class="icon icon-link"></span></a>Custom provider URL</h3>
 <p>For self-hosted or proxy endpoints:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "https://my-proxy.example.com/v1"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span></code></pre>
@@ -291,7 +331,7 @@ database:</p>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Filter by provider</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Update from models.dev</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:`Supported providers`,id:`supported-providers`},{depth:2,text:`Model string format`,id:`model-string-format`},{depth:2,text:`Model aliases`,id:`model-aliases`},{depth:3,text:`Anthropic Claude`,id:`anthropic-claude`},{depth:3,text:`OpenAI GPT`,id:`openai-gpt`},{depth:3,text:`Google Gemini`,id:`google-gemini`},{depth:2,text:`Specifying a model`,id:`specifying-a-model`},{depth:2,text:`Authentication`,id:`authentication`},{depth:3,text:`API keys`,id:`api-keys`},{depth:3,text:`OAuth`,id:`oauth`},{depth:3,text:`Custom provider URL`,id:`custom-provider-url`},{depth:2,text:`Auto-routed providers`,id:`auto-routed-providers`},{depth:2,text:`Provider overrides`,id:`provider-overrides`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Model database`,id:`model-database`}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:`Supported providers`,id:`supported-providers`},{depth:2,text:`Model string format`,id:`model-string-format`},{depth:2,text:`Model aliases`,id:`model-aliases`},{depth:3,text:`Anthropic Claude`,id:`anthropic-claude`},{depth:3,text:`OpenAI GPT`,id:`openai-gpt`},{depth:3,text:`Google Gemini`,id:`google-gemini`},{depth:2,text:`Specifying a model`,id:`specifying-a-model`},{depth:2,text:`Authentication`,id:`authentication`},{depth:3,text:`API keys`,id:`api-keys`},{depth:3,text:`OAuth`,id:`oauth`},{depth:3,text:`AWS Bedrock`,id:`aws-bedrock`},{depth:3,text:`Google Vertex`,id:`google-vertex`},{depth:3,text:`Custom provider URL`,id:`custom-provider-url`},{depth:2,text:`Auto-routed providers`,id:`auto-routed-providers`},{depth:2,text:`Provider overrides`,id:`provider-overrides`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Model database`,id:`model-database`}],raw:`
 # Providers
 
 Kit supports a wide range of LLM providers through a unified \`provider/model\` string format.
@@ -306,7 +346,7 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 | **Google** | \`google/\` or \`gemini/\` | Gemini models |
 | **Ollama** | \`ollama/\` | Local models |
 | **Azure OpenAI** | \`azure/\` | Azure-hosted OpenAI |
-| **AWS Bedrock** | \`bedrock/\` | Bedrock models |
+| **AWS Bedrock** | \`bedrock/\` or \`amazon-bedrock/\` | Claude models on Bedrock. See [AWS Bedrock](#aws-bedrock) |
 | **Google Vertex** | \`google-vertex-anthropic/\` | Claude on Vertex AI |
 | **OpenRouter** | \`openrouter/\` | Multi-provider router |
 | **Vercel AI** | \`vercel/\` | Vercel AI SDK models |
@@ -422,6 +462,59 @@ kit auth logout copilot      # Remove credentials
 
 The experimental \`copilot/\` provider requires an active GitHub Copilot subscription
 and uses GitHub device login; no OpenAI account or OpenAI API key is required.
+
+### AWS Bedrock
+
+Kit's Bedrock provider runs Anthropic's Claude models. \`bedrock/\` and
+\`amazon-bedrock/\` name the same provider; after the prefix comes the Bedrock
+model ID, for example \`bedrock/eu.anthropic.claude-opus-5-5\`.
+
+Kit uses the first of these credentials it finds:
+
+1. A Bedrock API key stored in Kit with \`kit auth login amazon-bedrock\`.
+   Kit sends it as a bearer token, also when \`AWS_BEARER_TOKEN_BEDROCK\` is
+   set.
+2. \`AWS_BEARER_TOKEN_BEDROCK\`.
+3. The default chain of the AWS SDK: \`AWS_ACCESS_KEY_ID\` and
+   \`AWS_SECRET_ACCESS_KEY\`, a profile in \`~/.aws\` (\`AWS_PROFILE\`), or SSO.
+
+A key belongs to one AWS account and region, so Kit stores the region with
+the key. \`kit auth login amazon-bedrock\` asks for both; \`--api-key\` and
+\`--region\` set them without asking. Without \`--region\`, a new key keeps the
+region stored before, so a rotated key needs only \`--api-key\`. The entry in
+the credentials file:
+
+\`\`\`json
+"providers": {
+  "amazon-bedrock": { "type": "api_key", "api_key": "ABSK...", "region": "eu-central-1" }
+}
+\`\`\`
+
+With a stored key, the region is the one stored with it, else \`AWS_REGION\`,
+else \`AWS_DEFAULT_REGION\`. When none of them is set, Kit stops with an error
+instead of guessing a region. With AWS credentials (2 and 3), the AWS SDK
+finds the region: \`AWS_REGION\`, \`AWS_DEFAULT_REGION\` or the profile.
+
+### Google Vertex
+
+\`google-vertex-anthropic/\` runs Claude models on Vertex AI, and
+\`google-vertex/\` runs Gemini models. Kit signs in with Google Application
+Default Credentials: \`gcloud auth application-default login\`, or a service
+account file in \`GOOGLE_APPLICATION_CREDENTIALS\`.
+
+The project comes from \`providers.<provider>.project\` in the config, else
+from \`GOOGLE_VERTEX_PROJECT\`, \`GOOGLE_CLOUD_PROJECT\`, \`GCLOUD_PROJECT\` or
+\`CLOUDSDK_CORE_PROJECT\`. The region comes from \`providers.<provider>.region\`,
+else from \`GOOGLE_VERTEX_LOCATION\` or \`CLOUD_ML_REGION\`, else it is
+\`global\`. For \`google-vertex-anthropic\`, Kit also reads
+\`ANTHROPIC_VERTEX_PROJECT_ID\` and \`ANTHROPIC_VERTEX_REGION\`.
+
+\`\`\`yaml
+providers:
+  google-vertex-anthropic:
+    project: my-project
+    region: europe-west1
+\`\`\`
 
 ### Custom provider URL
 

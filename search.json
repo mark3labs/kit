@@ -185,7 +185,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 2169
+      "wordCount": 2221
     },
     {
       "id": "development",
@@ -396,6 +396,8 @@
         "Authentication",
         "API keys",
         "OAuth",
+        "AWS Bedrock",
+        "Google Vertex",
         "Custom provider URL",
         "Auto-routed providers",
         "Provider overrides",
@@ -403,7 +405,7 @@
         "Model database"
       ],
       "tags": [],
-      "wordCount": 1252
+      "wordCount": 1537
     },
     {
       "id": "quick-start",

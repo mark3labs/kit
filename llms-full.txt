@@ -2172,6 +2172,8 @@ kit --model corp-llm/claude-sonnet-4-5 "Hello"
 | `baseUrl` | string | API base URL |
 | `apiKeyEnv` | list | Environment variable names tried in order when resolving the API key |
 | `headers` | map | Default HTTP headers added to every request |
+| `region` | string | Location for `google-vertex` and `google-vertex-anthropic`. Takes precedence over the region environment variables. See [Google Vertex](/providers#google-vertex). A Bedrock region is stored with its key, see [AWS Bedrock](/providers#aws-bedrock) |
+| `project` | string | Google Cloud project for `google-vertex` and `google-vertex-anthropic`. Takes precedence over the project environment variables |
 
 All fields are optional. Non-empty fields override the model database; unset fields inherit the database values. An invalid `wire` value causes the whole override to be skipped with a warning. Wire resolution precedence: `--provider-wire` flag > `providers` config > the database's own routing.
 
@@ -4419,7 +4421,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Google** | `google/` or `gemini/` | Gemini models |
 | **Ollama** | `ollama/` | Local models |
 | **Azure OpenAI** | `azure/` | Azure-hosted OpenAI |
-| **AWS Bedrock** | `bedrock/` | Bedrock models |
+| **AWS Bedrock** | `bedrock/` or `amazon-bedrock/` | Claude models on Bedrock. See [AWS Bedrock](#aws-bedrock) |
 | **Google Vertex** | `google-vertex-anthropic/` | Claude on Vertex AI |
 | **OpenRouter** | `openrouter/` | Multi-provider router |
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
@@ -4535,6 +4537,59 @@ kit auth logout copilot      # Remove credentials
 
 The experimental `copilot/` provider requires an active GitHub Copilot subscription
 and uses GitHub device login; no OpenAI account or OpenAI API key is required.
+
+### AWS Bedrock
+
+Kit's Bedrock provider runs Anthropic's Claude models. `bedrock/` and
+`amazon-bedrock/` name the same provider; after the prefix comes the Bedrock
+model ID, for example `bedrock/eu.anthropic.claude-opus-5-5`.
+
+Kit uses the first of these credentials it finds:
+
+1. A Bedrock API key stored in Kit with `kit auth login amazon-bedrock`.
+   Kit sends it as a bearer token, also when `AWS_BEARER_TOKEN_BEDROCK` is
+   set.
+2. `AWS_BEARER_TOKEN_BEDROCK`.
+3. The default chain of the AWS SDK: `AWS_ACCESS_KEY_ID` and
+   `AWS_SECRET_ACCESS_KEY`, a profile in `~/.aws` (`AWS_PROFILE`), or SSO.
+
+A key belongs to one AWS account and region, so Kit stores the region with
+the key. `kit auth login amazon-bedrock` asks for both; `--api-key` and
+`--region` set them without asking. Without `--region`, a new key keeps the
+region stored before, so a rotated key needs only `--api-key`. The entry in
+the credentials file:
+
+```json
+"providers": {
+  "amazon-bedrock": { "type": "api_key", "api_key": "ABSK...", "region": "eu-central-1" }
+}
+```
+
+With a stored key, the region is the one stored with it, else `AWS_REGION`,
+else `AWS_DEFAULT_REGION`. When none of them is set, Kit stops with an error
+instead of guessing a region. With AWS credentials (2 and 3), the AWS SDK
+finds the region: `AWS_REGION`, `AWS_DEFAULT_REGION` or the profile.
+
+### Google Vertex
+
+`google-vertex-anthropic/` runs Claude models on Vertex AI, and
+`google-vertex/` runs Gemini models. Kit signs in with Google Application
+Default Credentials: `gcloud auth application-default login`, or a service
+account file in `GOOGLE_APPLICATION_CREDENTIALS`.
+
+The project comes from `providers.<provider>.project` in the config, else
+from `GOOGLE_VERTEX_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT` or
+`CLOUDSDK_CORE_PROJECT`. The region comes from `providers.<provider>.region`,
+else from `GOOGLE_VERTEX_LOCATION` or `CLOUD_ML_REGION`, else it is
+`global`. For `google-vertex-anthropic`, Kit also reads
+`ANTHROPIC_VERTEX_PROJECT_ID` and `ANTHROPIC_VERTEX_REGION`.
+
+```yaml
+providers:
+  google-vertex-anthropic:
+    project: my-project
+    region: europe-west1
+```
 
 ### Custom provider URL
 
