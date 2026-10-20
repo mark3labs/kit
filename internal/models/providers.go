@@ -294,6 +294,10 @@ func catalogProviderID(provider string) string {
 	if isCopilotProvider(provider) {
 		return copilotProviderID
 	}
+	// "bedrock" is the documented prefix; the catalog calls it amazon-bedrock.
+	if provider == "bedrock" {
+		return "amazon-bedrock"
+	}
 	return provider
 }
 
@@ -1395,11 +1399,14 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 }
 
 // createVertexAnthropicProvider creates an Anthropic provider that routes
-// through Google Vertex AI, using the project and region from the environment.
+// through Google Vertex AI. The project and region come from the `providers`
+// config section, else from the environment.
 func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	clearConflictingAnthropicSamplingParams(config)
 
+	settings := providerSettings("google-vertex-anthropic")
 	projectID := firstNonEmpty(
+		settings.Project,
 		os.Getenv("GOOGLE_VERTEX_PROJECT"),
 		os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID"),
 		os.Getenv("GOOGLE_CLOUD_PROJECT"),
@@ -1407,10 +1414,11 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 		os.Getenv("CLOUDSDK_CORE_PROJECT"),
 	)
 	if projectID == "" {
-		return nil, fmt.Errorf("google Vertex project ID not provided, set ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable")
+		return nil, fmt.Errorf("google Vertex project ID not provided, set providers.google-vertex-anthropic.project in the config, or the ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable")
 	}
 
 	region := firstNonEmpty(
+		settings.Region,
 		os.Getenv("GOOGLE_VERTEX_LOCATION"),
 		os.Getenv("ANTHROPIC_VERTEX_REGION"),
 		os.Getenv("CLOUD_ML_REGION"),
@@ -1936,11 +1944,92 @@ func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, model
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
-func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	var opts []bedrock.Option
-	opts = append(opts, bedrock.WithUserAgent(config.UserAgent), bedrock.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)))
+// bedrockCredentials returns the Bedrock API key stored in Kit's credentials
+// file (by 'kit auth login amazon-bedrock') and its region.
+//
+// The region is the one stored with the key, since a key belongs to one
+// account and region, else AWS_REGION, else AWS_DEFAULT_REGION. One of them
+// must be set: with a key, the AWS shared config is not read, and the
+// provider would otherwise send the requests to a region the user did not
+// choose. Without a stored key, both are empty and the AWS SDK resolves
+// credentials and region as before.
+func bedrockCredentials() (apiKey, region string, err error) {
+	apiKey, region = auth.LookupStoredAPIKeyWithRegion("amazon-bedrock")
+	if apiKey == "" {
+		return "", "", nil
+	}
+	region = firstNonEmpty(region, os.Getenv("AWS_REGION"), os.Getenv("AWS_DEFAULT_REGION"))
+	if region == "" {
+		return "", "", fmt.Errorf("no AWS region for the Bedrock API key stored in Kit: store the key with 'kit auth login amazon-bedrock --region <region>', or set AWS_REGION")
+	}
+	return apiKey, region, nil
+}
 
-	// Bedrock uses AWS SDK default credential chain (env vars, shared config, etc.)
+// bearerTokenRoundTripper replaces the bearer token of a request with a
+// fixed one. A request without an Authorization header is left alone, so a
+// redirect to another host, which the HTTP client strips of the header,
+// does not get the token back.
+type bearerTokenRoundTripper struct {
+	base  http.RoundTripper
+	token string
+}
+
+// RoundTrip sends req with the fixed token as its bearer token, if req has
+// an Authorization header. It sends any other request unchanged.
+func (b *bearerTokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("Authorization") != "" {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", "Bearer "+b.token)
+	}
+	return b.base.RoundTrip(req)
+}
+
+// withBearerToken returns a copy of client that sends token as the bearer
+// token of its requests.
+func withBearerToken(client *http.Client, token string) *http.Client {
+	wrapped := http.Client{}
+	if client != nil {
+		wrapped = *client
+	}
+	base := wrapped.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	wrapped.Transport = &bearerTokenRoundTripper{base: base, token: token}
+	return &wrapped
+}
+
+// createBedrockProvider creates the Amazon Bedrock provider. A Bedrock API
+// key stored in Kit is sent as a bearer token, to the key's region. Without
+// one, the AWS SDK finds the credentials and the region:
+// AWS_BEARER_TOKEN_BEDROCK, else its default chain (environment, shared
+// config, SSO).
+func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	apiKey, region, err := bedrockCredentials()
+	if err != nil {
+		return nil, err
+	}
+	httpClient := httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)
+
+	var opts []bedrock.Option
+	opts = append(opts, bedrock.WithUserAgent(config.UserAgent))
+	if apiKey != "" {
+		opts = append(opts, bedrock.WithAPIKey(apiKey), bedrock.WithRegion(region))
+		// The AWS SDK reads AWS_BEARER_TOKEN_BEDROCK by itself and would
+		// send that instead. A stored key takes precedence over the
+		// environment, as for every other provider, so the transport sets it
+		// on each request.
+		httpClient = withBearerToken(httpClient, apiKey)
+	}
+	if os.Getenv("DEBUG") != "" || os.Getenv("KIT_DEBUG") != "" {
+		source := "the AWS SDK (AWS_BEARER_TOKEN_BEDROCK or the default chain)"
+		if apiKey != "" {
+			source = "the key stored in Kit's credentials file"
+		}
+		fmt.Fprintf(os.Stderr, "Using Bedrock credentials from: %s\n", source)
+	}
+	opts = append(opts, bedrock.WithHTTPClient(httpClient))
+
 	provider, err := bedrock.New(opts...)
 	if err != nil {
 		return nil, wrapProviderErr("Bedrock", "provider", err)
@@ -2400,6 +2489,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// providerSettings returns the registry entry for a provider, with the
+// region and project from the `providers` config section. It returns the
+// zero value for an unknown provider.
+func providerSettings(id string) ProviderInfo {
+	if info := GetGlobalRegistry().GetProviderInfo(id); info != nil {
+		return *info
+	}
+	return ProviderInfo{}
 }
 
 func copilotHTTPClientWithIdentity(token string, expiresAt int64, config *ProviderConfig) *http.Client {

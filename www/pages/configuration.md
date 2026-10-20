@@ -226,6 +226,8 @@ kit --model corp-llm/claude-sonnet-4-5 "Hello"
 | `baseUrl` | string | API base URL |
 | `apiKeyEnv` | list | Environment variable names tried in order when resolving the API key |
 | `headers` | map | Default HTTP headers added to every request |
+| `region` | string | Location for `google-vertex` and `google-vertex-anthropic`. Takes precedence over the region environment variables. See [Google Vertex](/providers#google-vertex). A Bedrock region is stored with its key, see [AWS Bedrock](/providers#aws-bedrock) |
+| `project` | string | Google Cloud project for `google-vertex` and `google-vertex-anthropic`. Takes precedence over the project environment variables |
 
 All fields are optional. Non-empty fields override the model database; unset fields inherit the database values. An invalid `wire` value causes the whole override to be skipped with a warning. Wire resolution precedence: `--provider-wire` flag > `providers` config > the database's own routing.
 

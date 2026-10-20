@@ -27,6 +27,11 @@ import (
 //	    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
 //	    headers:
 //	      X-Team: platform
+//
+//	  # Project and region for Vertex
+//	  google-vertex-anthropic:
+//	    project: my-project
+//	    region: europe-west1
 type ProviderOverrideConfig struct {
 	// Name is the human-readable provider name.
 	Name string `json:"name,omitempty" yaml:"name,omitempty"`
@@ -40,6 +45,14 @@ type ProviderOverrideConfig struct {
 	APIKeyEnv []string `json:"apiKeyEnv,omitempty" yaml:"apiKeyEnv,omitempty"`
 	// Headers are default HTTP headers added to every request.
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// Region is the location for google-vertex and google-vertex-anthropic.
+	// It takes precedence over the region environment variables. Other
+	// providers ignore it; a Bedrock region is stored with its key.
+	Region string `json:"region,omitempty" yaml:"region,omitempty"`
+	// Project is the Google Cloud project for google-vertex and
+	// google-vertex-anthropic. It takes precedence over the project
+	// environment variables. Other providers ignore it.
+	Project string `json:"project,omitempty" yaml:"project,omitempty"`
 }
 
 // loadProviderOverridesFromConfig loads the `providers` config section from
@@ -75,6 +88,13 @@ func loadProviderOverridesFrom(v *viper.Viper) map[string]ProviderOverrideConfig
 // like ollama — model lookups are advisory for auto-routed providers.
 func applyProviderOverrides(providers map[string]ProviderInfo, overrides map[string]ProviderOverrideConfig) {
 	for id, o := range overrides {
+		// Lookups resolve an alias such as "bedrock" to its catalog ID, so
+		// an entry under the alias would never be read.
+		if canonical := catalogProviderID(id); canonical != id {
+			fmt.Fprintf(os.Stderr, "Warning: provider %q is an alias; use %q in the providers section; ignoring override\n",
+				id, canonical)
+			continue
+		}
 		if o.Wire != "" {
 			if _, ok := parseWire(o.Wire); !ok {
 				fmt.Fprintf(os.Stderr, "Warning: provider %q has unknown wire %q (expected one of: %s); ignoring override\n",
@@ -106,6 +126,12 @@ func applyProviderOverrides(providers map[string]ProviderInfo, overrides map[str
 		}
 		if len(o.Headers) > 0 {
 			info.Headers = o.Headers
+		}
+		if o.Region != "" {
+			info.Region = o.Region
+		}
+		if o.Project != "" {
+			info.Project = o.Project
 		}
 
 		providers[id] = info

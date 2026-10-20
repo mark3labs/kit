@@ -345,6 +345,11 @@ type ProviderInfo struct {
 	// provider (auto-routed wires only). Populated from the `providers`
 	// config section.
 	Headers map[string]string
+	// Region and Project are the location and Google Cloud project of
+	// google-vertex and google-vertex-anthropic. Populated from the
+	// `providers` config section.
+	Region  string
+	Project string
 	Models  map[string]ModelInfo
 }
 
