@@ -1144,6 +1144,18 @@ func catalogReasoningLevel(level ThinkingLevel) (string, bool) {
 	return string(level), level != "" && level != ThinkingOff
 }
 
+// isAnthropicBudgetProvider reports whether Kit sends the thinking options
+// of a provider's Claude models through its Anthropic adapter: the native
+// provider, Vertex and Bedrock. A reasoning model there without an effort
+// scale takes a token budget, so it accepts only the levels with a budget.
+func isAnthropicBudgetProvider(provider string) bool {
+	switch provider {
+	case "anthropic", "google-vertex-anthropic", "amazon-bedrock", "bedrock":
+		return true
+	}
+	return false
+}
+
 // SupportedThinkingLevels returns off followed by the model's published efforts
 // in catalog order. Without graded metadata it returns the default ladder.
 //
@@ -1160,7 +1172,7 @@ func SupportedThinkingLevels(provider, modelName string) []ThinkingLevel {
 	if info == nil || !info.ReasoningIsGraded {
 		// Classic Anthropic thinking has numeric budgets, not arbitrary
 		// named efforts. Keep its existing finite controls.
-		if info != nil && info.Reasoning && (provider == "anthropic" || provider == "google-vertex-anthropic") {
+		if info != nil && info.Reasoning && isAnthropicBudgetProvider(provider) {
 			return all[:len(all)-1]
 		}
 		return all
@@ -1202,7 +1214,7 @@ func IsValidThinkingLevelForModel(level ThinkingLevel, provider, modelName strin
 		if info == nil {
 			return true
 		}
-		if !info.ReasoningIsGraded && info.Reasoning && (provider == "anthropic" || provider == "google-vertex-anthropic") {
+		if !info.ReasoningIsGraded && info.Reasoning && isAnthropicBudgetProvider(provider) {
 			return thinkingBudgetTokens(level) > 0
 		}
 		return info.SupportsReasoningLevel(catalogLevel)
@@ -1303,21 +1315,38 @@ func anthropicEffortForLevel(level ThinkingLevel) (anthropic.Effort, bool) {
 // actual response. Effort mode uses adaptive thinking (no fixed budget), so
 // this bump does not apply there.
 func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
+	return buildAnthropicProviderOptionsFor(config, "anthropic", modelName)
+}
+
+// buildAnthropicProviderOptionsFor is buildAnthropicProviderOptions for a
+// model that catalogProvider serves. The choice between effort and token
+// budget comes from that provider's catalog entry, because Bedrock and
+// Vertex list Anthropic's models under IDs of their own, such as
+// "us.anthropic.claude-opus-5-5" or "claude-opus-5-5@default".
+func buildAnthropicProviderOptionsFor(config *ProviderConfig, catalogProvider, modelName string) fantasy.ProviderOptions {
 	// Thinking is OFF by default. If user hasn't explicitly enabled it, return nil.
 	if config.ThinkingLevel == "" || config.ThinkingLevel == ThinkingOff {
+		return nil
+	}
+
+	// Bedrock and Vertex get thinking only for the reasoning models their
+	// catalog lists. A model ID that is not in the catalog, such as an
+	// inference profile ARN, may reject it.
+	info := GetGlobalRegistry().LookupModel(catalogProvider, modelName)
+	if catalogProvider != "anthropic" && (info == nil || !info.Reasoning) {
 		return nil
 	}
 
 	sendReasoning := true
 
 	// Effort-graded models take output_config.effort, not a token budget.
-	if info := GetGlobalRegistry().LookupModel("anthropic", modelName); info != nil && info.ReasoningIsGraded {
+	if info != nil && info.ReasoningIsGraded {
 		// Kit's "none"/"minimal" have no effort equivalent; coerce to the
 		// nearest supported graded level so the request is accepted rather
 		// than rejected by the API.
 		level := config.ThinkingLevel
-		if !IsValidThinkingLevelForModel(level, "anthropic", modelName) {
-			level = SuggestThinkingLevelFallback(level, "anthropic", modelName)
+		if !IsValidThinkingLevelForModel(level, catalogProvider, modelName) {
+			level = SuggestThinkingLevelFallback(level, catalogProvider, modelName)
 		}
 		effort, ok := anthropicEffortForLevel(level)
 		if !ok {
@@ -1441,7 +1470,11 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 		return nil, wrapProviderErr("Vertex Anthropic", "model", err)
 	}
 
-	return &ProviderResult{Model: model, MessageCacheControl: true}, nil
+	// Thinking settings as for the native provider. The Vertex catalog lists
+	// the same reasoning options under its own model IDs.
+	providerOpts := buildAnthropicProviderOptionsFor(config, "google-vertex-anthropic", modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts, MessageCacheControl: true}, nil
 }
 
 func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -2040,7 +2073,19 @@ func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelNam
 		return nil, wrapProviderErr("Bedrock", "model", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	// Bedrock runs Anthropic's models, so requests follow the rules of the
+	// native provider: temperature and top_p are not sent together, and the
+	// thinking level sets the thinking options. Prompt caching is on for the
+	// Claude models the catalog lists; a model that is not in the catalog
+	// gets no cache markers and no thinking options.
+	clearConflictingAnthropicSamplingParams(config)
+	info := GetGlobalRegistry().LookupModel("amazon-bedrock", modelName)
+
+	return &ProviderResult{
+		Model:               model,
+		ProviderOptions:     buildAnthropicProviderOptionsFor(config, "amazon-bedrock", modelName),
+		MessageCacheControl: info != nil && info.CacheType() == "anthropic-ephemeral",
+	}, nil
 }
 
 // createVercelProvider attaches native named effort options for the gateway.
