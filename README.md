@@ -144,6 +144,25 @@ kit "Run tests" --quiet
 kit "Quick question" --no-session
 ```
 
+### Tool execution and trust
+
+The standard CLI/TUI and non-interactive runs execute enabled tool calls without
+a built-in per-call approval prompt by default. Shell commands run with the
+process account's permissions. The write and edit tools can change files without
+using the shell. Custom extensions and SDK hooks can block calls. `--quiet`,
+`--json`, and `--no-session` do not add isolation or approval.
+
+Repository files, fetched content, MCP results, and issue/PR text can influence
+model instructions. With untrusted input, use a dedicated restricted account or
+an isolated runtime. Limit filesystem mounts and network access, and provide only
+the credentials needed for the task. A working directory is not a filesystem
+access boundary. Kit does not automatically provide an OS sandbox.
+
+[ACP server mode](#acp-server-mode) is an exception: its default approval mode is
+`ask`, subject to read-only tool exemptions and remembered session decisions.
+Approval prompts are not an OS sandbox or a complete defense against malicious
+input. This guidance does not add a gate that blocks destructive commands.
+
 ### ACP Server Mode
 
 Kit can run as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server, enabling ACP-compatible clients (such as [OpenCode](https://github.com/sst/opencode)) to drive Kit as a remote coding agent over stdio.
@@ -755,6 +774,11 @@ The generated workflow:
 - Uses least-privilege `permissions` and `persist-credentials: false`.
 - Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and
   the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
+
+**CI trust:** Trigger restrictions control who can start a run. They do not make
+all issue/PR content trusted or confine tool calls. Use an isolated, disposable
+runner, minimal token permissions, and only required credentials. Do not expose
+unrelated secrets or host access. See [Tool execution and trust](#tool-execution-and-trust).
 
 After committing the workflow and setting the provider secret, comment
 `/kit <your request>` on any issue or pull request to trigger Kit.
