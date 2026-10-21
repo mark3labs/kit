@@ -239,7 +239,7 @@ func TestUnicodePlaceholdersDetection(t *testing.T) {
 
 // Graphics stay off inside a multiplexer even when the probe reports support,
 // because the reported support is borrowed from the terminal behind it.
-func TestUseKittyGraphicsRequiresCellSize(t *testing.T) {
+func TestPreviewModeRequiresCellSize(t *testing.T) {
 	t.Cleanup(func() {
 		capsMu.Lock()
 		caps = nil
@@ -247,21 +247,21 @@ func TestUseKittyGraphicsRequiresCellSize(t *testing.T) {
 	})
 
 	Set(withCaps(func(c *Capabilities) { c.CellWidth, c.CellHeight = 0, 0 }))
-	if UseKittyGraphics() {
-		t.Error("UseKittyGraphics() = true without a reported cell size")
+	if PreviewMode() != ModeHalfBlock {
+		t.Error("PreviewMode() != ModeHalfBlock without a reported cell size")
 	}
 	Set(capableTerminal)
-	if !UseKittyGraphics() {
-		t.Error("UseKittyGraphics() = false with support and a cell size")
+	if PreviewMode() == ModeHalfBlock {
+		t.Error("PreviewMode() = ModeHalfBlock with support and a cell size")
 	}
 	Set(withCaps(func(c *Capabilities) { c.KittyGraphics = false }))
-	if UseKittyGraphics() {
-		t.Error("UseKittyGraphics() = true without protocol support")
+	if PreviewMode() != ModeHalfBlock {
+		t.Error("PreviewMode() != ModeHalfBlock without protocol support")
 	}
 }
 
 func TestEnvOverride(t *testing.T) {
-	// Forcing the protocol on must produce capabilities that UseKittyGraphics
+	// Forcing the protocol on must produce capabilities that PreviewMode
 	// actually accepts. Returning support without a cell size would make the
 	// override silently do nothing.
 	// Forcing the protocol on must not fabricate a colour depth. Claiming
@@ -304,8 +304,8 @@ func TestEnvOverride(t *testing.T) {
 				caps = nil
 				capsMu.Unlock()
 			})
-			if !UseKittyGraphics() {
-				t.Error("UseKittyGraphics() = false after forcing the protocol on")
+			if PreviewMode() == ModeHalfBlock {
+				t.Error("PreviewMode() = ModeHalfBlock after forcing the protocol on")
 			}
 		})
 	}
@@ -337,13 +337,13 @@ func TestSetAndCurrent(t *testing.T) {
 	})
 
 	Set(Capabilities{KittyGraphics: true})
-	if !SupportsKittyGraphics() {
-		t.Error("SupportsKittyGraphics() = false after Set, want true")
+	if !Current().KittyGraphics {
+		t.Error("Current().KittyGraphics = false after Set, want true")
 	}
 
 	// Resolve must not overwrite an explicitly supplied value.
 	Resolve()
-	if !SupportsKittyGraphics() {
+	if !Current().KittyGraphics {
 		t.Error("Resolve() overwrote the value supplied by Set")
 	}
 }
@@ -356,8 +356,8 @@ func TestUnresolvedDefaultsToNoGraphics(t *testing.T) {
 	if Current() != (Capabilities{}) {
 		t.Error("Current() on an unresolved cache reported graphics support")
 	}
-	if SupportsKittyGraphics() {
-		t.Error("SupportsKittyGraphics() = true before resolution, want false")
+	if Current().KittyGraphics {
+		t.Error("Current().KittyGraphics = true before resolution, want false")
 	}
 }
 
@@ -391,12 +391,12 @@ func TestProbeLive(t *testing.T) {
 	t.Logf("TERM=%q ZELLIJ=%q TMUX=%q", os.Getenv("TERM"), os.Getenv("ZELLIJ"), os.Getenv("TMUX"))
 	t.Logf("caps=%+v err=%v", c, err)
 	Set(c)
-	t.Logf("UseKittyGraphics=%v", UseKittyGraphics())
+	t.Logf("PreviewMode=%v", PreviewMode())
 }
 
 // Resolve must not deadlock. It holds capsMu while caching the result, and
 // sync.RWMutex is not reentrant, so any call it makes that reads the cache
-// (Current, UseKittyGraphics) hangs the process before the TUI ever starts.
+// (Current, PreviewMode) hangs the process before the TUI ever starts.
 // That shipped once and made kit render nothing at all.
 func TestResolveDoesNotDeadlock(t *testing.T) {
 	t.Cleanup(func() {
@@ -418,7 +418,7 @@ func TestResolveDoesNotDeadlock(t *testing.T) {
 		// Reading the cache afterwards must work too: a Resolve that returned
 		// while still holding the lock would block every later reader.
 		_ = Current()
-		_ = UseKittyGraphics()
+		_ = PreviewMode()
 	}()
 
 	select {

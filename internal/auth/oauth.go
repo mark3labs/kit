@@ -530,14 +530,6 @@ func (c *OpenAIOAuthClient) GetAuthorizationURL() (*AuthData, error) {
 	}, nil
 }
 
-// ExchangeCode exchanges an authorization code for access and refresh tokens.
-// The code parameter should be the authorization code received from the OAuth callback.
-// The verifier parameter must be the same PKCE verifier generated during GetAuthorizationURL.
-// Returns OpenAICredentials containing the tokens, expiration, and account ID.
-func (c *OpenAIOAuthClient) ExchangeCode(code, verifier string) (*OpenAICredentials, error) {
-	return c.ExchangeCodeContext(context.Background(), code, verifier)
-}
-
 // ExchangeCodeContext exchanges a code with cancellation support.
 func (c *OpenAIOAuthClient) ExchangeCodeContext(ctx context.Context, code, verifier string) (*OpenAICredentials, error) {
 	return c.exchangeAuthorizationCodeContext(ctx, code, verifier, c.RedirectURI)
@@ -707,41 +699,6 @@ func extractOpenAIAccountID(token string) string {
 	}
 
 	return accountID
-}
-
-// ParseOpenAIAuthorizationInput parses various forms of authorization input:
-// - Full callback URL: http://localhost:1455/auth/callback?code=xxx&state=yyy
-// - Code#State format: abc123#state456
-// - Query string: code=abc123&state=state456
-// - Just the code: abc123
-func ParseOpenAIAuthorizationInput(input string) (code, state string) {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return "", ""
-	}
-
-	// Try parsing as URL
-	if strings.HasPrefix(input, "http") {
-		if u, err := url.Parse(input); err == nil {
-			return u.Query().Get("code"), u.Query().Get("state")
-		}
-	}
-
-	// Try code#state format
-	if strings.Contains(input, "#") {
-		parts := strings.SplitN(input, "#", 2)
-		return parts[0], parts[1]
-	}
-
-	// Try query string format
-	if strings.Contains(input, "code=") {
-		if values, err := url.ParseQuery(input); err == nil {
-			return values.Get("code"), values.Get("state")
-		}
-	}
-
-	// Assume it's just the code
-	return input, ""
 }
 
 // SetOAuthCredentials stores OAuth credentials in the credential manager's secure storage.
