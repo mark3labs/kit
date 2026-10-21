@@ -92,8 +92,10 @@ user or try something else). This is the same as a block from an extension.
 
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
+remain necessary when input is untrusted.
 
 ### AfterToolResult — modify tool output
 

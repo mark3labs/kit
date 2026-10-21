@@ -31,11 +31,17 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 |-----------|-------------|
 | [`auto-commit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/auto-commit.go) | Auto-commit changes on shutdown |
 | [`plan-mode.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/plan-mode.go) | Read-only planning mode |
-| [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Permission gating for destructive tools |
-| [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Confirm destructive operations |
+| [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Opt-in confirmation for selected shell command patterns |
+| [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Opt-in confirmation for forks and session switches |
 | [`protected-paths.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/protected-paths.go) | Path protection for sensitive files |
 | [`project-rules.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/project-rules.go) | Project-specific rules injection |
 | [`compact-notify.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/compact-notify.go) | Notification on conversation compaction |
+
+These confirmation examples are not enabled by default or comprehensive.
+Pattern checks are bypassable mistake-prevention aids, not a security boundary.
+The session confirmation example does not approve shell commands. See
+[Tool execution and trust](/quick-start#tool-execution-and-trust) for execution
+environment restrictions when input is untrusted.
 
 ## Interactive features
 

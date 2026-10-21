@@ -297,8 +297,8 @@ func shellCommandParamDescription(shell []string) string {
 const defaultShellTimeout = 120 * time.Second
 const maxShellTimeout = 600 * time.Second
 
-// bannedCmdRe matches shell builtin commands that are not allowed for security
-// reasons.
+// bannedCmdRe applies a limited restriction to selected shell builtins at the
+// start of a command. It is not a security boundary.
 var bannedCmdRe = regexp.MustCompile(`^(alias|bg|bind|builtin|caller|command|compgen|complete|compopt|coproc|dirs|disown|enable|fc|fg|hash|help|history|jobs|kill|logout|mapfile|popd|pushd|readonly|select|set|shopt|source|suspend|times|trap|type|typeset|ulimit|umask|unalias|wait)\s`)
 
 type shellArgs struct {
