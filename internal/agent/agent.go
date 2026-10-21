@@ -938,639 +938,76 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// all see the args of the last OnToolCall in the step. The mutex guards
 	// against the possibility that the underlying streaming layer dispatches
 	// callbacks from multiple goroutines.
-	toolCallArgs := make(map[string]string)
-	var toolCallArgsMu sync.Mutex
 
 	// Track completed step messages so we can return partial results
 	// on cancellation. The agent's Stream() discards accumulated steps
 	// when it returns an error, but the OnStepFinish callback fires
 	// for every step that completed before the error occurred.
-	var completedStepMessages []fantasy.Message
 	// persistedCount tracks how many new messages (beyond the original
 	// input) were persisted incrementally via cb.OnStepMessages, so the
 	// caller can skip them during post-generation persistence.
-	var persistedCount int
-	var persistenceErr error
-	var unfinished strings.Builder
-	attemptID := rand.Text()
-	var completedUsage fantasy.Usage
 	// completedSteps counts steps that finished in this turn, across all
 	// replays. stepOffset is the value of completedSteps when the current
 	// stream call started, so step numbers stay turn-wide after a replay.
-	var completedSteps, stepOffset int
-	writeStep := func(msgs []fantasy.Message) {
-		if persistenceErr != nil {
-			return
-		}
-		if cb.OnStepMessagesChecked != nil {
-			n, err := cb.OnStepMessagesChecked(msgs)
-			if n < 0 || n > len(msgs) {
-				n = 0
-				err = errors.Join(err, fmt.Errorf("invalid confirmed write count"))
-			}
-			if err == nil && n != len(msgs) {
-				err = fmt.Errorf("only %d of %d step messages were persisted", n, len(msgs))
-			}
-			persistedCount += n
-			persistenceErr = err
-		} else if cb.OnStepMessages != nil {
-			cb.OnStepMessages(msgs)
-			persistedCount += len(msgs)
-		}
-	}
-	// stepCounter tracks the current step number for StepStart/StepFinish events.
-	var stepCounter int
-
-	// pendingMedia holds step messages that are not persisted yet because
-	// they contain a media tool result that the provider has not accepted.
-	// The provider sees a tool result only in the NEXT request, so a step
-	// with an image is held back until a later step completes (proof that
-	// the request carrying the image was accepted). Messages produced after
-	// a held step are held too, to keep the persisted order. See
-	// media_recovery.go.
-	var pendingMedia []fantasy.Message
-	// persistStep persists msgs through cb.OnStepMessages, or holds them in
-	// pendingMedia as described above.
-	persistStep := func(msgs []fantasy.Message) {
-		if len(msgs) == 0 {
-			return
-		}
-		if len(pendingMedia) > 0 || hasMediaToolResult(msgs) {
-			pendingMedia = append(pendingMedia, msgs...)
-			return
-		}
-		writeStep(msgs)
-	}
-	// flushPending persists the held messages. Call it only when the
-	// provider has accepted the request that carried them.
-	flushPending := func() {
-		if len(pendingMedia) == 0 {
-			return
-		}
-		held := pendingMedia
-		pendingMedia = nil
-		writeStep(held)
-	}
-	// mediaRetries counts replays after a provider rejected a media tool
-	// result. It bounds the recovery loop below.
-	var mediaRetries int
-	var preparationErr error
-	// canRecoverMedia reports whether err can be recovered by replacing the
-	// held media tool results and replaying the turn.
-	canRecoverMedia := func(err error) bool {
-		return preparationErr == nil && mediaRetries < maxMediaRetries &&
-			hasMediaToolResult(pendingMedia) &&
-			isMediaRejection(err)
+	t := &streamTurn{
+		a: a, cb: cb, ctx: ctx,
+		messages: messages, history: history,
+		toolCallArgs: make(map[string]string), attemptID: rand.Text(),
 	}
 
-	// Step resume: after a transient provider failure, restart the failed
-	// step from the last completed step. The stream library runs tools only
-	// after a step stream ends without error, so the failed step ran no
-	// local tools and completed steps are never repeated. See resume.go.
-	var resumes int
-	var plannedResume *resumePlan
-
-	// Use the streaming agent
-	zeroRetries := 0
-	streamCall := fantasy.AgentStreamCall{
-		MaxRetries: &zeroRetries,
-		Prompt:     prompt,
-		Files:      files,
-		Messages:   history,
-
-		// Tool input streaming callbacks — fire during tool argument generation
-		OnToolInputStart: func(id, toolName string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnToolCallStart != nil {
-				cb.OnToolCallStart(id, toolName)
-			}
-			return nil
-		},
-		OnToolInputDelta: func(id, delta string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnToolCallDelta != nil {
-				cb.OnToolCallDelta(id, delta)
-			}
-			return nil
-		},
-		OnToolInputEnd: func(id string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnToolCallEnd != nil {
-				cb.OnToolCallEnd(id)
-			}
-			return nil
-		},
-
-		// Text start/end callbacks
-		OnTextStart: func(id string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnTextStart != nil {
-				cb.OnTextStart(id)
-			}
-			return nil
-		},
-		OnTextEnd: func(id string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnTextEnd != nil {
-				cb.OnTextEnd(id)
-			}
-			return nil
-		},
-
-		// Reasoning start callback
-		OnReasoningStart: func(id string, _ fantasy.ReasoningContent) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnReasoningStart != nil {
-				cb.OnReasoningStart(id)
-			}
-			return nil
-		},
-
-		// Reasoning/thinking streaming callback
-		OnReasoningDelta: func(id, delta string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnReasoningDelta != nil {
-				cb.OnReasoningDelta(delta)
-			}
-			return nil
-		},
-
-		// Reasoning/thinking complete callback
-		OnReasoningEnd: func(id string, _ fantasy.ReasoningContent) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnReasoningComplete != nil {
-				cb.OnReasoningComplete()
-			}
-			return nil
-		},
-
-		// Text streaming callback
-		OnTextDelta: func(id, text string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			unfinished.WriteString(text)
-			if cb.OnStreamingResponse != nil {
-				cb.OnStreamingResponse(text)
-			}
-			return nil
-		},
-
-		// Warnings callback
-		OnWarnings: func(warnings []fantasy.CallWarning) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnWarnings != nil {
-				strs := make([]string, len(warnings))
-				for i, w := range warnings {
-					strs[i] = w.Message
-				}
-				cb.OnWarnings(strs)
-			}
-			return nil
-		},
-
-		// Source callback
-		OnSource: func(source fantasy.SourceContent) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnSource != nil {
-				cb.OnSource(string(source.SourceType), source.ID, source.URL, source.Title)
-			}
-			return nil
-		},
-
-		// Stream finish callback (per-step stream completion)
-		OnStreamFinish: func(usage fantasy.Usage, finishReason fantasy.FinishReason, _ fantasy.ProviderMetadata) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if cb.OnStreamFinish != nil {
-				cb.OnStreamFinish(usage, string(finishReason))
-			}
-			return nil
-		},
-
-		// Error callback
-		OnError: func(err error) {
-			if preparationErr != nil {
-				if cb.OnError != nil {
-					cb.OnError(preparationErr)
-				}
-				return
-			}
-			// A rejected media tool result is recovered below and the
-			// model is told about it, so it is not a turn error.
-			if canRecoverMedia(err) {
-				return
-			}
-			// A resumable failure is not a turn error either. The plan is
-			// made here, so the error is reported exactly once: either
-			// as a resume or as an error.
-			plannedResume = a.planResume(ctx, resumeState{
-				err:            err,
-				resumes:        resumes,
-				completedSteps: completedSteps,
-				persistenceErr: persistenceErr,
-				lastRole:       lastReplayRole(messages, completedStepMessages),
-			})
-			if plannedResume != nil {
-				return
-			}
-			if cb.OnError != nil {
-				cb.OnError(err)
-			}
-		},
-
-		// Step start callback
-		OnStepStart: func(stepNumber int) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			stepCounter = stepOffset + stepNumber
-			attemptID = rand.Text()
-			if cb.OnStepStart != nil {
-				cb.OnStepStart(stepCounter)
-			}
-			return nil
-		},
-
-		// Tool call complete - the tool has been parsed and is about to execute
-		OnToolCall: func(tc fantasy.ToolCallContent) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			toolCallArgsMu.Lock()
-			toolCallArgs[tc.ToolCallID] = tc.Input
-			toolCallArgsMu.Unlock()
-
-			// Notify about the tool call
-			if cb.OnToolCall != nil {
-				cb.OnToolCall(tc.ToolCallID, tc.ToolName, tc.Input)
-			}
-
-			// Notify tool execution starting
-			if cb.OnToolExecution != nil {
-				cb.OnToolExecution(tc.ToolCallID, tc.ToolName, tc.Input, true)
-			}
-
-			return nil
-		},
-
-		// Tool result - tool execution completed
-		OnToolResult: func(tr fantasy.ToolResultContent) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// Look up the args recorded for this specific tool call. Delete
-			// the entry so the map doesn't accumulate across steps.
-			toolCallArgsMu.Lock()
-			args := toolCallArgs[tr.ToolCallID]
-			delete(toolCallArgs, tr.ToolCallID)
-			toolCallArgsMu.Unlock()
-
-			// Notify tool execution finished
-			if cb.OnToolExecution != nil {
-				cb.OnToolExecution(tr.ToolCallID, tr.ToolName, args, false)
-			}
-
-			if cb.OnToolResult != nil {
-				// Extract result text and error status
-				resultText, isError := extractToolResultText(tr)
-				cb.OnToolResult(tr.ToolCallID, tr.ToolName, args, resultText, tr.ClientMetadata, isError)
-			}
-
-			return nil
-		},
-
-		// Step callbacks for content that accompanies tool calls
-		OnStepFinish: func(step fantasy.StepResult) error {
-			// Accumulate messages from completed steps so they can be
-			// persisted even if a later step is cancelled.
-			completedStepMessages = append(completedStepMessages, step.Messages...)
-			unfinished.Reset()
-			completedSteps++
-			completedUsage = addUsage(completedUsage, step.Usage)
-
-			// This step completed, so the provider accepted the request
-			// that carried any held media tool results. Persist them.
-			flushPending()
-
-			// Persist step messages incrementally so progress is saved
-			// as it happens rather than only at the end of the turn.
-			persistStep(step.Messages)
-			if persistenceErr != nil {
-				return persistenceErr
-			}
-
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// Check if step has text content alongside tool calls
-			text := step.Content.Text()
-			toolCalls := step.Content.ToolCalls()
-			if text != "" && len(toolCalls) > 0 && cb.OnToolCallContent != nil {
-				cb.OnToolCallContent(text)
-			}
-			// Emit step usage for real-time cost tracking
-			if cb.OnStepUsage != nil {
-				cb.OnStepUsage(step.Usage.InputTokens, step.Usage.OutputTokens,
-					step.Usage.CacheReadTokens, step.Usage.CacheCreationTokens)
-			}
-			// Emit unified step finish event
-			if cb.OnStepFinish != nil {
-				cb.OnStepFinish(stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage)
-			}
-			return nil
-		},
-	}
-
-	// Always wire up PrepareStep. It serves three purposes:
-	//   1. Re-read the live tool set each step so runtime AddTools/
-	//      RemoveTools (and MCP server changes) take effect at the next
-	//      LLM step of the *current* turn, as documented. The entire
-	//      multi-step loop runs inside a single fantasy Stream call that
-	//      otherwise captures the tool snapshot taken when Stream began;
-	//      populating PrepareStepResult.Tools makes fantasy re-read tools
-	//      per step instead.
-	//   2. Steering: drain queued steer messages.
-	//   3. The OnPrepareStep hook.
-	// Steering drains its channel first, then OnPrepareStep hooks run
-	// against the (possibly already steered) messages.
-	steerCh := steerChFromContext(ctx)
-	onConsumed := steerConsumedFromContext(ctx)
-	hasSteering := steerCh != nil
-	hasPrepareStepHook := cb.OnPrepareStep != nil
-	// injectedSteer records every steer message injected during this turn
-	// and where it was injected. The LLM library rebuilds each step's
-	// prompt from the original prompt plus the step responses, so messages
-	// added in PrepareStep apply to one step only. To keep steer messages
-	// in the conversation for all later steps, PrepareStep puts them back
-	// at their recorded positions on every step.
-	var injectedSteer []steerInjection
+	streamCall := t.streamCall(prompt, files)
 
 	a.promptMu.Lock()
 	loop := a.fantasyAgent
-	hadManagedPrompt := a.systemPrompt != ""
+	t.hadManagedPrompt = a.systemPrompt != ""
 	a.promptMu.Unlock()
-	streamCall.PrepareStep = func(
-		stepCtx context.Context,
-		opts fantasy.PrepareStepFunctionOptions,
-	) (context.Context, fantasy.PrepareStepResult, error) {
-		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
-			return stepCtx, fantasy.PrepareStepResult{}, err
-		}
-		result := fantasy.PrepareStepResult{
-			Model:    opts.Model,
-			Messages: withSteerInjections(opts.Messages, injectedSteer),
-		}
-
-		// Phase 1: Drain steering channel (if present).
-		if hasSteering {
-			var steered []SteerMessage
-			for {
-				select {
-				case msg := <-steerCh:
-					steered = append(steered, msg)
-				default:
-					goto done
-				}
-			}
-		done:
-			if len(steered) > 0 {
-				newMessages := make([]fantasy.Message, 0, len(steered))
-				for _, sm := range steered {
-					msg := fantasy.NewUserMessage(sm.Text, sm.Files...)
-					newMessages = append(newMessages, msg)
-					injectedSteer = append(injectedSteer, steerInjection{
-						pos: len(opts.Messages),
-						msg: msg,
-					})
-				}
-				result.Messages = append(result.Messages, newMessages...)
-
-				// The previous step's messages were already recorded in
-				// OnStepFinish, so appending here keeps the order of the
-				// conversation. Persist now so the steer message survives
-				// a cancel, an error, and a session reload.
-				completedStepMessages = append(completedStepMessages, newMessages...)
-				persistStep(newMessages)
-				if persistenceErr != nil {
-					return stepCtx, result, persistenceErr
-				}
-
-				if onConsumed != nil {
-					onConsumed(len(steered))
-				}
-			}
-		}
-
-		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
-			return stepCtx, result, err
-		}
-		// Run hooks first, then capture live state. Explicit overrides win.
-		var update *PrepareStepUpdate
-		if hasPrepareStepHook {
-			update = cb.OnPrepareStep(stepCtx, stepOffset+opts.StepNumber, result.Messages)
-		}
-		if update != nil && update.Error != nil {
-			preparationErr = update.Error
-			return stepCtx, result, preparationErr
-		}
-		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
-			return stepCtx, result, err
-		}
-		var livePrompt string
-		if cb.RequestSnapshot != nil {
-			livePrompt, result.Tools = cb.RequestSnapshot()
-		} else {
-			livePrompt, result.Tools = a.RequestSnapshot()
-		}
-		if hadManagedPrompt && len(result.Messages) > 0 && result.Messages[0].Role == fantasy.MessageRoleSystem {
-			result.Messages = append([]fantasy.Message(nil), result.Messages...)
-			result.Messages[0] = fantasy.NewSystemMessage(livePrompt)
-		} else if livePrompt != "" {
-			result.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(livePrompt)}, result.Messages...)
-		}
-		if update != nil {
-			if update.Messages != nil {
-				result.Messages = update.Messages
-			}
-			if update.ToolChoice != nil {
-				result.ToolChoice = update.ToolChoice
-			}
-			if update.Tools != nil {
-				// An empty non-nil slice disables tools for this step.
-				result.Tools = update.Tools
-			}
-		}
-
-		// Remove images from the request when the active model cannot
-		// read them (for example after a switch to a text-only model).
-		// The session keeps them. See image_gate.go.
-		if a.currentModel != nil {
-			if supported, model := a.currentModel.imageInput(); !supported {
-				result.Messages = withoutImages(result.Messages, model)
-			}
-		}
-
-		// Apply message-level cache control for Anthropic models. The tool
-		// list already carries a breakpoint, so reserve it from the budget.
-		if a.messageCachingEnabled() {
-			result.Messages = applyCacheControlToMessages(result.Messages, toolCacheBlocks)
-		}
-
-		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
-			return stepCtx, result, err
-		}
-		return stepCtx, result, nil
-	}
 
 	result, err := loop.Stream(ctx, streamCall)
 
-	// replayFromCompleted makes streamCall continue the turn from the full
-	// conversation so far. The steer messages are already in it, so they
-	// are not injected again. Step numbers and the step limit continue
-	// from the completed steps.
-	replayFromCompleted := func() {
-		injectedSteer = nil
-		stepOffset = completedSteps
-		replay := make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
-		replay = append(replay, messages...)
-		replay = append(replay, completedStepMessages...)
-		streamCall.Prompt = ""
-		streamCall.Files = nil
-		if a.messageCachingEnabled() {
-			streamCall.Messages = applyCacheControlToMessages(replay, toolCacheBlocks)
-		} else {
-			streamCall.Messages = replay
-		}
-		if a.maxSteps > 0 {
-			streamCall.StopWhen = []fantasy.StopCondition{fantasy.StepCountIs(max(1, a.maxSteps-completedSteps))}
-		}
+	if t.preparationErr != nil {
+		err = t.preparationErr
 	}
-
-	if preparationErr != nil {
-		err = preparationErr
-	}
-	for err != nil && ctx.Err() == nil && preparationErr == nil {
+	for err != nil && ctx.Err() == nil && t.preparationErr == nil {
 		// Recover from a provider that rejected a media tool result (for
 		// example an image the model cannot accept, or a request above the
 		// provider size limit). Replace the held media results with error
 		// results that give the reason, persist them, and continue the turn
 		// from there, so the model can take another approach.
-		if canRecoverMedia(err) {
-			mediaRetries++
-			fixed, n := replaceMediaToolResults(pendingMedia, err)
-			// The held messages are always the tail of completedStepMessages.
-			copy(completedStepMessages[len(completedStepMessages)-len(fixed):], fixed)
-			pendingMedia = nil
-			persistStep(fixed)
-			if cb.OnWarnings != nil {
-				cb.OnWarnings([]string{fmt.Sprintf(
-					"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
-			}
-			replayFromCompleted()
+		if t.canRecoverMedia(err) {
+			t.recoverMedia(err)
+			t.replayFromCompleted(&streamCall)
 			result, err = loop.Stream(ctx, streamCall)
 			continue
 		}
 
-		plan := plannedResume
-		plannedResume = nil
+		plan := t.plannedResume
+		t.plannedResume = nil
 		if plan == nil {
 			break
 		}
-		resumes++
+		t.resumes++
 		// The failed step's partial output is discarded, not persisted.
-		unfinished.Reset()
+		t.unfinished.Reset()
 		if cb.OnStepResume != nil {
-			cb.OnStepResume(completedSteps, resumes, err, plan.delay)
+			cb.OnStepResume(t.completedSteps, t.resumes, err, plan.delay)
 		}
 		if werr := waitResume(ctx, plan.delay); werr != nil {
 			err = werr
 			break
 		}
-		replayFromCompleted()
+		t.replayFromCompleted(&streamCall)
 		result, err = loop.Stream(ctx, streamCall)
 	}
-	if preparationErr != nil {
-		err = preparationErr
+	if t.preparationErr != nil {
+		err = t.preparationErr
 	}
 	// A plan can remain when the turn was cancelled in the same moment.
 	// Report the suppressed error, so it is never lost.
-	if plannedResume != nil && cb.OnError != nil {
+	if t.plannedResume != nil && cb.OnError != nil {
 		cb.OnError(err)
 	}
 
-	if err != nil {
-		partialMessages := append(append([]fantasy.Message(nil), messages...), completedStepMessages...)
-		return &GenerateWithLoopResult{
-			ConversationMessages: partialMessages, PersistedMessageCount: persistedCount,
-			PartialText: unfinished.String(), AttemptID: attemptID, Incomplete: true,
-			TotalUsage: completedUsage, PersistenceError: persistenceErr,
-		}, errors.Join(preparationFailure(err, preparationErr), persistenceErr)
-	}
-
-	// Fire the response callback so callers (e.g. the TUI) can reset
-	// streaming state. This must fire even when the response text is
-	// empty (e.g. reasoning-only responses) so the UI properly resets
-	// the stream component and avoids duplicate content on the next
-	// flush.
-	if cb.OnResponse != nil {
-		cb.OnResponse(result.Response.Content.Text())
-	}
-
-	// No request follows the last step, so nothing can reject its media
-	// now. Persist what is still held.
-	flushPending()
-
-	r := convertAgentResult(result, messages)
-	if len(injectedSteer) > 0 || mediaRetries > 0 || resumes > 0 {
-		// result.Steps does not contain the injected steer messages, and
-		// after a media replay or a step resume it holds only the steps of
-		// the last stream call.
-		// completedStepMessages has every step message plus the steer
-		// messages in conversation order, so build the result from it.
-		// This keeps PersistedMessageCount aligned with
-		// ConversationMessages.
-		r.ConversationMessages = make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
-		r.ConversationMessages = append(r.ConversationMessages, messages...)
-		r.ConversationMessages = append(r.ConversationMessages, completedStepMessages...)
-		r.Messages = make([]message.Message, 0, len(r.ConversationMessages))
-		for _, fm := range r.ConversationMessages {
-			r.Messages = append(r.Messages, message.FromLLMMessage(fm))
-		}
-	}
-	if mediaRetries > 0 || resumes > 0 {
-		// Usage of all completed steps, not only of the last stream call.
-		r.TotalUsage = completedUsage
-	}
-	r.PersistedMessageCount = persistedCount
-	r.AttemptID = attemptID
-	r.PersistenceError = persistenceErr
-	return r, persistenceErr
+	return t.finish(result, err)
 }
 
 // steerInjection is a steer message that PrepareStep injected into the
