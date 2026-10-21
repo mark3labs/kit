@@ -807,9 +807,10 @@ func TestGetToolRenderer_Patterns(t *testing.T) {
 		"write":         "every tool",  // only "*" matches
 		"jira__find":    "MCP tool",    // the later of two patterns wins
 		"github__issue": "github tool", // a later extension wins
-		// A tool name is not a path, so "*" also matches a "/".
+		// The pattern "*" alone also matches a name with a "/". In a longer
+		// pattern, "*" does not match a "/", as in path.Match.
 		"team/search":        "every tool",
-		"github__repos/list": "github tool",
+		"github__repos/list": "every tool",
 	} {
 		if got := r.GetToolRenderer(tool); got == nil || got.DisplayName != want {
 			t.Errorf("renderer for %s = %+v, want %q", tool, got, want)
@@ -825,6 +826,17 @@ func TestGetToolRenderer_Patterns(t *testing.T) {
 	for _, tool := range []string{"x", "github__issue"} {
 		if got := r.GetToolRenderer(tool); got != nil {
 			t.Errorf("renderer for %s = %+v, want none", tool, got)
+		}
+	}
+
+	// A character class keeps its meaning from path.Match: "[/-0]" is the
+	// range from "/" to "0", which contains "/" but not "+".
+	r = NewRunner([]LoadedExtension{{ToolRenderers: []ToolRenderConfig{
+		{ToolName: "x[/-0]", DisplayName: "range"},
+	}}})
+	for tool, want := range map[string]bool{"x/": true, "x0": true, "x+": false} {
+		if got := r.GetToolRenderer(tool); (got != nil) != want {
+			t.Errorf("renderer for %s = %+v, want found = %v", tool, got, want)
 		}
 	}
 }

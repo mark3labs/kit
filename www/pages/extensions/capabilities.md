@@ -504,9 +504,10 @@ api.RegisterToolRenderer(ext.ToolRenderConfig{
 
 `ToolName` can also be a pattern in the syntax of Go's `path.Match`, so that
 one renderer applies to a group of tools. `*` matches every tool, `github__*`
-the tools of the MCP server `github`, and `*__*` every MCP tool. Because a tool
-name is not a path, `*` and `?` also match a `/` in it. A renderer that names
-the tool wins over a pattern. When several patterns match, the
+the tools of the MCP server `github`, and `*__*` every MCP tool. The pattern `*`
+alone also matches a name with a `/`. In a longer pattern, as in `path.Match`,
+`*` and `?` do not match a `/`. A renderer that names the tool wins over a
+pattern. When several patterns match, the
 last one registered wins, so register the general pattern first:
 
 ```go

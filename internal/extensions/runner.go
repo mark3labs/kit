@@ -862,13 +862,15 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 // name, without a pattern character, never matches, and neither does a
 // malformed pattern.
 func matchesToolNamePattern(pattern, toolName string) bool {
+	// Kit accepts a "/" in a tool name, and path.Match does not let "*"
+	// match it. The pattern "*" alone must still match every tool.
+	if pattern == "*" {
+		return true
+	}
 	if !strings.ContainsAny(pattern, "*?[") {
 		return false
 	}
-	// A tool name is not a path, and Kit accepts a "/" in it. path.Match
-	// does not let "*" or "?" match a "/", so replace it on both sides
-	// with a byte that has no meaning in a pattern.
-	ok, err := path.Match(strings.ReplaceAll(pattern, "/", "\x00"), strings.ReplaceAll(toolName, "/", "\x00"))
+	ok, err := path.Match(pattern, toolName)
 	return err == nil && ok
 }
 
