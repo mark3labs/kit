@@ -949,7 +949,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// completedSteps counts steps that finished in this turn, across all
 	// replays. stepOffset is the value of completedSteps when the current
 	// stream call started, so step numbers stay turn-wide after a replay.
-	t := &streamTurn{a: a, cb: cb, ctx: ctx, messages: messages, toolCallArgs: make(map[string]string), attemptID: rand.Text()}
+	t := &streamTurn{a: a, cb: cb, ctx: ctx, messages: messages, history: history, toolCallArgs: make(map[string]string), attemptID: rand.Text()}
 
 	// stepCounter tracks the current step number for StepStart/StepFinish events.
 
@@ -976,7 +976,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// after a step stream ends without error, so the failed step ran no
 	// local tools and completed steps are never repeated. See resume.go.
 
-	streamCall := t.streamCall(prompt, files, history)
+	streamCall := t.streamCall(prompt, files)
 
 	// Always wire up PrepareStep. It serves three purposes:
 	//   1. Re-read the live tool set each step so runtime AddTools/
@@ -990,10 +990,6 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	//   3. The OnPrepareStep hook.
 	// Steering drains its channel first, then OnPrepareStep hooks run
 	// against the (possibly already steered) messages.
-	steerCh := steerChFromContext(ctx)
-	onConsumed := steerConsumedFromContext(ctx)
-	hasSteering := steerCh != nil
-	hasPrepareStepHook := cb.OnPrepareStep != nil
 	// injectedSteer records every steer message injected during this turn
 	// and where it was injected. The LLM library rebuilds each step's
 	// prompt from the original prompt plus the step responses, so messages
@@ -1003,124 +999,9 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 	a.promptMu.Lock()
 	loop := a.fantasyAgent
-	hadManagedPrompt := a.systemPrompt != ""
+	t.hadManagedPrompt = a.systemPrompt != ""
 	a.promptMu.Unlock()
-	streamCall.PrepareStep = func(
-		stepCtx context.Context,
-		opts fantasy.PrepareStepFunctionOptions,
-	) (context.Context, fantasy.PrepareStepResult, error) {
-		if err := stepCtx.Err(); err != nil {
-			t.preparationErr = err
-			return stepCtx, fantasy.PrepareStepResult{}, err
-		}
-		result := fantasy.PrepareStepResult{
-			Model:    opts.Model,
-			Messages: withSteerInjections(opts.Messages, t.injectedSteer),
-		}
-
-		// Phase 1: Drain steering channel (if present).
-		if hasSteering {
-			var steered []SteerMessage
-			for {
-				select {
-				case msg := <-steerCh:
-					steered = append(steered, msg)
-				default:
-					goto done
-				}
-			}
-		done:
-			if len(steered) > 0 {
-				newMessages := make([]fantasy.Message, 0, len(steered))
-				for _, sm := range steered {
-					msg := fantasy.NewUserMessage(sm.Text, sm.Files...)
-					newMessages = append(newMessages, msg)
-					t.injectedSteer = append(t.injectedSteer, steerInjection{
-						pos: len(opts.Messages),
-						msg: msg,
-					})
-				}
-				result.Messages = append(result.Messages, newMessages...)
-
-				// The previous step's messages were already recorded in
-				// OnStepFinish, so appending here keeps the order of the
-				// conversation. Persist now so the steer message survives
-				// a cancel, an error, and a session reload.
-				t.completedStepMessages = append(t.completedStepMessages, newMessages...)
-				t.persistStep(newMessages)
-				if t.persistenceErr != nil {
-					return stepCtx, result, t.persistenceErr
-				}
-
-				if onConsumed != nil {
-					onConsumed(len(steered))
-				}
-			}
-		}
-
-		if err := stepCtx.Err(); err != nil {
-			t.preparationErr = err
-			return stepCtx, result, err
-		}
-		// Run hooks first, then capture live state. Explicit overrides win.
-		var update *PrepareStepUpdate
-		if hasPrepareStepHook {
-			update = cb.OnPrepareStep(stepCtx, t.stepOffset+opts.StepNumber, result.Messages)
-		}
-		if update != nil && update.Error != nil {
-			t.preparationErr = update.Error
-			return stepCtx, result, t.preparationErr
-		}
-		if err := stepCtx.Err(); err != nil {
-			t.preparationErr = err
-			return stepCtx, result, err
-		}
-		var livePrompt string
-		if cb.RequestSnapshot != nil {
-			livePrompt, result.Tools = cb.RequestSnapshot()
-		} else {
-			livePrompt, result.Tools = a.RequestSnapshot()
-		}
-		if hadManagedPrompt && len(result.Messages) > 0 && result.Messages[0].Role == fantasy.MessageRoleSystem {
-			result.Messages = append([]fantasy.Message(nil), result.Messages...)
-			result.Messages[0] = fantasy.NewSystemMessage(livePrompt)
-		} else if livePrompt != "" {
-			result.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(livePrompt)}, result.Messages...)
-		}
-		if update != nil {
-			if update.Messages != nil {
-				result.Messages = update.Messages
-			}
-			if update.ToolChoice != nil {
-				result.ToolChoice = update.ToolChoice
-			}
-			if update.Tools != nil {
-				// An empty non-nil slice disables tools for this step.
-				result.Tools = update.Tools
-			}
-		}
-
-		// Remove images from the request when the active model cannot
-		// read them (for example after a switch to a text-only model).
-		// The session keeps them. See image_gate.go.
-		if a.currentModel != nil {
-			if supported, model := a.currentModel.imageInput(); !supported {
-				result.Messages = withoutImages(result.Messages, model)
-			}
-		}
-
-		// Apply message-level cache control for Anthropic models. The tool
-		// list already carries a breakpoint, so reserve it from the budget.
-		if a.messageCachingEnabled() {
-			result.Messages = applyCacheControlToMessages(result.Messages, toolCacheBlocks)
-		}
-
-		if err := stepCtx.Err(); err != nil {
-			t.preparationErr = err
-			return stepCtx, result, err
-		}
-		return stepCtx, result, nil
-	}
+	streamCall.PrepareStep = t.prepareStep
 
 	result, err := loop.Stream(ctx, streamCall)
 
