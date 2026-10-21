@@ -2307,138 +2307,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case uicore.SubmitMsg:
-		// Re-enable auto-scroll when user submits a new message.
-		m.scrollList.autoScroll = true
-		// Reset Ctrl+C flag so next Ctrl+C clears input instead of quitting.
-		m.ctrlCPressedOnce = false
-
-		// Handle slash commands locally — they should never reach app.Run().
-		// Parse once: split on the first space so argument-bearing commands
-		// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
-		// their name and their args are passed through to the handler.
-		if strings.HasPrefix(msg.Text, "/") {
-			name, args, _ := strings.Cut(msg.Text, " ")
-			if sc := commands.GetCommandByName(name); sc != nil {
-				if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Check extension-registered slash commands. These support arguments
-		// (e.g. "/sub list files"), so we split on the first space.
-		if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Check MCP prompt commands (/<server>:<prompt> [args]).
-		if cmd := m.handleMCPPromptCommand(msg.Text); cmd != nil {
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Expand prompt templates. If the input matches a template name,
-		// substitute arguments and use the expanded content as the prompt.
-		if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
-			// Validation failed — re-populate the input so the user can
-			// append the missing arguments without retyping.
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.Text + " ")
-				ic.textarea.CursorEnd()
-			}
-			return m, tea.Batch(cmds...)
-		} else if ok {
-			msg.Text = expanded
-		}
-
-		// No usable provider: do not send the prompt, tell the user how to
-		// fix it (mirrors opencode's "Connect a provider to send prompts").
-		if m.providerError != nil {
-			m.printSystemMessage(m.providerErrorNotice())
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.Text)
-				ic.textarea.CursorEnd()
-			}
-			return m, tea.Batch(cmds...)
-		}
-
-		// Regular prompt — forward to the app layer.
-		// Preprocess @file references: text files are XML-inlined, binary files
-		// (images, audio, etc.) are extracted as multimodal parts. The display
-		// text (shown in ScrollList) uses the original user text so the UI stays clean.
-		processedText := msg.Text
-		var fileParts []kit.LLMFilePart
-		if m.cwd != "" {
-			result := fileutil.ProcessFileAttachments(msg.Text, m.cwd, m.mcpResourceReader)
-			processedText = result.ProcessedText
-			for _, fp := range result.FileParts {
-				fileParts = append(fileParts, kit.LLMFilePart{
-					Filename:  fp.Filename,
-					Data:      fp.Data,
-					MediaType: fp.MediaType,
-				})
-			}
-		}
-
-		// Convert clipboard image attachments to kit.LLMFilePart.
-		fileOnlyCount := len(fileParts) // binary @file parts (before clipboard images)
-		for _, img := range msg.Images {
-			fileParts = append(fileParts, kit.LLMFilePart{
-				Data:      img.Data,
-				MediaType: img.MediaType,
-			})
-		}
-
-		// Build display text for ScrollList (include attachment counts).
-		displayText := msg.Text
-		if len(msg.Images) > 0 || fileOnlyCount > 0 {
-			var badges []string
-			if len(msg.Images) > 0 {
-				badges = append(badges, fmt.Sprintf("%d image(s) pasted", len(msg.Images)))
-			}
-			if fileOnlyCount > 0 {
-				badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
-			}
-			displayText = fmt.Sprintf("%s\n[%s]", msg.Text, strings.Join(badges, ", "))
-		}
-
-		if m.appCtrl != nil {
-			// Run returns the queue depth: >0 means the prompt was queued
-			// (agent is busy). We update queuedMessages directly here
-			// instead of relying on an event from prog.Send(), which would
-			// deadlock when called synchronously from within Update().
-			var qLen int
-			if len(fileParts) > 0 {
-				qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
-			} else {
-				qLen = m.appCtrl.Run(processedText)
-			}
-			if qLen > 0 {
-				// Queued: anchor the message text above the input with a
-				// "queued" badge. It will be added to the ScrollList when
-				// the agent picks it up (via SpinnerEvent).
-				m.queuedMessages = append(m.queuedMessages, displayText)
-				m.layoutDirty = true
-			} else {
-				// Started immediately. Flush any leftover stream content
-				// from the previous step first, then print the user
-				// message — combined via the ScrollList so
-				// messages stay in chronological order.
-				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-				m.flushStreamAndPendingUserMessages()
-				// Insert inline thumbnail previews after the user message.
-				cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
-			}
-		} else {
-			m.printUserMessage(displayText)
-			// Insert inline thumbnail previews after the user message.
-			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
-		}
-		if !m.agentWorking() {
-			m.setAgentState(stateWorking)
-		}
+		return m.handleSubmit(msg, cmds)
 
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
@@ -7917,4 +7786,141 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return tea.Batch(cmds...), true
 	}
 	return nil, false
+}
+
+// handleSubmit processes commands and forwards prompts to the app layer.
+func (m *AppModel) handleSubmit(msg uicore.SubmitMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Re-enable auto-scroll when user submits a new message.
+	m.scrollList.autoScroll = true
+	// Reset Ctrl+C flag so next Ctrl+C clears input instead of quitting.
+	m.ctrlCPressedOnce = false
+
+	// Handle slash commands locally — they should never reach app.Run().
+	// Parse once: split on the first space so argument-bearing commands
+	// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
+	// their name and their args are passed through to the handler.
+	if strings.HasPrefix(msg.Text, "/") {
+		name, args, _ := strings.Cut(msg.Text, " ")
+		if sc := commands.GetCommandByName(name); sc != nil {
+			if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+	}
+
+	// Check extension-registered slash commands. These support arguments
+	// (e.g. "/sub list files"), so we split on the first space.
+	if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Check MCP prompt commands (/<server>:<prompt> [args]).
+	if cmd := m.handleMCPPromptCommand(msg.Text); cmd != nil {
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Expand prompt templates. If the input matches a template name,
+	// substitute arguments and use the expanded content as the prompt.
+	if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
+		// Validation failed — re-populate the input so the user can
+		// append the missing arguments without retyping.
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text + " ")
+			ic.textarea.CursorEnd()
+		}
+		return m, tea.Batch(cmds...)
+	} else if ok {
+		msg.Text = expanded
+	}
+
+	// No usable provider: do not send the prompt, tell the user how to
+	// fix it (mirrors opencode's "Connect a provider to send prompts").
+	if m.providerError != nil {
+		m.printSystemMessage(m.providerErrorNotice())
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text)
+			ic.textarea.CursorEnd()
+		}
+		return m, tea.Batch(cmds...)
+	}
+
+	// Regular prompt — forward to the app layer.
+	// Preprocess @file references: text files are XML-inlined, binary files
+	// (images, audio, etc.) are extracted as multimodal parts. The display
+	// text (shown in ScrollList) uses the original user text so the UI stays clean.
+	processedText := msg.Text
+	var fileParts []kit.LLMFilePart
+	if m.cwd != "" {
+		result := fileutil.ProcessFileAttachments(msg.Text, m.cwd, m.mcpResourceReader)
+		processedText = result.ProcessedText
+		for _, fp := range result.FileParts {
+			fileParts = append(fileParts, kit.LLMFilePart{
+				Filename:  fp.Filename,
+				Data:      fp.Data,
+				MediaType: fp.MediaType,
+			})
+		}
+	}
+
+	// Convert clipboard image attachments to kit.LLMFilePart.
+	fileOnlyCount := len(fileParts) // binary @file parts (before clipboard images)
+	for _, img := range msg.Images {
+		fileParts = append(fileParts, kit.LLMFilePart{
+			Data:      img.Data,
+			MediaType: img.MediaType,
+		})
+	}
+
+	// Build display text for ScrollList (include attachment counts).
+	displayText := msg.Text
+	if len(msg.Images) > 0 || fileOnlyCount > 0 {
+		var badges []string
+		if len(msg.Images) > 0 {
+			badges = append(badges, fmt.Sprintf("%d image(s) pasted", len(msg.Images)))
+		}
+		if fileOnlyCount > 0 {
+			badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
+		}
+		displayText = fmt.Sprintf("%s\n[%s]", msg.Text, strings.Join(badges, ", "))
+	}
+
+	if m.appCtrl != nil {
+		// Run returns the queue depth: >0 means the prompt was queued
+		// (agent is busy). We update queuedMessages directly here
+		// instead of relying on an event from prog.Send(), which would
+		// deadlock when called synchronously from within Update().
+		var qLen int
+		if len(fileParts) > 0 {
+			qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+		} else {
+			qLen = m.appCtrl.Run(processedText)
+		}
+		if qLen > 0 {
+			// Queued: anchor the message text above the input with a
+			// "queued" badge. It will be added to the ScrollList when
+			// the agent picks it up (via SpinnerEvent).
+			m.queuedMessages = append(m.queuedMessages, displayText)
+			m.layoutDirty = true
+		} else {
+			// Started immediately. Flush any leftover stream content
+			// from the previous step first, then print the user
+			// message — combined via the ScrollList so
+			// messages stay in chronological order.
+			m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+			m.flushStreamAndPendingUserMessages()
+			// Insert inline thumbnail previews after the user message.
+			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
+		}
+	} else {
+		m.printUserMessage(displayText)
+		// Insert inline thumbnail previews after the user message.
+		cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
+	}
+	if !m.agentWorking() {
+		m.setAgentState(stateWorking)
+	}
+	return m, tea.Batch(cmds...)
 }
