@@ -786,6 +786,65 @@ func TestGetToolRenderer_ExactMatchBeatsTheEarlierName(t *testing.T) {
 	}
 }
 
+// TestGetToolRenderer_Patterns checks the order in which a tool finds its
+// renderer. The name comes first, then the earlier shell name, then a
+// pattern. Among patterns, the last one registered wins.
+func TestGetToolRenderer_Patterns(t *testing.T) {
+	r := NewRunner([]LoadedExtension{
+		{ToolRenderers: []ToolRenderConfig{
+			{ToolName: "*", DisplayName: "every tool"},
+			{ToolName: "*__*", DisplayName: "MCP tool"},
+			{ToolName: "read", DisplayName: "read"},
+			{ToolName: "shell", DisplayName: "shell"},
+		}},
+		{ToolRenderers: []ToolRenderConfig{
+			{ToolName: "github__*", DisplayName: "github tool"},
+		}},
+	})
+	for tool, want := range map[string]string{
+		"read":          "read",        // a name wins over the patterns
+		"bash":          "shell",       // so does the earlier shell name
+		"write":         "every tool",  // only "*" matches
+		"jira__find":    "MCP tool",    // the later of two patterns wins
+		"github__issue": "github tool", // a later extension wins
+	} {
+		if got := r.GetToolRenderer(tool); got == nil || got.DisplayName != want {
+			t.Errorf("renderer for %s = %+v, want %q", tool, got, want)
+		}
+	}
+
+	// A malformed pattern matches nothing, and a name without a pattern
+	// character matches only itself.
+	r = NewRunner([]LoadedExtension{{ToolRenderers: []ToolRenderConfig{
+		{ToolName: "[", DisplayName: "malformed"},
+		{ToolName: "github__", DisplayName: "prefix"},
+	}}})
+	for _, tool := range []string{"x", "github__issue"} {
+		if got := r.GetToolRenderer(tool); got != nil {
+			t.Errorf("renderer for %s = %+v, want none", tool, got)
+		}
+	}
+}
+
+// TestGetToolRenderer_PatternReachesTheCoreShellTool checks that a pattern
+// applies to the core shell tool when an extension has a tool of its own
+// named "bash". That extension keeps the name "bash" to itself.
+func TestGetToolRenderer_PatternReachesTheCoreShellTool(t *testing.T) {
+	r := NewRunner([]LoadedExtension{
+		{
+			Tools:         []ToolDef{{Name: "bash"}},
+			ToolRenderers: []ToolRenderConfig{{ToolName: "bash", DisplayName: "Custom bash"}},
+		},
+		{ToolRenderers: []ToolRenderConfig{{ToolName: "*", DisplayName: "every tool"}}},
+	})
+	if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Custom bash" {
+		t.Errorf("renderer for the custom bash tool = %+v, want its own", got)
+	}
+	if got := r.GetToolRenderer("shell"); got == nil || got.DisplayName != "every tool" {
+		t.Errorf("renderer for the core shell tool = %+v, want the pattern", got)
+	}
+}
+
 func TestLegacyShellNameIsScopedToTheCoreTool(t *testing.T) {
 	customBash := LoadedExtension{
 		Tools:         []ToolDef{{Name: "bash"}},

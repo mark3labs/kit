@@ -7,6 +7,7 @@ import (
 	"log"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -817,7 +818,8 @@ func shadowsShellToolNameIn(exts []LoadedExtension) bool {
 
 // GetToolRenderer returns the custom renderer for the named tool, or nil when
 // no extension registered one. If several extensions register renderers for
-// the same tool, the last one by load order wins.
+// the same tool, the last one by load order wins. A renderer for the tool by
+// name wins over one whose ToolName is a pattern that matches the tool.
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 	// Snapshot under the read lock: Reload swaps r.extensions under the
 	// write lock, and this can run on the UI goroutine while the watcher
@@ -838,14 +840,33 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 	// keeps rendering live calls, and a session recorded before it replays
 	// with its renderer. This applies to the core tool only, so an extension
 	// that registers a tool of its own under either name keeps its renderer
-	// to itself and leaves the core tool with the default rendering.
-	if shadowsShellToolNameIn(exts) {
-		return nil
+	// to itself, and the core tool gets no renderer by that name.
+	if !shadowsShellToolNameIn(exts) {
+		normalized := core.NormalizeCoreToolName(toolName)
+		if renderer := findToolRendererIn(exts, func(name string) bool {
+			return core.NormalizeCoreToolName(name) == normalized
+		}); renderer != nil {
+			return renderer
+		}
 	}
-	normalized := core.NormalizeCoreToolName(toolName)
+	// Last, a renderer whose ToolName is a pattern for a group of tools,
+	// such as "*__*" for every MCP tool. Because a name wins over a pattern,
+	// a renderer for one tool can replace the renderer for its group.
 	return findToolRendererIn(exts, func(name string) bool {
-		return core.NormalizeCoreToolName(name) == normalized
+		return matchesToolNamePattern(name, toolName)
 	})
+}
+
+// matchesToolNamePattern reports whether pattern, a renderer's ToolName, is
+// a pattern in the syntax of path.Match that matches toolName. A plain tool
+// name, without a pattern character, never matches, and neither does a
+// malformed pattern.
+func matchesToolNamePattern(pattern, toolName string) bool {
+	if !strings.ContainsAny(pattern, "*?[") {
+		return false
+	}
+	ok, err := path.Match(pattern, toolName)
+	return err == nil && ok
 }
 
 // findToolRendererIn returns the first renderer whose tool name satisfies

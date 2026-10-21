@@ -41,6 +41,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `compact-notify.go` | Compact mode notifications | `PrintBlock` |
 | `branded-output.go` | Custom styled output | `PrintBlock` with colors |
 | `mcp-table.go` | One table of the loaded MCP servers instead of a message per server | `OnMCPToolsReady`, `SetUIVisibility`, `PrintBlock` with `Markdown` |
+| `presentation.go` | Kit on a projector: no wordmark or status bar, short tool results, one line per MCP result | `SetUIVisibility` with `HideLogo`, `RegisterToolRenderer` with a pattern and `MaxBodyLines` |
 
 ### Input & Editor
 

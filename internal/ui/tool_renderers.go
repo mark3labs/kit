@@ -44,6 +44,23 @@ type toolLineLimits struct {
 	agent int // subagent preview lines
 }
 
+// transcriptLimits returns the caps for a tool body in the transcript. These
+// are the per-tool caps, or maxLines for every kind of body when an
+// extension's tool renderer sets MaxBodyLines.
+func transcriptLimits(maxLines int) toolLineLimits {
+	if maxLines <= 0 {
+		return scrollbackLimits()
+	}
+	return toolLineLimits{
+		diff:  maxLines,
+		code:  maxLines,
+		write: maxLines,
+		bash:  maxLines,
+		list:  maxLines,
+		agent: maxLines,
+	}
+}
+
 // scrollbackLimits are the caps used when rendering into the transcript.
 func scrollbackLimits() toolLineLimits {
 	return toolLineLimits{

@@ -380,6 +380,10 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 
 	// Get body content
 	var body string
+	var maxLines int // from the extension renderer; zero keeps Kit's limits
+	if extRd != nil {
+		maxLines = extRd.MaxBodyLines
+	}
 	if extRd != nil && extRd.RenderBody != nil {
 		body = extRd.RenderBody(toolResult, isError, r.width-8)
 		if body != "" && extRd.BodyMarkdown {
@@ -388,11 +392,11 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	}
 	if body == "" {
 		if isError {
-			body = r.formatToolResult(toolName, toolResult)
+			body = r.formatToolResult(toolName, toolResult, maxLines)
 		} else {
-			body = renderToolBody(toolName, toolArgs, toolResult, r.width-8)
+			body = renderToolBodyLimited(toolName, toolArgs, toolResult, r.width-8, transcriptLimits(maxLines))
 			if body == "" {
-				body = r.formatToolResult(toolName, toolResult)
+				body = r.formatToolResult(toolName, toolResult, maxLines)
 			}
 		}
 	}
@@ -453,9 +457,14 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 // often return minified JSON on a single line, and a 600 KB line passes a
 // line-count cap untouched. Nothing downstream wraps it, so the transcript
 // would keep a multi-megabyte row that every frame has to measure and clip.
-func (r *MessageRenderer) formatToolResult(toolName, result string) string {
+// A positive limit, from an extension renderer's MaxBodyLines, replaces the
+// 10 rows.
+func (r *MessageRenderer) formatToolResult(toolName, result string, limit int) string {
 	if !r.debug {
 		maxLines := 10
+		if limit > 0 {
+			maxLines = limit
+		}
 		lines := strings.SplitN(result, "\n", maxLines+1)
 		if len(lines) > maxLines {
 			result = strings.Join(lines[:maxLines], "\n") + "\n... (truncated)"
