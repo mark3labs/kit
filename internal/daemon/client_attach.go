@@ -1260,206 +1260,235 @@ type pumpControl struct {
 	outcome attachOutcome
 }
 
+type inputPump struct {
+	conn       *clientConn
+	opts       AttachOptions
+	setOutcome func(attachOutcome)
+
+	probe       backgroundReply
+	probeTimer  *time.Timer
+	probeC      <-chan time.Time
+	scanner     keyScanner
+	suppressRel bool   // swallow the ctrl+v release after a successful image interception
+	leaderBuf   []byte // pending chord prefix (nil = none)
+	leaderOf    leaderKind
+	idleTimer   *time.Timer
+	idleC       <-chan time.Time
+	// Keep ordinary input in one frame per read. Byte-wise OSC parsing must
+	// not turn a large paste into one socket write for every byte.
+	pendingData []byte
+}
+
+func (p *inputPump) close() {
+	if p.probeTimer != nil {
+		p.probeTimer.Stop()
+	}
+	if p.idleTimer != nil {
+		p.idleTimer.Stop()
+	}
+}
+
+func (p *inputPump) sendTerminal() bool {
+	payload, err := EncodeTerminalInfo(p.conn.terminal)
+	return err == nil && p.conn.write(FrameTerminal, payload) == nil
+}
+
+func (p *inputPump) refresh() bool {
+	if p.probeC != nil { // One outstanding OSC request at a time.
+		return true
+	}
+	info := detectTerminalEnvironment()
+	info.Background = p.conn.terminal.Background
+	p.conn.terminal = info
+	if _, err := io.WriteString(os.Stdout, "\x1b]11;?\x1b\\"); err != nil {
+		return p.sendTerminal()
+	}
+	p.probe = backgroundReply{active: true}
+	p.probeTimer = time.NewTimer(terminalRefreshTimeout)
+	p.probeC = p.probeTimer.C
+	return true
+}
+
+func (p *inputPump) armIdle() {
+	if p.scanner.PendingEscape() {
+		d := max(escIdleFlush-time.Since(p.scanner.escAt), 0)
+		if p.idleTimer == nil {
+			p.idleTimer = time.NewTimer(d)
+		} else {
+			p.idleTimer.Stop()
+			p.idleTimer.Reset(d)
+		}
+		p.idleC = p.idleTimer.C
+	} else if p.idleTimer != nil {
+		p.idleTimer.Stop()
+		p.idleC = nil
+	}
+}
+
+func (p *inputPump) flushData() bool {
+	if len(p.pendingData) == 0 {
+		return true
+	}
+	err := p.conn.write(FrameData, p.pendingData)
+	p.pendingData = p.pendingData[:0]
+	return err == nil
+}
+
+func (p *inputPump) forward(data []byte) bool {
+	p.pendingData = append(p.pendingData, data...)
+	return true
+}
+
+func (p *inputPump) handle(ev keyEvent) bool { // false = write error, give up
+	if ev.Paste {
+		if !p.flushData() {
+			return false
+		}
+		// Image paste: read the local clipboard and stream any image
+		// to the daemon. No image — forward the keystroke so the host
+		// keeps its normal Ctrl-V behavior.
+		img, imgErr := clipboard.ReadImage()
+		if imgErr == nil && len(img.Data) > 0 {
+			for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
+				if werr := p.conn.write(FrameClipboard, payload); werr != nil {
+					return false
+				}
+			}
+			p.suppressRel = true // the matching release is ours
+			return true          // swallow the press bytes
+		}
+		p.suppressRel = false // forwarding the press; forward its release too
+	}
+	if ev.Release && p.suppressRel {
+		p.suppressRel = false
+		return true
+	}
+	if len(ev.Data) > 0 {
+		return p.forward(ev.Data)
+	}
+	return true
+}
+
+// feedEvent runs the leader-chord state machine for one key event.
+func (p *inputPump) feedEvent(ev keyEvent) bool {
+	if p.leaderBuf != nil {
+		// The kitty keyboard protocol delivers the leader's RELEASE before
+		// the chord suffix. Buffer it with the prefix so the chord stays
+		// armed; an unclaimed suffix is forwarded with the whole prefix
+		// run, byte-identical.
+		if ev.Leader || ev.LeaderRelease {
+			p.leaderBuf = append(p.leaderBuf, ev.Data...)
+			return true
+		}
+		if !p.flushData() {
+			return false
+		}
+		ctrl, claimed := dispatchChord(p.conn, p.opts, p.leaderOf, ev)
+		if claimed {
+			p.leaderBuf = nil
+			p.leaderOf = leaderNone
+			if ctrl.refresh && !p.refresh() {
+				return false
+			}
+			if ctrl.stop {
+				p.setOutcome(ctrl.outcome)
+				return false
+			}
+			return true
+		}
+		if !p.forward(p.leaderBuf) {
+			return false
+		}
+		p.leaderBuf = nil
+		p.leaderOf = leaderNone
+	}
+	if ev.Leader {
+		p.leaderBuf = append([]byte(nil), ev.Data...)
+		p.leaderOf = ev.Kind
+		return true
+	}
+	return p.handle(ev)
+}
+
+// feedChunk processes one stdin read. It returns false when the pump must stop.
+func (p *inputPump) feedChunk(chunk []byte) bool {
+	// Process bytes in order so a query started by a chord also
+	// covers a reply in the same read, without a second stdin reader.
+	for _, b := range chunk {
+		data, bg := p.probe.feed(b)
+		if bg != "" {
+			p.conn.terminal.Background = bg
+			p.probeTimer.Stop()
+			p.probeC = nil
+			if !p.flushData() || !p.sendTerminal() {
+				return false
+			}
+		}
+		for _, ev := range p.scanner.Feed(data) {
+			if !p.feedEvent(ev) {
+				return false
+			}
+		}
+	}
+	if !p.flushData() {
+		return false
+	}
+	p.armIdle()
+	return true
+}
+
+func (p *inputPump) expireProbe() bool {
+	p.probeC = nil
+	p.probe.active = false
+	// Return an incomplete or unrelated sequence byte-for-byte.
+	if len(p.probe.buf) > 0 && !p.forward(p.probe.buf) {
+		return false
+	}
+	p.probe.buf = nil
+	return p.flushData() && p.sendTerminal()
+}
+
+func (p *inputPump) flushEscape() bool {
+	p.idleC = nil
+	for _, ev := range p.scanner.FlushPendingEscape() {
+		if !p.handle(ev) {
+			return false
+		}
+	}
+	if !p.flushData() {
+		return false
+	}
+	p.armIdle()
+	return true
+}
+
 // runInputPumpUntil reads the terminal, intercepts the client's chords, and
 // forwards everything else to the session until stopped.
 func runInputPumpUntil(conn *clientConn, opts AttachOptions, finish func(), setOutcome func(attachOutcome), stop <-chan struct{}) {
 	defer finish()
 
-	var probe backgroundReply
-	var probeTimer *time.Timer
-	var probeC <-chan time.Time
-	defer func() {
-		if probeTimer != nil {
-			probeTimer.Stop()
-		}
-	}()
-	sendTerminal := func() bool {
-		payload, err := EncodeTerminalInfo(conn.terminal)
-		return err == nil && conn.write(FrameTerminal, payload) == nil
-	}
-	refresh := func() bool {
-		if probeC != nil { // One outstanding OSC request at a time.
-			return true
-		}
-		info := detectTerminalEnvironment()
-		info.Background = conn.terminal.Background
-		conn.terminal = info
-		if _, err := io.WriteString(os.Stdout, "\x1b]11;?\x1b\\"); err != nil {
-			return sendTerminal()
-		}
-		probe = backgroundReply{active: true}
-		probeTimer = time.NewTimer(terminalRefreshTimeout)
-		probeC = probeTimer.C
-		return true
-	}
-
+	p := &inputPump{conn: conn, opts: opts, setOutcome: setOutcome}
+	defer p.close()
+	p.armIdle()
 	// Input comes from the connection's shared reader; see clientConn.
-	readCh := conn.stdinCh
-	readErr := conn.stdinErr
-
-	scanner := &keyScanner{}
-	suppressRel := false // swallow the ctrl+v release after a successful image interception
-	var leaderBuf []byte // pending chord prefix (nil = none)
-	var leaderOf leaderKind
-	var idleTimer *time.Timer
-	var idleC <-chan time.Time
-	defer func() {
-		if idleTimer != nil {
-			idleTimer.Stop()
-		}
-	}()
-
-	armIdle := func() {
-		if scanner.PendingEscape() {
-			d := max(escIdleFlush-time.Since(scanner.escAt), 0)
-			if idleTimer == nil {
-				idleTimer = time.NewTimer(d)
-			} else {
-				idleTimer.Stop()
-				idleTimer.Reset(d)
-			}
-			idleC = idleTimer.C
-		} else if idleTimer != nil {
-			idleTimer.Stop()
-			idleC = nil
-		}
-	}
-	// Keep ordinary input in one frame per read. Byte-wise OSC parsing must
-	// not turn a large paste into one socket write for every byte.
-	var pendingData []byte
-	flushData := func() bool {
-		if len(pendingData) == 0 {
-			return true
-		}
-		err := conn.write(FrameData, pendingData)
-		pendingData = pendingData[:0]
-		return err == nil
-	}
-	forward := func(data []byte) bool {
-		pendingData = append(pendingData, data...)
-		return true
-	}
-	handle := func(ev keyEvent) bool { // false = write error, give up
-		if ev.Paste {
-			if !flushData() {
-				return false
-			}
-			// Image paste: read the local clipboard and stream any image
-			// to the daemon. No image — forward the keystroke so the host
-			// keeps its normal Ctrl-V behavior.
-			img, imgErr := clipboard.ReadImage()
-			if imgErr == nil && len(img.Data) > 0 {
-				for _, p := range EncodeClipboardChunks(img.MediaType, img.Data) {
-					if werr := conn.write(FrameClipboard, p); werr != nil {
-						return false
-					}
-				}
-				suppressRel = true // the matching release is ours
-				return true        // swallow the press bytes
-			}
-			suppressRel = false // forwarding the press; forward its release too
-		}
-		if ev.Release && suppressRel {
-			suppressRel = false
-			return true
-		}
-		if len(ev.Data) > 0 {
-			return forward(ev.Data)
-		}
-		return true
-	}
-
-	armIdle()
 	for {
 		select {
-		case chunk, ok := <-readCh:
-			if !ok {
+		case chunk, ok := <-conn.stdinCh:
+			if !ok || !p.feedChunk(chunk) {
 				return
 			}
-			// Process bytes in order so a query started by a chord also
-			// covers a reply in the same read, without a second stdin reader.
-			for _, b := range chunk {
-				data, bg := probe.feed(b)
-				if bg != "" {
-					conn.terminal.Background = bg
-					probeTimer.Stop()
-					probeC = nil
-					if !flushData() || !sendTerminal() {
-						return
-					}
-				}
-				for _, ev := range scanner.Feed(data) {
-					if leaderBuf != nil {
-						// The kitty keyboard protocol delivers the leader's
-						// RELEASE before the chord suffix. Buffer it with the
-						// prefix so the chord stays armed; a suffix that is
-						// not ours is forwarded with the whole prefix run,
-						// byte-identical.
-						if ev.Leader || ev.LeaderRelease {
-							leaderBuf = append(leaderBuf, ev.Data...)
-							continue
-						}
-						if !flushData() {
-							return
-						}
-						ctrl, claimed := dispatchChord(conn, opts, leaderOf, ev)
-						if claimed {
-							leaderBuf = nil
-							leaderOf = leaderNone
-							if ctrl.refresh && !refresh() {
-								return
-							}
-							if ctrl.stop {
-								setOutcome(ctrl.outcome)
-								return
-							}
-							continue
-						}
-						if !forward(leaderBuf) {
-							return
-						}
-						leaderBuf = nil
-						leaderOf = leaderNone
-					}
-					if ev.Leader {
-						leaderBuf = append([]byte(nil), ev.Data...)
-						leaderOf = ev.Kind
-						continue
-					}
-					if !handle(ev) {
-						return
-					}
-				}
-			}
-			if !flushData() {
-				return
-			}
-			armIdle()
-		case <-probeC:
-			probeC = nil
-			probe.active = false
-			// Return an incomplete or unrelated sequence byte-for-byte.
-			if len(probe.buf) > 0 && !forward(probe.buf) {
-				return
-			}
-			probe.buf = nil
-			if !flushData() || !sendTerminal() {
+		case <-p.probeC:
+			if !p.expireProbe() {
 				return
 			}
 		case <-stop:
 			return
-		case <-idleC:
-			idleC = nil
-			for _, ev := range scanner.FlushPendingEscape() {
-				if !handle(ev) {
-					return
-				}
-			}
-			if !flushData() {
+		case <-p.idleC:
+			if !p.flushEscape() {
 				return
 			}
-			armIdle()
-		case <-readErr:
+		case err := <-conn.stdinErr:
+			_ = err // Any stdin error stops the pump.
 			return
 		}
 	}
