@@ -7714,73 +7714,7 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 		}
 
 	case mcpPromptResultMsg:
-		// Async MCP prompt expansion completed. Submit the expanded text
-		// as a user message (same behavior as local prompt templates).
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
-		} else if msg.text != "" || len(msg.fileParts) > 0 {
-			// Process @file references and submit.
-			processedText := msg.text
-			var fileParts []kit.LLMFilePart
-			if m.cwd != "" {
-				result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
-				processedText = result.ProcessedText
-				for _, fp := range result.FileParts {
-					fileParts = append(fileParts, kit.LLMFilePart{
-						Filename:  fp.Filename,
-						Data:      fp.Data,
-						MediaType: fp.MediaType,
-					})
-				}
-			}
-			// Merge file parts from embedded resources (images, audio, blobs)
-			// with any @file/@mcp: file parts extracted from the text.
-			fileParts = append(fileParts, msg.fileParts...)
-
-			// Build display text with attachment badges (matches the
-			// normal submit path so embedded resources look like pasted
-			// images / attached files).
-			displayText := msg.text
-			if len(msg.fileParts) > 0 {
-				var imageCount, fileCount int
-				for _, fp := range msg.fileParts {
-					if strings.HasPrefix(fp.MediaType, "image/") {
-						imageCount++
-					} else {
-						fileCount++
-					}
-				}
-				var badges []string
-				if imageCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
-				}
-				if fileCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
-				}
-				if len(badges) > 0 {
-					displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
-				}
-			}
-
-			if m.appCtrl != nil {
-				var qLen int
-				if len(fileParts) > 0 {
-					qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
-				} else {
-					qLen = m.appCtrl.Run(processedText)
-				}
-				if qLen > 0 {
-					m.queuedMessages = append(m.queuedMessages, displayText)
-					m.layoutDirty = true
-				} else {
-					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-					m.flushStreamAndPendingUserMessages()
-				}
-				if !m.agentWorking() {
-					m.setAgentState(stateWorking)
-				}
-			}
-		}
+		return m.handleMCPPromptResult(msg, cmds)
 
 	case externalEditorMsg:
 		// User returned from $EDITOR. Replace input textarea content with
@@ -7936,6 +7870,77 @@ func (m *AppModel) handleImagePreviewReady(msg imagePreviewReadyMsg, cmds []tea.
 		// would arrive to trigger that write, so ask for one more Update
 		// after the coming View.
 		cmds = append(cmds, gfxNudgeCmd())
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleMCPPromptResult(msg mcpPromptResultMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Async MCP prompt expansion completed. Submit the expanded text
+	// as a user message (same behavior as local prompt templates).
+	if msg.err != nil {
+		m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
+	} else if msg.text != "" || len(msg.fileParts) > 0 {
+		// Process @file references and submit.
+		processedText := msg.text
+		var fileParts []kit.LLMFilePart
+		if m.cwd != "" {
+			result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
+			processedText = result.ProcessedText
+			for _, fp := range result.FileParts {
+				fileParts = append(fileParts, kit.LLMFilePart{
+					Filename:  fp.Filename,
+					Data:      fp.Data,
+					MediaType: fp.MediaType,
+				})
+			}
+		}
+		// Merge file parts from embedded resources (images, audio, blobs)
+		// with any @file/@mcp: file parts extracted from the text.
+		fileParts = append(fileParts, msg.fileParts...)
+
+		// Build display text with attachment badges (matches the
+		// normal submit path so embedded resources look like pasted
+		// images / attached files).
+		displayText := msg.text
+		if len(msg.fileParts) > 0 {
+			var imageCount, fileCount int
+			for _, fp := range msg.fileParts {
+				if strings.HasPrefix(fp.MediaType, "image/") {
+					imageCount++
+				} else {
+					fileCount++
+				}
+			}
+			var badges []string
+			if imageCount > 0 {
+				badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
+			}
+			if fileCount > 0 {
+				badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
+			}
+			if len(badges) > 0 {
+				displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
+			}
+		}
+
+		if m.appCtrl != nil {
+			var qLen int
+			if len(fileParts) > 0 {
+				qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+			} else {
+				qLen = m.appCtrl.Run(processedText)
+			}
+			if qLen > 0 {
+				m.queuedMessages = append(m.queuedMessages, displayText)
+				m.layoutDirty = true
+			} else {
+				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+				m.flushStreamAndPendingUserMessages()
+			}
+			if !m.agentWorking() {
+				m.setAgentState(stateWorking)
+			}
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
