@@ -582,7 +582,7 @@ type DirectPlacement struct {
 // or Unicode placeholders and therefore need no separate placement.
 //
 // The offsets must match the layout built by View exactly; the two are kept
-// in step by thumbRowOffsets.
+// in step by imageTileRects.
 func (s *InputComponent) DirectPlacements() []DirectPlacement {
 	var out []DirectPlacement
 	for i, rect := range s.imageTileRects() {
@@ -614,15 +614,6 @@ func (s *InputComponent) imageTileRects() []imageTileRect {
 	for i := range r {
 		rowGroup, colGroup := i/perRow, i%perRow
 		r[i] = imageTileRect{row: start + rowGroup*7, col: thumbPaddingLeft + colGroup*tileWidth, width: tileWidth, height: 7}
-	}
-	return r
-}
-
-// thumbRowOffsets returns the first image row for each attachment.
-func (s *InputComponent) thumbRowOffsets() []int {
-	r := make([]int, len(s.pendingImages))
-	for i, rect := range s.imageTileRects() {
-		r[i] = rect.row
 	}
 	return r
 }

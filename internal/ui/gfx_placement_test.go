@@ -59,11 +59,11 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 	// The image's top row: the composer's last row is the one above the status
 	// bar, and the image sits at its own offset within the composer.
 	inputTop := screenH - lipgloss.Height(statusBar) - lipgloss.Height(inputView) + 1
-	offsets := ic.thumbRowOffsets()
-	if len(offsets) != 1 || offsets[0] < 0 {
-		t.Fatalf("thumbRowOffsets() = %v, want one non-negative offset", offsets)
+	rects := ic.imageTileRects()
+	if len(rects) != 1 || rects[0].row < 0 {
+		t.Fatalf("imageTileRects() = %v, want one non-negative row", rects)
 	}
-	wantRow := inputTop + offsets[0]
+	wantRow := inputTop + rects[0].row
 
 	// The image must end on the row just above the status bar. If this fails
 	// the preview has drifted off the composer, which is the bug this guards.
