@@ -1005,28 +1005,6 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 	result, err := loop.Stream(ctx, streamCall)
 
-	// replayFromCompleted makes streamCall continue the turn from the full
-	// conversation so far. The steer messages are already in it, so they
-	// are not injected again. Step numbers and the step limit continue
-	// from the completed steps.
-	replayFromCompleted := func() {
-		t.injectedSteer = nil
-		t.stepOffset = t.completedSteps
-		replay := make([]fantasy.Message, 0, len(messages)+len(t.completedStepMessages))
-		replay = append(replay, messages...)
-		replay = append(replay, t.completedStepMessages...)
-		streamCall.Prompt = ""
-		streamCall.Files = nil
-		if a.messageCachingEnabled() {
-			streamCall.Messages = applyCacheControlToMessages(replay, toolCacheBlocks)
-		} else {
-			streamCall.Messages = replay
-		}
-		if a.maxSteps > 0 {
-			streamCall.StopWhen = []fantasy.StopCondition{fantasy.StepCountIs(max(1, a.maxSteps-t.completedSteps))}
-		}
-	}
-
 	if t.preparationErr != nil {
 		err = t.preparationErr
 	}
@@ -1037,17 +1015,8 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		// results that give the reason, persist them, and continue the turn
 		// from there, so the model can take another approach.
 		if t.canRecoverMedia(err) {
-			t.mediaRetries++
-			fixed, n := replaceMediaToolResults(t.pendingMedia, err)
-			// The held messages are always the tail of completedStepMessages.
-			copy(t.completedStepMessages[len(t.completedStepMessages)-len(fixed):], fixed)
-			t.pendingMedia = nil
-			t.persistStep(fixed)
-			if cb.OnWarnings != nil {
-				cb.OnWarnings([]string{fmt.Sprintf(
-					"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
-			}
-			replayFromCompleted()
+			t.recoverMedia(err)
+			t.replayFromCompleted(&streamCall)
 			result, err = loop.Stream(ctx, streamCall)
 			continue
 		}
@@ -1067,7 +1036,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			err = werr
 			break
 		}
-		replayFromCompleted()
+		t.replayFromCompleted(&streamCall)
 		result, err = loop.Stream(ctx, streamCall)
 	}
 	if t.preparationErr != nil {

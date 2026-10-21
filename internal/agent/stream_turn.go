@@ -520,3 +520,38 @@ func (t *streamTurn) prepareStep(
 	}
 	return stepCtx, result, nil
 }
+
+// replayFromCompleted makes streamCall continue the turn from the full
+// conversation so far. The steer messages are already in it, so they
+// are not injected again. Step numbers and the step limit continue
+// from the completed steps.
+func (t *streamTurn) replayFromCompleted(streamCall *fantasy.AgentStreamCall) {
+	t.injectedSteer = nil
+	t.stepOffset = t.completedSteps
+	replay := make([]fantasy.Message, 0, len(t.messages)+len(t.completedStepMessages))
+	replay = append(replay, t.messages...)
+	replay = append(replay, t.completedStepMessages...)
+	streamCall.Prompt = ""
+	streamCall.Files = nil
+	if t.a.messageCachingEnabled() {
+		streamCall.Messages = applyCacheControlToMessages(replay, toolCacheBlocks)
+	} else {
+		streamCall.Messages = replay
+	}
+	if t.a.maxSteps > 0 {
+		streamCall.StopWhen = []fantasy.StopCondition{fantasy.StepCountIs(max(1, t.a.maxSteps-t.completedSteps))}
+	}
+}
+
+func (t *streamTurn) recoverMedia(err error) {
+	t.mediaRetries++
+	fixed, n := replaceMediaToolResults(t.pendingMedia, err)
+	// The held messages are always the tail of completedStepMessages.
+	copy(t.completedStepMessages[len(t.completedStepMessages)-len(fixed):], fixed)
+	t.pendingMedia = nil
+	t.persistStep(fixed)
+	if t.cb.OnWarnings != nil {
+		t.cb.OnWarnings([]string{fmt.Sprintf(
+			"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
+	}
+}
