@@ -3677,9 +3677,10 @@ func (m *Kit) IsReasoningModel() bool {
 	return info != nil && info.Reasoning
 }
 
-// GetThinkingLevel returns the current thinking level.
+// GetThinkingLevel returns the resolved current thinking level, including
+// per-model defaults. It returns "off" when no thinking level is configured.
 func (m *Kit) GetThinkingLevel() string {
-	return m.v.GetString("thinking-level")
+	return m.agent.GetThinkingLevel()
 }
 
 // SetThinkingLevel changes the thinking level and recreates the agent with

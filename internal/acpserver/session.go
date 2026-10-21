@@ -140,7 +140,12 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 	// the process-global store (which cobra populated from flags) so launching
 	// `kit acp -m <model> [--thinking-level ...] [--provider-url ...]
 	// [--shell ...]` is still honored; .kit.yml and KIT_* env vars are loaded
-	// per session by kit.New.
+	// per session by kit.New. The unchanged thinking flag default is not an
+	// explicit SDK override: leave per-model defaults available in that case.
+	thinkingLevel := ""
+	if viper.IsSet("thinking-level") {
+		thinkingLevel = viper.GetString("thinking-level")
+	}
 	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
 		SessionDir:      cwd,
@@ -151,7 +156,7 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 		Quiet:           true,
 		Streaming:       &streamOn,
 		Model:           viper.GetString("model"),
-		ThinkingLevel:   viper.GetString("thinking-level"),
+		ThinkingLevel:   thinkingLevel,
 		ProviderURL:     viper.GetString("provider-url"),
 		ProviderAPIKey:  viper.GetString("provider-api-key"),
 		Shell:           viper.GetStringSlice("shell"),
