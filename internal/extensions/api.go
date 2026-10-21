@@ -2268,7 +2268,8 @@ type ToolRenderConfig struct {
 	// ToolName can also be a pattern in the syntax of path.Match, so that
 	// one renderer applies to a group of tools. "*" matches every tool,
 	// "github__*" the tools of the MCP server "github", and "*__*" every MCP
-	// tool. A renderer found by the exact name or the "bash" fallback wins
+	// tool. Because a tool name is not a path, "*" and "?" also match a "/"
+	// in it. A renderer found by the exact name or the "bash" fallback wins
 	// over a pattern. When several patterns match, the last one registered
 	// wins.
 	ToolName string

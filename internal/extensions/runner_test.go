@@ -807,6 +807,9 @@ func TestGetToolRenderer_Patterns(t *testing.T) {
 		"write":         "every tool",  // only "*" matches
 		"jira__find":    "MCP tool",    // the later of two patterns wins
 		"github__issue": "github tool", // a later extension wins
+		// A tool name is not a path, so "*" also matches a "/".
+		"team/search":        "every tool",
+		"github__repos/list": "github tool",
 	} {
 		if got := r.GetToolRenderer(tool); got == nil || got.DisplayName != want {
 			t.Errorf("renderer for %s = %+v, want %q", tool, got, want)

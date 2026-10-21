@@ -865,7 +865,10 @@ func matchesToolNamePattern(pattern, toolName string) bool {
 	if !strings.ContainsAny(pattern, "*?[") {
 		return false
 	}
-	ok, err := path.Match(pattern, toolName)
+	// A tool name is not a path, and Kit accepts a "/" in it. path.Match
+	// does not let "*" or "?" match a "/", so replace it on both sides
+	// with a byte that has no meaning in a pattern.
+	ok, err := path.Match(strings.ReplaceAll(pattern, "/", "\x00"), strings.ReplaceAll(toolName, "/", "\x00"))
 	return err == nil && ok
 }
 
