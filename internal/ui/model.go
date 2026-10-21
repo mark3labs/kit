@@ -265,6 +265,11 @@ type ToolRendererData struct {
 	// via glamour. Ignored when RenderBody is nil or returns empty.
 	BodyMarkdown bool
 
+	// MaxBodyLines, when greater than zero, replaces the transcript's line
+	// limits for the body that Kit renders itself, builtin or plain. The
+	// message inspector still shows the full result.
+	MaxBodyLines int
+
 	// RenderHeader, if non-nil, replaces the default parameter formatting
 	// in the tool header line. Receives the JSON-encoded arguments and max
 	// width. Return a short summary string, or empty to fall back to default.
@@ -398,6 +403,9 @@ type UIVisibility struct {
 	// HideMCPStartupMessages hides the message for each MCP server that has
 	// loaded. It does not hide failure messages.
 	HideMCPStartupMessages bool
+	// HideLogo hides the wordmark at the top of the startup block, and its
+	// animation. The model line and the list of loaded items stay.
+	HideLogo bool
 }
 
 // AppModelOptions holds configuration passed to NewAppModel.
@@ -1409,7 +1417,8 @@ func (m *AppModel) uiVis() UIVisibility {
 // messages in the ScrollList. This is the only place startup information is
 // rendered — nothing is printed to stdout.
 func (m *AppModel) AddStartupMessageToScrollList() {
-	if m.uiVis().HideStartupMessage {
+	vis := m.uiVis()
+	if vis.HideStartupMessage {
 		return
 	}
 
@@ -1496,17 +1505,30 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	}
 
 	m.splashTail = tail
-	// The splash starts at whichever frame the animation will begin from, so
-	// there is no flash of the resting logo before the first tick lands.
-	m.logoFrame = m.initialLogoFrame()
-	splash := m.renderSplash(m.logoFrame)
-	// Themed so the banner follows a theme switch. The closure reads the
-	// current frame, which is also what lets the animation repaint in place.
-	item := NewThemedMessageItem(generateMessageID(), "logo", splash, func() string {
-		return m.renderSplash(m.logoFrame)
-	})
-	m.splashItem = item
-	m.messages = append(m.messages, item)
+	if vis.HideLogo {
+		// Without the wordmark there is nothing to animate, so splashItem
+		// stays nil. The block keeps the indent and spacing of the splash,
+		// without the blank line that follows the wordmark.
+		if lines := tail[1:]; len(lines) > 0 {
+			m.messages = append(m.messages, NewThemedMessageItem(generateMessageID(), "logo", strings.Join(lines, "\n"), func() string {
+				return style.SplashBlock(lines)
+			}))
+		}
+	} else {
+		// The splash starts at whichever frame the animation will begin
+		// from, so there is no flash of the resting logo before the first
+		// tick lands.
+		m.logoFrame = m.initialLogoFrame()
+		splash := m.renderSplash(m.logoFrame)
+		// Themed so the banner follows a theme switch. The closure reads the
+		// current frame, which is also what lets the animation repaint in
+		// place.
+		item := NewThemedMessageItem(generateMessageID(), "logo", splash, func() string {
+			return m.renderSplash(m.logoFrame)
+		})
+		m.splashItem = item
+		m.messages = append(m.messages, item)
+	}
 
 	// No credentials for the configured provider: greet the user with the
 	// fix instead of failing at startup.

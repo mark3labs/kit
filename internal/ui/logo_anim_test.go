@@ -18,6 +18,29 @@ func splashOf(t *testing.T, m *AppModel) string {
 	return m.messages[0].Render(m.width)
 }
 
+// HideLogo drops the wordmark but keeps the model line, and leaves nothing
+// to animate. HideStartupMessage still hides the block.
+func TestHideLogoKeepsTheStartupInfo(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.getUIVisibility = func() *UIVisibility { return &UIVisibility{HideLogo: true} }
+	m.AddStartupMessageToScrollList()
+
+	if m.splashItem != nil {
+		t.Error("a startup block without the wordmark must not start the logo animation")
+	}
+	first, _, _ := strings.Cut(strings.TrimLeft(stripBlockAnsi(splashOf(t, m)), "\n"), "\n")
+	if !strings.Contains(first, "test-model") {
+		t.Errorf("first line of the startup block = %q, want the model line", first)
+	}
+
+	m, _, _ = newTestAppModel(&stubAppController{})
+	m.getUIVisibility = func() *UIVisibility { return &UIVisibility{HideLogo: true, HideStartupMessage: true} }
+	m.AddStartupMessageToScrollList()
+	if len(m.messages) != 0 {
+		t.Errorf("HideStartupMessage left %d items in the scrollback", len(m.messages))
+	}
+}
+
 // The splash must be rendered from the animation's first frame, not from the
 // resting logo, or the animation would open with a visible jump.
 func TestSplashStartsAtInitialFrame(t *testing.T) {

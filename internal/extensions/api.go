@@ -1734,6 +1734,8 @@ func (a *API) OnLLMUsage(handler func(LLMUsageEvent, Context)) {
 // display in the TUI. The renderer controls the header (parameter summary)
 // and/or body (result display) of the tool's output block. If multiple
 // extensions register renderers for the same tool name, the last one wins.
+// A ToolName can also be a pattern for a group of tools; see
+// ToolRenderConfig.
 func (a *API) RegisterToolRenderer(config ToolRenderConfig) {
 	a.registerToolRendererFn(config)
 }
@@ -1966,6 +1968,10 @@ type UIVisibility struct {
 	// has loaded. It does not hide failure messages. Pair it with
 	// OnMCPToolsReady to show one summary of all servers instead.
 	HideMCPStartupMessages bool
+	// HideLogo hides the Kit wordmark at the top of the startup block, and
+	// its animation. The model line and the list of loaded items stay.
+	// HideStartupMessage hides the block, wordmark included.
+	HideLogo bool
 }
 
 // ---------------------------------------------------------------------------
@@ -2258,6 +2264,14 @@ type ToolRenderConfig struct {
 	// the name it had before its shell became configurable, "bash". A
 	// renderer naming a tool exactly always wins over that fallback, so a
 	// custom tool of your own named "bash" keeps its own renderer.
+	//
+	// ToolName can also be a pattern in the syntax of path.Match, so that
+	// one renderer applies to a group of tools. "*" matches every tool,
+	// "github__*" the tools of the MCP server "github", and "*__*" every MCP
+	// tool. The pattern "*" alone also matches a name with a "/". In a
+	// longer pattern, as in path.Match, "*" and "?" do not match a "/". A
+	// renderer found by the exact name or the "bash" fallback wins over a
+	// pattern. When several patterns match, the last one registered wins.
 	ToolName string
 
 	// DisplayName, if non-empty, replaces the auto-capitalized tool name
@@ -2279,6 +2293,13 @@ type ToolRenderConfig struct {
 	// markdown-formatted text without needing access to Kit's internal
 	// rendering functions. Ignored when RenderBody is nil or returns empty.
 	BodyMarkdown bool
+
+	// MaxBodyLines, when greater than zero, sets how many lines of the tool
+	// result the transcript shows when Kit renders the body itself. That is
+	// the builtin renderer for the tool, or plain text. It applies when
+	// RenderBody is nil or returns an empty string. The message inspector
+	// still shows the full result.
+	MaxBodyLines int
 
 	// RenderHeader, if non-nil, replaces the default parameter formatting
 	// in the tool header line. Receives the JSON-encoded arguments and the

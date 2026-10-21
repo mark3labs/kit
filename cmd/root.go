@@ -800,6 +800,7 @@ func toolRendererProviderForUI(k *kit.Kit) func(string) *ui.ToolRendererData {
 			BorderColor:  config.BorderColor,
 			Background:   config.Background,
 			BodyMarkdown: config.BodyMarkdown,
+			MaxBodyLines: config.MaxBodyLines,
 			RenderHeader: config.RenderHeader,
 			RenderBody:   config.RenderBody,
 		}
@@ -863,6 +864,7 @@ func uiVisibilityProviderForUI(k *kit.Kit) func() *ui.UIVisibility {
 			HideSeparator:          v.HideSeparator,
 			HideInputHint:          v.HideInputHint,
 			HideMCPStartupMessages: v.HideMCPStartupMessages,
+			HideLogo:               v.HideLogo,
 		}
 	}
 }
