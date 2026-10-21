@@ -30,13 +30,15 @@ func TestModelModeSelectorShowsUnavailableReasonAndPricing(t *testing.T) {
 
 func TestModelModeCommandRunsSetterWithoutMutatingUI(t *testing.T) {
 	called := false
-	m := &AppModel{modelMode: "previous", setModelMode: func(mode string) error {
-		called = true
-		if mode != "fast" {
-			t.Fatalf("mode = %q", mode)
-		}
-		return errors.New("unsupported")
-	}}
+	m := &AppModel{
+		conversationPane: &conversationPane{}, modelMode: "previous", setModelMode: func(mode string) error {
+			called = true
+			if mode != "fast" {
+				t.Fatalf("mode = %q", mode)
+			}
+			return errors.New("unsupported")
+		},
+	}
 	cmd := m.applyModelMode("fast")
 	if called {
 		t.Fatal("setter must run in a command, not Update")

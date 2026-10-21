@@ -64,6 +64,31 @@ type SubagentRun struct {
 	Events []Event
 	// DroppedEvents counts event records removed by the per-run event limit.
 	DroppedEvents int
+	// Seq counts the changes of the run: its registration, each child event
+	// (also the events that were combined or dropped from Events) and each
+	// status change. It matches [SubagentRunUpdate].Seq, so a consumer that
+	// starts from a snapshot can skip the updates that it already contains.
+	Seq uint64
+}
+
+// SubagentRunUpdate describes one change to a retained subagent run. See
+// [Kit.SubscribeSubagentRuns].
+type SubagentRunUpdate struct {
+	// RunID identifies the run (see [SubagentRun].ID).
+	RunID string
+	// Seq is the run's [SubagentRun].Seq after the change. Each update of
+	// a run has a Seq one larger than the previous update of that run.
+	Seq uint64
+	// Event is the child event, or nil when only the status changed.
+	Event Event
+	// Status and Error are the run's status and error after the change.
+	Status string
+	Error  string
+}
+
+type subagentRunListener struct {
+	id uint64
+	fn func(SubagentRunUpdate)
 }
 
 const subagentHistoryLimit = 100
@@ -80,23 +105,34 @@ type subagentRegistry struct {
 	mu    sync.Mutex
 	runs  map[string]*subagentRun
 	order []string
+
+	// notifyMu serializes changes together with their notifications, so
+	// that listeners see the updates of a run in the order they happened.
+	// It is taken before mu and is never held by the read methods.
+	notifyMu     sync.Mutex
+	listeners    []subagentRunListener
+	nextListener uint64
 }
 
 // add registers a run and returns the function that removes it. An empty
 // or duplicate ID is replaced with a new random ID.
 func (r *subagentRegistry) add(info RunningSubagent, kill context.CancelCauseFunc) (string, func()) {
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.runs == nil {
 		r.runs = make(map[string]*subagentRun)
 	}
 	if _, taken := r.runs[info.ID]; info.ID == "" || taken {
 		info.ID = newRunID()
 	}
-	run := &subagentRun{info: info, kill: kill, snapshot: SubagentRun{ID: info.ID, Prompt: info.Prompt, Agent: info.Agent, Model: info.Model, StartedAt: info.StartedAt, Status: "starting"}}
+	run := &subagentRun{info: info, kill: kill, snapshot: SubagentRun{ID: info.ID, Prompt: info.Prompt, Agent: info.Agent, Model: info.Model, StartedAt: info.StartedAt, Status: "starting", Seq: 1}}
 	r.runs[info.ID] = run
 	r.order = append(r.order, info.ID)
 	r.pruneLocked()
+	listeners := slices.Clone(r.listeners)
+	r.mu.Unlock()
+	notifySubagentRunListeners(listeners, SubagentRunUpdate{RunID: info.ID, Seq: 1, Status: "starting"})
 	return info.ID, func() {
 		r.update(info.ID, func(s *SubagentRun) {
 			if s.FinishedAt.IsZero() {
@@ -149,23 +185,14 @@ func (r *subagentRegistry) pruneLocked() {
 }
 
 func (r *subagentRegistry) update(id string, fn func(*SubagentRun)) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if run := r.runs[id]; run != nil {
-		before := run.snapshot.Status
-		fn(&run.snapshot)
-		wasActive := before == "starting" || before == "running"
-		isActive := run.snapshot.Status == "starting" || run.snapshot.Status == "running"
-		if wasActive && !isActive {
-			r.pruneLocked()
-		}
-	}
+	r.change(id, nil, fn)
 }
+
 func (r *subagentRegistry) addEvent(id string, e Event) {
-	r.update(id, func(s *SubagentRun) {
-		if chunk, ok := e.(MessageUpdateEvent); ok && len(s.Events) > 0 {
-			if previous, ok := s.Events[len(s.Events)-1].(MessageUpdateEvent); ok && len(previous.Chunk)+len(chunk.Chunk) <= 64*1024 {
-				s.Events[len(s.Events)-1] = MessageUpdateEvent{Chunk: previous.Chunk + chunk.Chunk}
+	r.change(id, e, func(s *SubagentRun) {
+		if len(s.Events) > 0 {
+			if combined, ok := combineSubagentEvents(s.Events[len(s.Events)-1], e); ok {
+				s.Events[len(s.Events)-1] = combined
 				return
 			}
 		}
@@ -177,6 +204,80 @@ func (r *subagentRegistry) addEvent(id string, e Event) {
 		}
 	})
 }
+
+// change applies fn to the run and notifies the listeners. A change without
+// an event notifies only when the status or the error changed.
+func (r *subagentRegistry) change(id string, e Event, fn func(*SubagentRun)) {
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	r.mu.Lock()
+	run := r.runs[id]
+	if run == nil {
+		r.mu.Unlock()
+		return
+	}
+	before := run.snapshot
+	fn(&run.snapshot)
+	notify := e != nil || before.Status != run.snapshot.Status || before.Error != run.snapshot.Error
+	if notify {
+		run.snapshot.Seq++
+	}
+	after := run.snapshot
+	wasActive := before.Status == "starting" || before.Status == "running"
+	isActive := after.Status == "starting" || after.Status == "running"
+	if wasActive && !isActive {
+		r.pruneLocked()
+	}
+	listeners := slices.Clone(r.listeners)
+	r.mu.Unlock()
+	if !notify {
+		return
+	}
+	notifySubagentRunListeners(listeners, SubagentRunUpdate{RunID: id, Seq: after.Seq, Event: e, Status: after.Status, Error: after.Error})
+}
+
+// combineSubagentEvents merges adjacent streaming chunks so that a long
+// response, reasoning block or command output uses one event record and
+// does not push older events out of the per-run limit.
+func combineSubagentEvents(previous, next Event) (Event, bool) {
+	const maxCombined = 64 * 1024
+	switch n := next.(type) {
+	case MessageUpdateEvent:
+		if p, ok := previous.(MessageUpdateEvent); ok && len(p.Chunk)+len(n.Chunk) <= maxCombined {
+			return MessageUpdateEvent{Chunk: p.Chunk + n.Chunk}, true
+		}
+	case ReasoningDeltaEvent:
+		if p, ok := previous.(ReasoningDeltaEvent); ok && len(p.Delta)+len(n.Delta) <= maxCombined {
+			return ReasoningDeltaEvent{Delta: p.Delta + n.Delta}, true
+		}
+	case ToolOutputEvent:
+		if p, ok := previous.(ToolOutputEvent); ok && p.ToolCallID == n.ToolCallID && p.IsStderr == n.IsStderr && len(p.Chunk)+len(n.Chunk) <= maxCombined {
+			p.Chunk += n.Chunk
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+func (r *subagentRegistry) subscribe(fn func(SubagentRunUpdate)) func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.nextListener++
+	id := r.nextListener
+	r.listeners = append(r.listeners, subagentRunListener{id: id, fn: fn})
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.listeners = slices.DeleteFunc(r.listeners, func(l subagentRunListener) bool { return l.id == id })
+	}
+}
+
+func notifySubagentRunListeners(listeners []subagentRunListener, u SubagentRunUpdate) {
+	for _, l := range listeners {
+		l.fn(u)
+	}
+}
+
 func (r *subagentRegistry) snapshots() []SubagentRun {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -241,6 +342,16 @@ func (m *Kit) SubagentRuns() []SubagentRun { return m.subagents.snapshots() }
 // history. The returned snapshot has a copied Events slice.
 // See [Kit.SubagentRuns] for retention limits.
 func (m *Kit) GetSubagentRun(id string) (SubagentRun, bool) { return m.subagents.get(id) }
+
+// SubscribeSubagentRuns registers a listener for the changes to every
+// subagent run of this Kit instance: registration, each child event, and
+// each status change. Updates of one run arrive in order. The listener is
+// called synchronously on the goroutine that made the change, so it must
+// return quickly and must not block. Returns a function that removes the
+// listener.
+func (m *Kit) SubscribeSubagentRuns(listener func(SubagentRunUpdate)) func() {
+	return m.subagents.subscribe(listener)
+}
 
 // RunningSubagents returns the in-process subagents of this Kit instance
 // that are running now, oldest first. This includes subagents started by

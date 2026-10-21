@@ -767,6 +767,10 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `GetSubagentRun(id)` - Look up a snapshot by execution ID; returns
   `(SubagentRun, bool)`, with false for unknown or evicted IDs. Returned event
   slices are copied, but event payloads are not deep-copied
+- `SubscribeSubagentRuns(fn)` - Receive each change to each run (registration,
+  child events, status changes) as a `SubagentRunUpdate`; `Seq` matches
+  `SubagentRun.Seq`, so updates already in a snapshot can be skipped. The
+  listener runs synchronously and must not block
 - `KillSubagent(id)` - Stop an active run by execution ID (not child session ID);
   returns false when it is no longer active
 - See [retained run snapshots](https://go-kit.dev/advanced/subagents#retained-run-snapshots)

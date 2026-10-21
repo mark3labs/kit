@@ -35,8 +35,8 @@ func TestSubagentRunPickerSelectionUsesSelectedRunParent(t *testing.T) {
 	// run ID captured by the picker, not the current registry index.
 	ctrl.runs = []kit.SubagentRun{ctrl.runs[1], ctrl.runs[0]}
 	m = sendMsg(m, msg)
-	if m.subagentView == nil || m.subagentView.parentSessionID != "parent" || m.subagentView.viewedRunID != "picked" {
-		t.Fatalf("inspector = %#v, want selected run under parent", m.subagentView)
+	if m.childView == nil || m.childView.parentSessionID != "parent" || m.paneID != "picked" {
+		t.Fatalf("child view = %#v (pane %q), want selected run under parent", m.childView, m.paneID)
 	}
 	if m.state != stateWorking {
 		t.Fatal("picker changed parent state")
@@ -48,7 +48,7 @@ func TestSubagentRunPickerEscape(t *testing.T) {
 	m.openSubagentRunPicker()
 	_, cmd := m.subagentRunPicker.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = sendMsg(m, cmd())
-	if m.subagentRunPicker != nil || m.subagentView != nil {
+	if m.subagentRunPicker != nil || m.childView != nil {
 		t.Fatal("escape did not cancel picker")
 	}
 }

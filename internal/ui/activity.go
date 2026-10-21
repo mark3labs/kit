@@ -188,7 +188,7 @@ func formatElapsed(d time.Duration) string {
 //	● Running go test ./... · 12s                                    esc
 //	● Running go test ./... · 12s
 func (m *AppModel) renderActivityRow() string {
-	if !m.agentWorking() || m.stream == nil {
+	if !m.paneWorking() || m.stream == nil {
 		return ""
 	}
 
@@ -265,7 +265,8 @@ func (m *AppModel) activityHint() string {
 	// the inspector, Esc leaves navigation), and the status bar already
 	// carries the navigation keymap, so the hint is dropped rather than
 	// left lying about what the keyboard does.
-	if m.navActive() {
+	// The bar under a subagent pane lists the keys of the subagent view.
+	if m.navActive() || m.childView != nil {
 		return ""
 	}
 	full := "↵ queue · esc interrupt"
@@ -437,7 +438,7 @@ func (m *AppModel) syncActivityRow() {
 	if m.layoutDirty {
 		return
 	}
-	if m.agentWorking() != m.lastActivityPresent {
+	if m.paneWorking() != m.lastActivityPresent {
 		m.layoutDirty = true
 	}
 }

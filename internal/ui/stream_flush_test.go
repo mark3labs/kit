@@ -34,7 +34,7 @@ func TestAdaptiveStreamFlushInterval(t *testing.T) {
 // taken from the message that is currently streaming, and falls back to the
 // base rate when the last item is not a streaming message.
 func TestStreamFlushDelay_UsesStreamingItemCost(t *testing.T) {
-	m := &AppModel{}
+	m := &AppModel{conversationPane: &conversationPane{}}
 	if got := m.streamFlushDelay(); got != streamFlushInterval {
 		t.Fatalf("empty transcript: delay = %v, want %v", got, streamFlushInterval)
 	}

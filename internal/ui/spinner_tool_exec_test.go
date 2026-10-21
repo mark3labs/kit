@@ -16,18 +16,14 @@ func newTestAppModelWithRealStream(ctrl AppController) (*AppModel, *StreamCompon
 	stream := NewStreamComponent(80, "test-model")
 	input := &stubInputComponent{}
 	m := &AppModel{
-		state:                 stateInput,
-		appCtrl:               ctrl,
-		stream:                stream,
-		input:                 input,
-		renderer:              newMessageRenderer(80, false),
-		modelName:             "test-model",
-		providerName:          "testprov",
-		width:                 80,
-		height:                24,
-		streamingBashMaxLines: 50,
-		scrollList:            NewScrollList(80, 20),
-		messages:              []MessageItem{},
+		conversationPane: &conversationPane{stream: stream, renderer: newMessageRenderer(80, false), scrollList: NewScrollList(80, 20), messages: []MessageItem{}, streamingBashMaxLines: 50},
+		state:            stateInput,
+		appCtrl:          ctrl,
+		input:            input,
+		modelName:        "test-model",
+		providerName:     "testprov",
+		width:            80,
+		height:           24,
 	}
 	return m, stream
 }
