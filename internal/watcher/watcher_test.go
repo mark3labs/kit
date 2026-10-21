@@ -194,6 +194,49 @@ func TestContentWatcher_WatchesSubdirectories(t *testing.T) {
 	_ = w.Close()
 }
 
+func TestContentWatcher_WatchesSymlinkedSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+
+	// The skill lives outside the watched directory and is linked in, as a
+	// dotfile manager would do.
+	target := filepath.Join(t.TempDir(), "my-skill")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "my-skill")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	var reloadCount atomic.Int32
+	w, err := New(Options{
+		Dirs:       []string{dir},
+		Extensions: []string{".md"},
+		OnReload:   func() { reloadCount.Add(1) },
+		Label:      "test",
+		Debounce:   50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go w.Start(t.Context())
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Write to the symlink target.
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# Skill"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if got := reloadCount.Load(); got != 1 {
+		t.Errorf("expected 1 reload for symlinked subdirectory file, got %d", got)
+	}
+
+	_ = w.Close()
+}
+
 func TestContentWatcher_WatchesNewSubdirectory(t *testing.T) {
 	dir := t.TempDir()
 

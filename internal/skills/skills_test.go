@@ -1,6 +1,8 @@
 package skills
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -287,6 +289,35 @@ func TestLoadSkillsFromDir_SymlinkedEntries(t *testing.T) {
 	}
 	if _, ok := got["flat"]; !ok {
 		t.Error("symlinked flat skill file not loaded")
+	}
+}
+
+// A symlink whose target exists but cannot be stat'ed must surface an error
+// rather than being skipped like a broken link.
+func TestLoadSkillsFromDir_SymlinkStatErrorReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.MkdirAll(filepath.Join(locked, "hidden-skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(locked, "hidden-skill"), filepath.Join(dir, "hidden-skill")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	_, err := LoadSkillsFromDir(dir)
+	if err == nil {
+		t.Fatal("expected an error for an unreadable symlink target, got nil")
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("expected a permission error, got %v", err)
 	}
 }
 

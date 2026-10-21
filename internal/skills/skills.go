@@ -409,9 +409,14 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
 
-		isDir, ok := resolveEntryIsDir(full, entry)
-		if !ok {
-			continue // broken symlink
+		isDir, err := resolveEntryIsDir(full, entry)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				log.Debug("skipping broken skill symlink", "path", full)
+				continue
+			}
+			errs = append(errs, fmt.Errorf("resolving skill symlink %s: %w", full, err))
+			continue
 		}
 		if !isDir {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
@@ -452,18 +457,17 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 
 // resolveEntryIsDir reports whether entry is a directory, following symlinks
 // so that linked skill directories (e.g. from dotfile managers) are
-// discovered. ok is false when entry is a symlink whose target cannot be
-// stat'ed.
-func resolveEntryIsDir(full string, entry fs.DirEntry) (isDir, ok bool) {
+// discovered. The error from stat'ing a symlink's target is returned as-is so
+// callers can tell a broken link (fs.ErrNotExist) from a genuine failure.
+func resolveEntryIsDir(full string, entry fs.DirEntry) (bool, error) {
 	if entry.Type()&fs.ModeSymlink == 0 {
-		return entry.IsDir(), true
+		return entry.IsDir(), nil
 	}
 	info, err := os.Stat(full)
 	if err != nil {
-		log.Debug("skipping broken skill symlink", "path", full, "err", err)
-		return false, false
+		return false, err
 	}
-	return info.IsDir(), true
+	return info.IsDir(), nil
 }
 
 // LoadSkillsFromFS is the fs.FS-typed counterpart of LoadSkillsFromDir. It

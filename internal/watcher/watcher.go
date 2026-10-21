@@ -65,15 +65,27 @@ func New(opts Options) (*ContentWatcher, error) {
 			continue
 		}
 
-		// Also watch immediate subdirectories (for skill/SKILL.md pattern).
+		// Also watch immediate subdirectories (for skill/SKILL.md pattern),
+		// including symlinked ones, whose resolved target is watched.
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
+			subdir := filepath.Join(dir, entry.Name())
 			if entry.IsDir() {
-				subdir := filepath.Join(dir, entry.Name())
 				_ = fsw.Add(subdir)
+				continue
+			}
+			if entry.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			target, err := filepath.EvalSymlinks(subdir)
+			if err != nil {
+				continue
+			}
+			if info, err := os.Stat(target); err == nil && info.IsDir() {
+				_ = fsw.Add(target)
 			}
 		}
 	}
