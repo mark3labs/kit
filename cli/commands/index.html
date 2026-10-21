@@ -6,7 +6,7 @@
 <title>Commands | Kit</title>
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-Cw-fVBm8.js"></script>
+<script type="module" src="/assets/index-saJWpXnN.js"></script>
 <link rel="canonical" href="https://go-kit.dev/cli/commands" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -156,6 +156,8 @@ Skills follow the [agentskills.io](https://agentskills.io/specification) convent
 | User-level (Kit) | `~/.config/kit/skills/` (honors `$XDG_CONFIG_HOME`) |
 | Project-local (cross-client) | `<project>/.agents/skills/` |
 | Project-local (Kit) | `<project>/.kit/skills/` |
+
+Entries in these directories may be symlinks — for example, skill directories linked in by a dotfile manager such as home-manager or GNU Stow. Kit follows the link to a skill directory or a `.md`/`.txt` file, and silently skips a broken link.
 
 When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
 

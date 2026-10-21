@@ -138,7 +138,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4373
+      "wordCount": 4415
     },
     {
       "id": "cli/flags",
@@ -517,7 +517,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5192
+      "wordCount": 5203
     },
     {
       "id": "sdk/sessions",

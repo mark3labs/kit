@@ -809,7 +809,8 @@ Key points:
 - **Auto-discovery scopes.** When no explicit `Skills`/`SkillsDir` are given,
   `New()` scans four [agentskills.io](https://agentskills.io/specification)
   locations: `~/.agents/skills/`, `~/.config/kit/skills/`,
-  `<project>/.agents/skills/`, and `<project>/.kit/skills/`. Project-level
+  `<project>/.agents/skills/`, and `<project>/.kit/skills/`. Symlinked skill
+  directories and files are followed; broken links are skipped. Project-level
   skills override user-level skills of the same `name`. Skills missing a
   `description` are skipped with a logged warning, and a skill's
   `disable-model-invocation: true` (or `Options.SkillsDisable`) hides it from

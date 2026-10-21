@@ -824,7 +824,8 @@ See <a href="/sdk/options#skills--configuration">SDK options</a>.</p>
 <p><strong>Auto-discovery scopes.</strong> When no explicit <code>Skills</code>/<code>SkillsDir</code> are given,
 <code>New()</code> scans four <a href="https://agentskills.io/specification">agentskills.io</a>
 locations: <code>~/.agents/skills/</code>, <code>~/.config/kit/skills/</code>,
-<code>&lt;project&gt;/.agents/skills/</code>, and <code>&lt;project&gt;/.kit/skills/</code>. Project-level
+<code>&lt;project&gt;/.agents/skills/</code>, and <code>&lt;project&gt;/.kit/skills/</code>. Symlinked skill
+directories and files are followed; broken links are skipped. Project-level
 skills override user-level skills of the same <code>name</code>. Skills missing a
 <code>description</code> are skipped with a logged warning, and a skill's
 <code>disable-model-invocation: true</code> (or <code>Options.SkillsDisable</code>) hides it from
@@ -1811,7 +1812,8 @@ Key points:
 - **Auto-discovery scopes.** When no explicit \`Skills\`/\`SkillsDir\` are given,
   \`New()\` scans four [agentskills.io](https://agentskills.io/specification)
   locations: \`~/.agents/skills/\`, \`~/.config/kit/skills/\`,
-  \`<project>/.agents/skills/\`, and \`<project>/.kit/skills/\`. Project-level
+  \`<project>/.agents/skills/\`, and \`<project>/.kit/skills/\`. Symlinked skill
+  directories and files are followed; broken links are skipped. Project-level
   skills override user-level skills of the same \`name\`. Skills missing a
   \`description\` are skipped with a logged warning, and a skill's
   \`disable-model-invocation: true\` (or \`Options.SkillsDisable\`) hides it from
