@@ -55,8 +55,7 @@ var e={frontmatter:{title:`Callbacks`,description:`Monitor tool calls and stream
 <h3 id="beforetoolcall--block-tool-execution"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#beforetoolcall--block-tool-execution"><span class="icon icon-link"></span></a>BeforeToolCall — block tool execution</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnBeforeToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.ToolCallID, h.ToolName, h.ToolArgs</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // The command-execution tool reports itself as "shell" (both kit.NewShellTool</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // and the deprecated kit.NewBashTool register it under that name).</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // The command-execution tool from kit.NewShellTool reports itself as "shell".</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> h.ToolName </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "shell"</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Contains</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(h.ToolArgs, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"rm -rf"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Block: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Reason: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"dangerous command"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
@@ -288,9 +287,6 @@ provide a transaction over external storage.</p>
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p><strong>Note:</strong> <code>OnStreaming</code> is a deprecated alias for <code>OnMessageUpdate</code> and will be removed in a future release.</p>
-</blockquote>
 <h3 id="compaction-telemetry"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#compaction-telemetry"><span class="icon icon-link"></span></a>Compaction telemetry</h3>
 <p><code>CompactionEvent</code> fires after every compaction attempt. On success <code>Err</code> is
 <code>nil</code> and the summary/token/file fields are populated; on failure <code>Err</code> is
@@ -394,8 +390,7 @@ Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are 
 \`\`\`go
 host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     // h.ToolCallID, h.ToolName, h.ToolArgs
-    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
-    // and the deprecated kit.NewBashTool register it under that name).
+    // The command-execution tool from kit.NewShellTool reports itself as "shell".
     if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
         return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
@@ -524,8 +519,6 @@ Lower values run first. First non-nil result wins.
 | \`CompactionEvent\` | \`OnCompaction\` | Conversation compacted (fires on success **and** failure — check \`Err\`) |
 | \`SteerConsumedEvent\` | \`OnSteerConsumed\` | Steering messages injected into turn |
 | \`PasswordPromptEvent\` | — | Sudo command needs password (respond via \`ResponseCh\`) |
-
-> **Note:** \`OnStreaming\` is a deprecated alias for \`OnMessageUpdate\` and will be removed in a future release.
 
 ### Compaction telemetry
 
