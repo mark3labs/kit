@@ -668,15 +668,6 @@ func (m *Kit) OnToolOutput(handler func(ToolOutputEvent)) func() {
 	return subscribeTyped(m, handler)
 }
 
-// OnStreaming registers a handler that fires only for MessageUpdateEvent
-// (streaming text chunks). Returns an unsubscribe function.
-//
-// Deprecated: Use OnMessageUpdate instead. OnStreaming will be removed in a
-// future release.
-func (m *Kit) OnStreaming(handler func(MessageUpdateEvent)) func() {
-	return m.OnMessageUpdate(handler)
-}
-
 // OnMessageUpdate registers a handler that fires only for MessageUpdateEvent
 // (streaming text chunks). Returns an unsubscribe function.
 func (m *Kit) OnMessageUpdate(handler func(MessageUpdateEvent)) func() {

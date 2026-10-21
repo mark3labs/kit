@@ -110,16 +110,6 @@ func FormatSkillActivation(s *Skill) string {
 	return skills.FormatActivation(s)
 }
 
-// FormatSkillsForPrompt formats skills for inclusion in a system prompt.
-// Each skill is rendered as a named section with its content.
-//
-// Deprecated: [New] composes loaded skills into the system prompt
-// automatically. This function has no callers and will be removed in a future
-// release.
-func FormatSkillsForPrompt(s []*Skill) string {
-	return skills.FormatForPrompt(s)
-}
-
 // ==== Prompt Template Functions ====
 
 // NewPromptTemplate creates a PromptTemplate, automatically extracting

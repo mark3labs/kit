@@ -66,20 +66,6 @@ var WithFileSystem = core.WithFileSystem
 // [CommandRunner] instead of local child processes.
 var WithCommandRunner = core.WithCommandRunner
 
-// WithBashTimeout is the name WithShellTimeout had before the tool's shell
-// became configurable.
-//
-// Deprecated: use [WithShellTimeout]. The two are interchangeable; when both
-// are given, the later one in the option list wins.
-var WithBashTimeout = core.WithShellTimeout
-
-// WithBashMaxTimeout is the name WithShellMaxTimeout had before the tool's
-// shell became configurable.
-//
-// Deprecated: use [WithShellMaxTimeout]. The two are interchangeable; when
-// both are given, the later one in the option list wins.
-var WithBashMaxTimeout = core.WithShellMaxTimeout
-
 // --- Core Tool Validation ---
 // processes a list of tool names, if disableCoreTools is true, return an
 // empty list. Otherwise if coreTools is not empty, it will return a list of
@@ -454,12 +440,6 @@ func NewEditTool(opts ...ToolOption) Tool { return core.NewEditTool(opts...) }
 // string through the configured shell, which defaults to bash.
 func NewShellTool(opts ...ToolOption) Tool { return core.NewShellTool(opts...) }
 
-// NewBashTool is the name NewShellTool had before the tool's shell became
-// configurable.
-//
-// Deprecated: use [NewShellTool]. Both return the same tool.
-func NewBashTool(opts ...ToolOption) Tool { return core.NewShellTool(opts...) }
-
 // NewGrepTool creates a content search tool (uses ripgrep when available).
 func NewGrepTool(opts ...ToolOption) Tool { return core.NewGrepTool(opts...) }
 
@@ -573,7 +553,6 @@ func firstNonZero(vals ...int) int {
 func resolveShellTimeouts(opts *Options, v *viper.Viper) (timeout, maxTimeout int) {
 	timeout = firstNonZero(
 		opts.ShellTimeout,
-		opts.BashTimeout,
 		envInt("KIT_SHELL_TIMEOUT"),
 		envInt("KIT_BASH_TIMEOUT"),
 		v.GetInt("shell-timeout"),
@@ -581,7 +560,6 @@ func resolveShellTimeouts(opts *Options, v *viper.Viper) (timeout, maxTimeout in
 	)
 	maxTimeout = firstNonZero(
 		opts.ShellMaxTimeout,
-		opts.BashMaxTimeout,
 		envInt("KIT_SHELL_MAX_TIMEOUT"),
 		envInt("KIT_BASH_MAX_TIMEOUT"),
 		v.GetInt("shell-max-timeout"),

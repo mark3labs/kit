@@ -77,8 +77,7 @@ Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are 
 ```go
 host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     // h.ToolCallID, h.ToolName, h.ToolArgs
-    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
-    // and the deprecated kit.NewBashTool register it under that name).
+    // The command-execution tool from kit.NewShellTool reports itself as "shell".
     if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
         return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
@@ -207,8 +206,6 @@ Lower values run first. First non-nil result wins.
 | `CompactionEvent` | `OnCompaction` | Conversation compacted (fires on success **and** failure — check `Err`) |
 | `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |
 | `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |
-
-> **Note:** `OnStreaming` is a deprecated alias for `OnMessageUpdate` and will be removed in a future release.
 
 ### Compaction telemetry
 

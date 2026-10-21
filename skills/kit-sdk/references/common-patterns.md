@@ -75,12 +75,11 @@ host.OnToolResult(func(e kit.ToolResultEvent) {
 ### Pattern: Guard rails with hooks
 
 ```go
-// Block dangerous commands. The command-execution tool is named "shell"
-// (kit.NewShellTool / the deprecated kit.NewBashTool both register it under
-// that name). Parse ToolArgs instead of grepping the raw JSON, and fail closed
-// on a parse error. A substring match is a convenience guard, not a security
-// boundary: "rm -r -f" or a script file slip past it. Enforce an allowlist if
-// you need a real control.
+// Block dangerous commands. The command-execution tool from kit.NewShellTool
+// is named "shell". Parse ToolArgs instead of grepping the raw JSON, and fail
+// closed on a parse error. A substring match is a convenience guard, not a
+// security boundary: "rm -r -f" or a script file slip past it. Enforce an
+// allowlist if you need a real control.
 host.OnBeforeToolCall(kit.HookPriorityHigh, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     if h.ToolName != "shell" {
         return nil

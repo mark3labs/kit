@@ -1,10 +1,6 @@
 package kit
 
-import (
-	"os"
-
-	"github.com/mark3labs/kit/internal/auth"
-)
+import "github.com/mark3labs/kit/internal/auth"
 
 // CredentialManager manages API keys and OAuth credentials.
 type CredentialManager = auth.CredentialManager
@@ -149,23 +145,4 @@ func GetValidCopilotAccessToken() (string, error) {
 		return "", err
 	}
 	return cm.GetValidCopilotAccessToken()
-}
-
-// GetOpenAIAPIKey resolves the OpenAI API key using the standard
-// resolution order: stored credentials -> OPENAI_API_KEY env var.
-// Returns an empty string if no key is found.
-//
-// Deprecated: Use [HasOpenAICredentials] to check for credentials; the
-// provider layer resolves the key itself. This function has no callers and
-// will be removed in a future release.
-func GetOpenAIAPIKey() string {
-	cm, err := auth.NewCredentialManager()
-	if err == nil {
-		// Try to get valid access token (handles OAuth refresh)
-		if token, err := cm.GetValidOpenAIAccessToken(); err == nil && token != "" {
-			return token
-		}
-	}
-	// Fall back to environment variable
-	return os.Getenv("OPENAI_API_KEY")
 }
