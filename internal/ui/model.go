@@ -2289,464 +2289,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Keyboard input ───────────────────────────────────────────────────────
 	case tea.KeyPressMsg:
-		// Clear any active mouse selection on keypress.
-		if m.scrollList.HasSelection() {
-			m.scrollList.ClearSelection()
-		}
-		switch msg.String() {
-		case "ctrl+c":
-			// Cancel any active prompt before quitting.
-			if m.promptResponseCh != nil {
-				m.promptResponseCh <- app.PromptResponse{Cancelled: true}
-				m.promptResponseCh = nil
-				m.prompt = nil
-			}
-			// Cancel any active overlay before quitting.
-			if m.overlayResponseCh != nil {
-				m.overlayResponseCh <- app.OverlayResponse{Cancelled: true}
-				m.overlayResponseCh = nil
-				m.overlay = nil
-			}
-
-			// Second Ctrl+C within the timeout window — quit.
-			if m.ctrlCPressedOnce {
-				m.quitting = true
-				if previewCleanup != nil {
-					return m, tea.Sequence(previewCleanup, tea.Quit)
-				}
-				return m, tea.Quit
-			}
-
-			// First Ctrl+C — clear input if it has content, then arm the quit flag.
-			if m.state == stateInput {
-				if ic, ok := m.input.(*InputComponent); ok {
-					ic.Clear()
-				}
-			}
-			m.ctrlCPressedOnce = true
-			// Start reset timer so the flag clears after 3 seconds.
-			if previewCleanup != nil {
-				return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
-			}
-			return m, ctrlCResetCmd()
-		}
-
-		if m.subagentRunPickerOpen() {
-			_, cmd := m.subagentRunPicker.Update(msg)
-			return m, tea.Batch(append(cmds, cmd)...)
-		}
-
-		// Route to the /kill-subagent picker when open. It owns the keyboard
-		// (including esc, which closes it instead of cancelling the turn).
-		if m.killSubagentOpen() {
-			_, cmd := m.killSubagentSelector.Update(msg)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Check extension-registered global keyboard shortcuts. These fire
-		// in all app states except modal prompts/overlays (which return early
-		// above) and message navigation, which rebinds plain keys like j/k
-		// and enter for itself — an extension shortcut on one of those would
-		// otherwise consume it first and silently break navigation.
-		//
-		// An armed leader chord (Ctrl+X) also takes precedence: the chord owns
-		// the next key press outright. Without this guard a shortcut bound to
-		// a chord suffix (s/t/m/e) stole the key and returned early, leaving
-		// leaderKeyActive latched on forever.
-		//
-		// Matched shortcuts are consumed — the key does not propagate
-		// to child components.
-		if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
-			m.openSubagentRunPicker()
-			return m, tea.Batch(cmds...)
-		}
-		if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
-			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
-				if handler, ok := lookupShortcut(shortcuts, msg); ok {
-					// Run in goroutine so blocking extension calls
-					// (PromptSelect, etc.) don't stall the event loop.
-					go handler()
-					return m, tea.Batch(cmds...)
-				}
-			}
-		}
-
-		// Scrollback keybindings (PgUp/PgDn/Ctrl+Home/Ctrl+End) for navigating
-		// message history. Active while the agent works too: a long turn is
-		// exactly when the user wants to read back, and the mouse wheel
-		// already scrolls in that state. Scrolling up clears autoScroll, so
-		// streamed output does not pull the view back to the bottom.
-		if m.state == stateInput || m.state == stateWorking {
-			switch msg.String() {
-			case "pgup":
-				m.scrollList.ScrollBy(-m.scrollList.height)
-				m.scrollList.autoScroll = false
-				return m, tea.Batch(cmds...)
-			case "pgdown":
-				m.scrollList.ScrollBy(m.scrollList.height)
-				if m.scrollList.AtBottom() {
-					m.scrollList.autoScroll = true
-				}
-				return m, tea.Batch(cmds...)
-			case "ctrl+home":
-				m.scrollList.GotoTop()
-				m.scrollList.autoScroll = false
-				return m, tea.Batch(cmds...)
-			case "ctrl+end":
-				m.scrollList.GotoBottom()
-				m.scrollList.autoScroll = true
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Thinking keybindings — only when the model supports reasoning.
-		// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
-		// to avoid conflicts with terminal multiplexers.
-		if m.isReasoningModel {
-			switch msg.String() {
-			case "shift+tab":
-				// Cycle thinking level.
-				m.cycleThinkingLevel()
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Route to tree selector when active.
-		if m.state == stateTreeSelector && m.treeSelector != nil {
-			updated, cmd := m.treeSelector.Update(msg)
-			m.treeSelector = updated.(*TreeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to model selector when active.
-		if m.state == stateModelSelector && m.modelSelector != nil {
-			updated, cmd := m.modelSelector.Update(msg)
-			m.modelSelector = updated.(*ModelSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to thinking-level selector when active.
-		if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
-			updated, cmd := m.thinkingLevelSelector.Update(msg)
-			m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		if m.state == stateModelModeSelector && m.modelModeSelector != nil {
-			updated, cmd := m.modelModeSelector.Update(msg)
-			m.modelModeSelector = updated.(*ModelModeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to theme selector when active.
-		if m.state == stateThemeSelector && m.themeSelector != nil {
-			updated, cmd := m.themeSelector.Update(msg)
-			m.themeSelector = updated.(*ThemeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to the /connect dialog when active.
-		if m.state == stateProviderConnect && m.providerConnect != nil {
-			updated, cmd := m.providerConnect.Update(msg)
-			m.providerConnect = updated.(*ProviderConnectComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to session selector when active.
-		if m.state == stateSessionSelector && m.sessionSelector != nil {
-			updated, cmd := m.sessionSelector.Update(msg)
-			m.sessionSelector = updated.(*SessionSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Message navigation consumes every key it understands so the
-		// composer never sees j/k as text while the user is browsing.
-		if m.state == stateMessageNav {
-			// Any navigation key retires the previous acknowledgement, except
-			// the one that produces a fresh copy.
-			if msg.String() != "y" {
-				m.navNotice = ""
-			}
-			switch msg.String() {
-			case "up", "k":
-				m.moveMessageSelection(-1)
-				return m, tea.Batch(cmds...)
-			case "down", "j":
-				m.moveMessageSelection(1)
-				return m, tea.Batch(cmds...)
-			case "home", "g":
-				if idx := m.firstSelectableIndex(); idx >= 0 {
-					m.selectMessage(idx)
-				}
-				return m, tea.Batch(cmds...)
-			case "end", "G":
-				if idx := m.lastSelectableIndex(); idx >= 0 {
-					m.selectMessage(idx)
-				}
-				return m, tea.Batch(cmds...)
-			// Jump between the user's own turns. "Scroll back to what I asked"
-			// is the dominant reason to enter navigation at all, and stepping
-			// there one tool result at a time is a lot of keypresses.
-			case "u":
-				m.jumpToRole("user", -1)
-				return m, tea.Batch(cmds...)
-			case "U":
-				m.jumpToRole("user", 1)
-				return m, tea.Batch(cmds...)
-			case "y":
-				cmds = append(cmds, m.copySelectedMessage())
-				return m, tea.Batch(cmds...)
-			case "enter":
-				// A shell block expands in place rather than opening the
-				// inspector: the whole point is to read the output where the
-				// conversation is, with the rest of the turn still in view.
-				// Every other item opens the inspector, which is what the frame
-				// hint advertises.
-				if item := m.selectedShellRun(); item != nil && !item.Spinning() {
-					m.toggleShellRunExpansion(item)
-					return m, tea.Batch(cmds...)
-				}
-				m.inspectSelectedMessage()
-				return m, tea.Batch(cmds...)
-			case "o", "space":
-				if item := m.selectedShellRun(); item != nil {
-					m.toggleShellRunExpansion(item)
-					return m, tea.Batch(cmds...)
-				}
-			case "H", "shift+left":
-				m.scrollSelectedShellRun(-1)
-				return m, tea.Batch(cmds...)
-			case "L", "shift+right":
-				m.scrollSelectedShellRun(1)
-				return m, tea.Batch(cmds...)
-			case "esc", "q":
-				m.exitMessageNav()
-				return m, tea.Batch(cmds...)
-			}
-			// Swallow everything else: an unhandled key must not leak into
-			// the composer while navigation owns the keyboard.
-			return m, tea.Batch(cmds...)
-		}
-
-		// ── Leader key chord handling (Ctrl+X prefix) ──────────────
-		// If the leader key was previously pressed, the current key
-		// completes the chord. We consume it regardless of match so
-		// the prefix doesn't leak to child components.
-		if m.leaderKeyActive {
-			m.leaderKeyActive = false
-			switch msg.String() {
-			case "s":
-				// Ctrl+X s → Steer: inject the current input as a steering
-				// message into the running agent turn.
-				if m.state == stateWorking && m.appCtrl != nil {
-					var text string
-					if ic, ok := m.input.(*InputComponent); ok {
-						text = strings.TrimSpace(ic.textarea.Value())
-					}
-					if text != "" {
-						// Clear the input, collect pending images, and push to history.
-						var images []uicore.ImageAttachment
-						if ic, ok := m.input.(*InputComponent); ok {
-							ic.pushHistory(text)
-							ic.textarea.SetValue("")
-							var cleanup tea.Cmd
-							images, cleanup = ic.ClearPendingImages()
-							if cleanup != nil {
-								cmds = append(cmds, cleanup)
-							}
-						}
-
-						// Preprocess @file references (text files are XML-inlined,
-						// binary files are extracted as multimodal parts).
-						processedText := text
-						var fileParts []kit.LLMFilePart
-						if m.cwd != "" {
-							result := fileutil.ProcessFileAttachments(text, m.cwd, m.mcpResourceReader)
-							processedText = result.ProcessedText
-							for _, fp := range result.FileParts {
-								fileParts = append(fileParts, kit.LLMFilePart{
-									Filename:  fp.Filename,
-									Data:      fp.Data,
-									MediaType: fp.MediaType,
-								})
-							}
-						}
-
-						// Convert clipboard image attachments to kit.LLMFilePart.
-						for _, img := range images {
-							fileParts = append(fileParts, kit.LLMFilePart{
-								Data:      img.Data,
-								MediaType: img.MediaType,
-							})
-						}
-
-						// Build display text (include image count if any).
-						displayText := text
-						if len(images) > 0 {
-							displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
-						}
-
-						// Inject the steer message.
-						sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
-						if sLen > 0 {
-							m.steeringMessages = append(m.steeringMessages, displayText)
-							m.layoutDirty = true
-						} else {
-							// Started immediately (agent was idle).
-							m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-							m.flushStreamAndPendingUserMessages()
-							if !m.agentWorking() {
-								m.setAgentState(stateWorking)
-							}
-						}
-					}
-				}
-			case "t":
-				// Ctrl+X t → Toggle thinking block visibility.
-				if m.isReasoningModel {
-					m.thinkingVisible = !m.thinkingVisible
-					for _, p := range m.allPanes() {
-						if p.stream != nil {
-							p.stream.SetThinkingVisible(m.thinkingVisible)
-						}
-					}
-				}
-			case "m":
-				// Ctrl+X m → Move: navigate messages in the scrollback.
-				m.enterMessageNav()
-			case "e":
-				// Ctrl+X e → open $EDITOR to compose/edit the prompt.
-				editorApp := os.Getenv("VISUAL")
-				if editorApp == "" {
-					editorApp = os.Getenv("EDITOR")
-				}
-				if editorApp == "" {
-					m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use external editor")
-				} else {
-					var currentText string
-					if ic, ok := m.input.(*InputComponent); ok {
-						currentText = ic.textarea.Value()
-					}
-					tmpFile, err := os.CreateTemp("", "kit_prompt_*.md")
-					if err == nil {
-						if currentText != "" {
-							_, _ = tmpFile.WriteString(currentText)
-						}
-						_ = tmpFile.Close()
-						editorCmd, cmdErr := editor.Command(editorApp, tmpFile.Name())
-						if cmdErr != nil {
-							_ = os.Remove(tmpFile.Name())
-							m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
-						} else {
-							cmds = append(cmds, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-								if err != nil {
-									_ = os.Remove(tmpFile.Name())
-									return externalEditorMsg{err: err}
-								}
-								content, readErr := os.ReadFile(tmpFile.Name())
-								_ = os.Remove(tmpFile.Name())
-								if readErr != nil {
-									return externalEditorMsg{err: readErr}
-								}
-								return externalEditorMsg{text: string(content)}
-							}))
-						}
-					}
-				}
-			}
-			// Chord consumed — don't propagate to children.
-			return m, tea.Batch(cmds...)
-		}
-
-		switch msg.String() {
-		case "esc":
-			if m.state == stateWorking {
-				if m.canceling {
-					// Second ESC within the timer window — cancel the step.
-					m.canceling = false
-					if m.appCtrl != nil {
-						m.appCtrl.CancelCurrentStep()
-					}
-				} else {
-					// First ESC — set canceling, start 2s timer.
-					m.canceling = true
-					cmds = append(cmds, cancelTimerCmd())
-				}
-				return m, tea.Batch(cmds...)
-			}
-			// In other states pass ESC through to children below.
-
-		case "ctrl+x":
-			// Activate leader key prefix — the next keypress completes the chord.
-			m.leaderKeyActive = true
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route key events to the focused child. Check for editor
-		// interceptor first — it can consume, remap, or force-submit keys.
-		if m.input != nil {
-			var intercepted bool
-			if m.getEditorInterceptor != nil {
-				if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.HandleKey != nil {
-					var currentText string
-					if ic, ok := m.input.(*InputComponent); ok {
-						currentText = ic.textarea.Value()
-					}
-					action := interceptor.HandleKey(msg.String(), currentText)
-					switch action.Type {
-					case EditorKeyConsumed:
-						intercepted = true
-					case EditorKeyRemap:
-						if remapped, ok := remapKey(action.RemappedKey); ok {
-							updated, cmd := m.input.Update(remapped)
-							m.input, _ = updated.(inputComponentIface)
-							cmds = append(cmds, cmd)
-							m.syncInputHeight()
-							intercepted = true
-						}
-						// If remap target is unrecognized, fall through to normal handling.
-					case EditorKeySubmit:
-						text := action.SubmitText
-						var images []uicore.ImageAttachment
-						if text == "" {
-							if ic, ok := m.input.(*InputComponent); ok {
-								text = strings.TrimSpace(ic.textarea.Value())
-								var cleanup tea.Cmd
-								images, cleanup = ic.ClearPendingImages()
-								if cleanup != nil {
-									cmds = append(cmds, cleanup)
-								}
-								ic.textarea.SetValue("")
-								ic.textarea.CursorEnd()
-							}
-						}
-						if text != "" {
-							cmds = append(cmds, func() tea.Msg {
-								return uicore.SubmitMsg{Text: text, Images: images}
-							})
-						}
-						intercepted = true
-					}
-					// EditorKeyPassthrough falls through to normal input handling.
-				}
-			}
-			if !intercepted {
-				updated, cmd := m.input.Update(msg)
-				m.input, _ = updated.(inputComponentIface)
-				cmds = append(cmds, cmd)
-				// The composer is dynamically sized, so a keystroke that wraps
-				// or unwraps a line changes how much room the transcript has.
-				m.syncInputHeight()
-			}
-		}
+		return m.handleKeyPress(msg, cmds, previewCleanup)
 
 	// ── Cancel timer expired ─────────────────────────────────────────────────
 	case uicore.CancelTimerExpiredMsg:
@@ -7882,4 +7425,496 @@ func (m *AppModel) transcriptPlacements(parts []string, scrollPartIndex int) []g
 		})
 	}
 	return out
+}
+
+// handleKeyPress routes a key through the app before the focused child.
+func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd, previewCleanup tea.Cmd) (tea.Model, tea.Cmd) {
+	// Clear any active mouse selection on keypress.
+	if m.scrollList.HasSelection() {
+		m.scrollList.ClearSelection()
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		// Cancel any active prompt before quitting.
+		if m.promptResponseCh != nil {
+			m.promptResponseCh <- app.PromptResponse{Cancelled: true}
+			m.promptResponseCh = nil
+			m.prompt = nil
+		}
+		// Cancel any active overlay before quitting.
+		if m.overlayResponseCh != nil {
+			m.overlayResponseCh <- app.OverlayResponse{Cancelled: true}
+			m.overlayResponseCh = nil
+			m.overlay = nil
+		}
+
+		// Second Ctrl+C within the timeout window — quit.
+		if m.ctrlCPressedOnce {
+			m.quitting = true
+			if previewCleanup != nil {
+				return m, tea.Sequence(previewCleanup, tea.Quit)
+			}
+			return m, tea.Quit
+		}
+
+		// First Ctrl+C — clear input if it has content, then arm the quit flag.
+		if m.state == stateInput {
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.Clear()
+			}
+		}
+		m.ctrlCPressedOnce = true
+		// Start reset timer so the flag clears after 3 seconds.
+		if previewCleanup != nil {
+			return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
+		}
+		return m, ctrlCResetCmd()
+	}
+
+	if m.subagentRunPickerOpen() {
+		_, cmd := m.subagentRunPicker.Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	// Route to the /kill-subagent picker when open. It owns the keyboard
+	// (including esc, which closes it instead of cancelling the turn).
+	if m.killSubagentOpen() {
+		_, cmd := m.killSubagentSelector.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Check extension-registered global keyboard shortcuts. These fire
+	// in all app states except modal prompts/overlays (which return early
+	// above) and message navigation, which rebinds plain keys like j/k
+	// and enter for itself — an extension shortcut on one of those would
+	// otherwise consume it first and silently break navigation.
+	//
+	// An armed leader chord (Ctrl+X) also takes precedence: the chord owns
+	// the next key press outright. Without this guard a shortcut bound to
+	// a chord suffix (s/t/m/e) stole the key and returned early, leaving
+	// leaderKeyActive latched on forever.
+	//
+	// Matched shortcuts are consumed — the key does not propagate
+	// to child components.
+	if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
+		m.openSubagentRunPicker()
+		return m, tea.Batch(cmds...)
+	}
+	if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
+		if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
+			if handler, ok := lookupShortcut(shortcuts, msg); ok {
+				// Run in goroutine so blocking extension calls
+				// (PromptSelect, etc.) don't stall the event loop.
+				go handler()
+				return m, tea.Batch(cmds...)
+			}
+		}
+	}
+
+	if cmd, handled := m.handleScrollbackKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleThinkingKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.routeOverlayKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleMessageNavKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleLeaderChord(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	// Route key events to the focused child. Check for editor
+	// interceptor first — it can consume, remap, or force-submit keys.
+	if m.input != nil {
+		var intercepted bool
+		if m.getEditorInterceptor != nil {
+			if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.HandleKey != nil {
+				var currentText string
+				if ic, ok := m.input.(*InputComponent); ok {
+					currentText = ic.textarea.Value()
+				}
+				action := interceptor.HandleKey(msg.String(), currentText)
+				switch action.Type {
+				case EditorKeyConsumed:
+					intercepted = true
+				case EditorKeyRemap:
+					if remapped, ok := remapKey(action.RemappedKey); ok {
+						updated, cmd := m.input.Update(remapped)
+						m.input, _ = updated.(inputComponentIface)
+						cmds = append(cmds, cmd)
+						m.syncInputHeight()
+						intercepted = true
+					}
+					// If remap target is unrecognized, fall through to normal handling.
+				case EditorKeySubmit:
+					text := action.SubmitText
+					var images []uicore.ImageAttachment
+					if text == "" {
+						if ic, ok := m.input.(*InputComponent); ok {
+							text = strings.TrimSpace(ic.textarea.Value())
+							var cleanup tea.Cmd
+							images, cleanup = ic.ClearPendingImages()
+							if cleanup != nil {
+								cmds = append(cmds, cleanup)
+							}
+							ic.textarea.SetValue("")
+							ic.textarea.CursorEnd()
+						}
+					}
+					if text != "" {
+						cmds = append(cmds, func() tea.Msg {
+							return uicore.SubmitMsg{Text: text, Images: images}
+						})
+					}
+					intercepted = true
+				}
+				// EditorKeyPassthrough falls through to normal input handling.
+			}
+		}
+		if !intercepted {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+			// The composer is dynamically sized, so a keystroke that wraps
+			// or unwraps a line changes how much room the transcript has.
+			m.syncInputHeight()
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleScrollbackKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Scrollback keybindings (PgUp/PgDn/Ctrl+Home/Ctrl+End) for navigating
+	// message history. Active while the agent works too: a long turn is
+	// exactly when the user wants to read back, and the mouse wheel
+	// already scrolls in that state. Scrolling up clears autoScroll, so
+	// streamed output does not pull the view back to the bottom.
+	if m.state == stateInput || m.state == stateWorking {
+		switch msg.String() {
+		case "pgup":
+			m.scrollList.ScrollBy(-m.scrollList.height)
+			m.scrollList.autoScroll = false
+			return nil, true
+		case "pgdown":
+			m.scrollList.ScrollBy(m.scrollList.height)
+			if m.scrollList.AtBottom() {
+				m.scrollList.autoScroll = true
+			}
+			return nil, true
+		case "ctrl+home":
+			m.scrollList.GotoTop()
+			m.scrollList.autoScroll = false
+			return nil, true
+		case "ctrl+end":
+			m.scrollList.GotoBottom()
+			m.scrollList.autoScroll = true
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleThinkingKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Thinking keybindings — only when the model supports reasoning.
+	// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
+	// to avoid conflicts with terminal multiplexers.
+	if m.isReasoningModel {
+		switch msg.String() {
+		case "shift+tab":
+			// Cycle thinking level.
+			m.cycleThinkingLevel()
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (m *AppModel) routeOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Route to tree selector when active.
+	if m.state == stateTreeSelector && m.treeSelector != nil {
+		updated, cmd := m.treeSelector.Update(msg)
+		m.treeSelector = updated.(*TreeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to model selector when active.
+	if m.state == stateModelSelector && m.modelSelector != nil {
+		updated, cmd := m.modelSelector.Update(msg)
+		m.modelSelector = updated.(*ModelSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to thinking-level selector when active.
+	if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
+		updated, cmd := m.thinkingLevelSelector.Update(msg)
+		m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
+		return cmd, true
+	}
+
+	if m.state == stateModelModeSelector && m.modelModeSelector != nil {
+		updated, cmd := m.modelModeSelector.Update(msg)
+		m.modelModeSelector = updated.(*ModelModeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to theme selector when active.
+	if m.state == stateThemeSelector && m.themeSelector != nil {
+		updated, cmd := m.themeSelector.Update(msg)
+		m.themeSelector = updated.(*ThemeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to the /connect dialog when active.
+	if m.state == stateProviderConnect && m.providerConnect != nil {
+		updated, cmd := m.providerConnect.Update(msg)
+		m.providerConnect = updated.(*ProviderConnectComponent)
+		return cmd, true
+	}
+
+	// Route to session selector when active.
+	if m.state == stateSessionSelector && m.sessionSelector != nil {
+		updated, cmd := m.sessionSelector.Update(msg)
+		m.sessionSelector = updated.(*SessionSelectorComponent)
+		return cmd, true
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleMessageNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Message navigation consumes every key it understands so the
+	// composer never sees j/k as text while the user is browsing.
+	if m.state == stateMessageNav {
+		// Any navigation key retires the previous acknowledgement, except
+		// the one that produces a fresh copy.
+		if msg.String() != "y" {
+			m.navNotice = ""
+		}
+		switch msg.String() {
+		case "up", "k":
+			m.moveMessageSelection(-1)
+			return nil, true
+		case "down", "j":
+			m.moveMessageSelection(1)
+			return nil, true
+		case "home", "g":
+			if idx := m.firstSelectableIndex(); idx >= 0 {
+				m.selectMessage(idx)
+			}
+			return nil, true
+		case "end", "G":
+			if idx := m.lastSelectableIndex(); idx >= 0 {
+				m.selectMessage(idx)
+			}
+			return nil, true
+		// Jump between the user's own turns. "Scroll back to what I asked"
+		// is the dominant reason to enter navigation at all, and stepping
+		// there one tool result at a time is a lot of keypresses.
+		case "u":
+			m.jumpToRole("user", -1)
+			return nil, true
+		case "U":
+			m.jumpToRole("user", 1)
+			return nil, true
+		case "y":
+			return m.copySelectedMessage(), true
+		case "enter":
+			// A shell block expands in place rather than opening the
+			// inspector: the whole point is to read the output where the
+			// conversation is, with the rest of the turn still in view.
+			// Every other item opens the inspector, which is what the frame
+			// hint advertises.
+			if item := m.selectedShellRun(); item != nil && !item.Spinning() {
+				m.toggleShellRunExpansion(item)
+				return nil, true
+			}
+			m.inspectSelectedMessage()
+			return nil, true
+		case "o", "space":
+			if item := m.selectedShellRun(); item != nil {
+				m.toggleShellRunExpansion(item)
+				return nil, true
+			}
+		case "H", "shift+left":
+			m.scrollSelectedShellRun(-1)
+			return nil, true
+		case "L", "shift+right":
+			m.scrollSelectedShellRun(1)
+			return nil, true
+		case "esc", "q":
+			m.exitMessageNav()
+			return nil, true
+		}
+		// Swallow everything else: an unhandled key must not leak into
+		// the composer while navigation owns the keyboard.
+		return nil, true
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	var cmds []tea.Cmd
+
+	// ── Leader key chord handling (Ctrl+X prefix) ──────────────
+	// If the leader key was previously pressed, the current key
+	// completes the chord. We consume it regardless of match so
+	// the prefix doesn't leak to child components.
+	if m.leaderKeyActive {
+		m.leaderKeyActive = false
+		switch msg.String() {
+		case "s":
+			// Ctrl+X s → Steer: inject the current input as a steering
+			// message into the running agent turn.
+			if m.state == stateWorking && m.appCtrl != nil {
+				var text string
+				if ic, ok := m.input.(*InputComponent); ok {
+					text = strings.TrimSpace(ic.textarea.Value())
+				}
+				if text != "" {
+					// Clear the input, collect pending images, and push to history.
+					var images []uicore.ImageAttachment
+					if ic, ok := m.input.(*InputComponent); ok {
+						ic.pushHistory(text)
+						ic.textarea.SetValue("")
+						var cleanup tea.Cmd
+						images, cleanup = ic.ClearPendingImages()
+						if cleanup != nil {
+							cmds = append(cmds, cleanup)
+						}
+					}
+
+					// Preprocess @file references (text files are XML-inlined,
+					// binary files are extracted as multimodal parts).
+					processedText := text
+					var fileParts []kit.LLMFilePart
+					if m.cwd != "" {
+						result := fileutil.ProcessFileAttachments(text, m.cwd, m.mcpResourceReader)
+						processedText = result.ProcessedText
+						for _, fp := range result.FileParts {
+							fileParts = append(fileParts, kit.LLMFilePart{
+								Filename:  fp.Filename,
+								Data:      fp.Data,
+								MediaType: fp.MediaType,
+							})
+						}
+					}
+
+					// Convert clipboard image attachments to kit.LLMFilePart.
+					for _, img := range images {
+						fileParts = append(fileParts, kit.LLMFilePart{
+							Data:      img.Data,
+							MediaType: img.MediaType,
+						})
+					}
+
+					// Build display text (include image count if any).
+					displayText := text
+					if len(images) > 0 {
+						displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
+					}
+
+					// Inject the steer message.
+					sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
+					if sLen > 0 {
+						m.steeringMessages = append(m.steeringMessages, displayText)
+						m.layoutDirty = true
+					} else {
+						// Started immediately (agent was idle).
+						m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+						m.flushStreamAndPendingUserMessages()
+						if !m.agentWorking() {
+							m.setAgentState(stateWorking)
+						}
+					}
+				}
+			}
+		case "t":
+			// Ctrl+X t → Toggle thinking block visibility.
+			if m.isReasoningModel {
+				m.thinkingVisible = !m.thinkingVisible
+				for _, p := range m.allPanes() {
+					if p.stream != nil {
+						p.stream.SetThinkingVisible(m.thinkingVisible)
+					}
+				}
+			}
+		case "m":
+			// Ctrl+X m → Move: navigate messages in the scrollback.
+			m.enterMessageNav()
+		case "e":
+			// Ctrl+X e → open $EDITOR to compose/edit the prompt.
+			editorApp := os.Getenv("VISUAL")
+			if editorApp == "" {
+				editorApp = os.Getenv("EDITOR")
+			}
+			if editorApp == "" {
+				m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use external editor")
+			} else {
+				var currentText string
+				if ic, ok := m.input.(*InputComponent); ok {
+					currentText = ic.textarea.Value()
+				}
+				tmpFile, err := os.CreateTemp("", "kit_prompt_*.md")
+				if err == nil {
+					if currentText != "" {
+						_, _ = tmpFile.WriteString(currentText)
+					}
+					_ = tmpFile.Close()
+					editorCmd, cmdErr := editor.Command(editorApp, tmpFile.Name())
+					if cmdErr != nil {
+						_ = os.Remove(tmpFile.Name())
+						m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
+					} else {
+						cmds = append(cmds, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+							if err != nil {
+								_ = os.Remove(tmpFile.Name())
+								return externalEditorMsg{err: err}
+							}
+							content, readErr := os.ReadFile(tmpFile.Name())
+							_ = os.Remove(tmpFile.Name())
+							if readErr != nil {
+								return externalEditorMsg{err: readErr}
+							}
+							return externalEditorMsg{text: string(content)}
+						}))
+					}
+				}
+			}
+		}
+		// Chord consumed — don't propagate to children.
+		return tea.Batch(cmds...), true
+	}
+
+	switch msg.String() {
+	case "esc":
+		if m.state == stateWorking {
+			if m.canceling {
+				// Second ESC within the timer window — cancel the step.
+				m.canceling = false
+				if m.appCtrl != nil {
+					m.appCtrl.CancelCurrentStep()
+				}
+			} else {
+				// First ESC — set canceling, start 2s timer.
+				m.canceling = true
+				cmds = append(cmds, cancelTimerCmd())
+			}
+			return tea.Batch(cmds...), true
+		}
+		// In other states pass ESC through to children below.
+
+	case "ctrl+x":
+		// Activate leader key prefix — the next keypress completes the chord.
+		m.leaderKeyActive = true
+		return tea.Batch(cmds...), true
+	}
+	return nil, false
 }
