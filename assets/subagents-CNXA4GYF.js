@@ -82,9 +82,9 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 </table>
 <p>Each indicator shows the agent name, or <code>agent</code> when no name is set. Finished runs remain in the bar for 10 seconds after they end. The bar disappears when there are no active or recent runs. This display limit does not remove retained history: older runs remain available in the picker until history retention removes them.</p>
 <h3 id="inspecting-subagent-conversations"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#inspecting-subagent-conversations"><span class="icon icon-link"></span></a>Inspecting subagent conversations</h3>
-<p>The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run <code>/subagents</code> to open the inspector on the newest retained run.</p>
+<p>The native subagent inspector shows a subagent run in place of the parent conversation, with the same view as the parent: streamed text and reasoning, live shell output, tool results, and the activity row with the current tool and the elapsed time. Run <code>/subagents</code> to open the inspector on the newest retained run.</p>
 <p>To choose a different run, press <code>Ctrl+Alt+A</code> while composing a prompt or while the parent agent works. The picker lists active and retained finished runs with their agent name, status, model, and first prompt line when available. Use Up/Down to choose a run and Enter to inspect it. Esc closes the picker without cancelling the parent turn. The status bar shows the shortcut when space permits, but the shortcut also works when the bar is hidden.</p>
-<p>The inspector opens on the chosen run and shows siblings with the same <code>ParentSessionID</code>. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors. If no runs are retained, Kit shows <code>No retained subagent runs.</code> instead of opening the picker or inspector.</p>
+<p>The inspector opens on the chosen run and shows siblings with the same <code>ParentSessionID</code>. Kit keeps a view for each run from the start of the run, so the inspector updates live and the parent conversation continues to update behind it. The composer is replaced by a bar with the agent name, the run status, the model, and the keys of the inspector. If a parent dialog opens (for example an extension prompt or a password prompt), Kit returns to the parent conversation. If no runs are retained, Kit shows <code>No retained subagent runs.</code> instead of opening the picker or inspector.</p>
 <table>
 <thead>
 <tr>
@@ -119,7 +119,7 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 </tr>
 </tbody>
 </table>
-<p>The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.</p>
+<p>The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text, reasoning, and tool output chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.</p>
 <h3 id="command-compatibility"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#command-compatibility"><span class="icon icon-link"></span></a>Command compatibility</h3>
 <p><code>/subagent-sessions</code> and its alias <code>/agents</code> have been removed. Use <code>/subagents</code> or <code>Ctrl+Alt+A</code> instead. <code>/subagents</code> always opens the built-in inspector; an extension registered under that name no longer takes precedence.</p>
 <p>The <code>subagent-monitor.go</code> example now uses <code>/subagent-monitor</code> for its transcript overlay. Its <code>Ctrl+Alt+S</code> shortcut is unchanged. Custom extensions that used <code>/subagents</code> must choose a different command name to remain accessible.</p>
@@ -368,6 +368,10 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <td>You need to stop an active run</td>
 </tr>
 <tr>
+<td><code>SubscribeSubagentRuns(func(SubagentRunUpdate)) func()</code></td>
+<td>You need every change to every run (registration, each child event, each status change) as it happens</td>
+</tr>
+<tr>
 <td><code>SubscribeSubagent</code> / <code>SubagentConfig.OnEvent</code></td>
 <td>You need live event callbacks rather than retained history</td>
 </tr>
@@ -382,7 +386,43 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p><code>SubagentRun.ID</code> identifies an execution and is the ID to pass to <code>GetSubagentRun</code> or <code>KillSubagent</code>. It is not the child's <code>SessionID</code>, which you pass to <code>SubagentConfig.SessionID</code> to resume a session. <code>ParentSessionID</code> records the configured parent ID, or the host's session ID when no override is supplied. <code>SessionID</code> is empty until child setup succeeds.</p>
 <p><code>Status</code> is <code>starting</code>, <code>running</code>, <code>completed</code>, <code>failed</code>, <code>stopped</code>, or <code>timed_out</code>. <code>FinishedAt</code> is zero until the run ends; <code>Error</code> describes a failed, stopped, or timed-out run when available.</p>
-<p>History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. <code>Events</code> is in emission order; adjacent text chunks can be combined. <code>DroppedEvents</code> counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. <code>GetSubagentRun</code> returns <code>false</code> for an unknown or evicted ID. History is also available for <code>NoSession</code> runs, but it is not restored from saved sessions.</p>
+<p>History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. <code>Events</code> is in emission order; adjacent text, reasoning, and tool output chunks can be combined. <code>DroppedEvents</code> counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. <code>GetSubagentRun</code> returns <code>false</code> for an unknown or evicted ID. History is also available for <code>NoSession</code> runs, but it is not restored from saved sessions.</p>
+<p><code>SubscribeSubagentRuns</code> calls its listener synchronously for each change, so the listener must return quickly. Each <code>SubagentRunUpdate</code> carries the run ID, the child event (nil for a status-only change), the status and error after the change, and <code>Seq</code>. <code>Seq</code> increases by one for each update of a run and matches <code>SubagentRun.Seq</code>, so a consumer that starts from a snapshot can skip the updates that the snapshot already contains. Subscribe before you take the snapshot, or a change between the two calls is lost. Buffer the updates under a mutex until the snapshot is ready:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">var</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    mu      </span><span style="color:#6F42C1;--shiki-dark:#B392F0">sync</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Mutex</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ready   </span><span style="color:#D73A49;--shiki-dark:#F97583">bool</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    pending []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentRunUpdate</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    lastSeq </span><span style="color:#D73A49;--shiki-dark:#F97583">uint64</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">apply </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">u</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentRunUpdate</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) { </span><span style="color:#6A737D;--shiki-dark:#6A737D">// call with mu held</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> u.Seq </span><span style="color:#D73A49;--shiki-dark:#F97583">&lt;=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> lastSeq {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // already in the snapshot</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    lastSeq </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> u.Seq</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // apply u.Event / u.Status (must not block)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">unsub </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubscribeSubagentRuns</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">u</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentRunUpdate</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> u.RunID </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> id {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // another run</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    mu.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Lock</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    defer</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> mu.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Unlock</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#D73A49;--shiki-dark:#F97583"> !</span><span style="color:#24292E;--shiki-dark:#E1E4E8">ready {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        pending </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> append</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(pending, u)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    apply</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(u)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> unsub</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">snapshot, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetSubagentRun</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(id)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">mu.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Lock</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">lastSeq, ready </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> snapshot.Seq, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, u </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> pending {</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    apply</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(u)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">pending </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">mu.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Unlock</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
 <p><code>RunningSubagents</code> still lists only active runs, and <code>KillSubagent</code> still returns <code>false</code> when the run is no longer active. Existing live callbacks continue to receive events; retention does not replace them.</p>
 <p>Inspect the discovered definitions:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
@@ -469,11 +509,11 @@ Each indicator shows the agent name, or \`agent\` when no name is set. Finished 
 
 ### Inspecting subagent conversations
 
-The native subagent inspector shows retained child output and tool activity without changing the parent conversation. Run \`/subagents\` to open the inspector on the newest retained run.
+The native subagent inspector shows a subagent run in place of the parent conversation, with the same view as the parent: streamed text and reasoning, live shell output, tool results, and the activity row with the current tool and the elapsed time. Run \`/subagents\` to open the inspector on the newest retained run.
 
 To choose a different run, press \`Ctrl+Alt+A\` while composing a prompt or while the parent agent works. The picker lists active and retained finished runs with their agent name, status, model, and first prompt line when available. Use Up/Down to choose a run and Enter to inspect it. Esc closes the picker without cancelling the parent turn. The status bar shows the shortcut when space permits, but the shortcut also works when the bar is hidden.
 
-The inspector opens on the chosen run and shows siblings with the same \`ParentSessionID\`. It refreshes once per second and includes assistant text, tool calls and results, run status, and errors. If no runs are retained, Kit shows \`No retained subagent runs.\` instead of opening the picker or inspector.
+The inspector opens on the chosen run and shows siblings with the same \`ParentSessionID\`. Kit keeps a view for each run from the start of the run, so the inspector updates live and the parent conversation continues to update behind it. The composer is replaced by a bar with the agent name, the run status, the model, and the keys of the inspector. If a parent dialog opens (for example an extension prompt or a password prompt), Kit returns to the parent conversation. If no runs are retained, Kit shows \`No retained subagent runs.\` instead of opening the picker or inspector.
 
 | Key | Action |
 |-----|--------|
@@ -484,7 +524,7 @@ The inspector opens on the chosen run and shows siblings with the same \`ParentS
 | Esc | Return to the parent conversation |
 | Ctrl+K | Stop the selected run if it is still active |
 
-The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.
+The conversation is read-only: you cannot send a follow-up prompt from this view. Stopping a run is still available. The inspector uses in-memory run history, not saved session files: it retains up to 100 finished runs plus all active runs, with up to 500 event records per run. Adjacent text, reasoning, and tool output chunks can be combined into one record. A warning shows when earlier event records have been dropped. Restarting Kit does not restore this history, and resuming a child session does not load its earlier transcript into the inspector.
 
 ### Command compatibility
 
@@ -753,6 +793,7 @@ Use \`SubagentRuns\` and \`GetSubagentRun\` to inspect active and finished runs 
 | \`SubagentRuns() []SubagentRun\` | You need retained active and finished runs, oldest first |
 | \`GetSubagentRun(id string) (SubagentRun, bool)\` | You need a snapshot for one run ID |
 | \`KillSubagent(id string) bool\` | You need to stop an active run |
+| \`SubscribeSubagentRuns(func(SubagentRunUpdate)) func()\` | You need every change to every run (registration, each child event, each status change) as it happens |
 | \`SubscribeSubagent\` / \`SubagentConfig.OnEvent\` | You need live event callbacks rather than retained history |
 
 \`\`\`go
@@ -769,7 +810,47 @@ for _, run := range host.SubagentRuns() {
 
 \`Status\` is \`starting\`, \`running\`, \`completed\`, \`failed\`, \`stopped\`, or \`timed_out\`. \`FinishedAt\` is zero until the run ends; \`Error\` describes a failed, stopped, or timed-out run when available.
 
-History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. \`Events\` is in emission order; adjacent text chunks can be combined. \`DroppedEvents\` counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. \`GetSubagentRun\` returns \`false\` for an unknown or evicted ID. History is also available for \`NoSession\` runs, but it is not restored from saved sessions.
+History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. \`Events\` is in emission order; adjacent text, reasoning, and tool output chunks can be combined. \`DroppedEvents\` counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. \`GetSubagentRun\` returns \`false\` for an unknown or evicted ID. History is also available for \`NoSession\` runs, but it is not restored from saved sessions.
+
+\`SubscribeSubagentRuns\` calls its listener synchronously for each change, so the listener must return quickly. Each \`SubagentRunUpdate\` carries the run ID, the child event (nil for a status-only change), the status and error after the change, and \`Seq\`. \`Seq\` increases by one for each update of a run and matches \`SubagentRun.Seq\`, so a consumer that starts from a snapshot can skip the updates that the snapshot already contains. Subscribe before you take the snapshot, or a change between the two calls is lost. Buffer the updates under a mutex until the snapshot is ready:
+
+\`\`\`go
+var (
+    mu      sync.Mutex
+    ready   bool
+    pending []kit.SubagentRunUpdate
+    lastSeq uint64
+)
+apply := func(u kit.SubagentRunUpdate) { // call with mu held
+    if u.Seq <= lastSeq {
+        return // already in the snapshot
+    }
+    lastSeq = u.Seq
+    // apply u.Event / u.Status (must not block)
+}
+unsub := host.SubscribeSubagentRuns(func(u kit.SubagentRunUpdate) {
+    if u.RunID != id {
+        return // another run
+    }
+    mu.Lock()
+    defer mu.Unlock()
+    if !ready {
+        pending = append(pending, u)
+        return
+    }
+    apply(u)
+})
+defer unsub()
+
+snapshot, _ := host.GetSubagentRun(id)
+mu.Lock()
+lastSeq, ready = snapshot.Seq, true
+for _, u := range pending {
+    apply(u)
+}
+pending = nil
+mu.Unlock()
+\`\`\`
 
 \`RunningSubagents\` still lists only active runs, and \`KillSubagent\` still returns \`false\` when the run is no longer active. Existing live callbacks continue to receive events; retention does not replace them.
 

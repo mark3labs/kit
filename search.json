@@ -90,7 +90,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 2860
+      "wordCount": 3162
     },
     {
       "id": "advanced/testing",
@@ -442,7 +442,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 1324
+      "wordCount": 1336
     },
     {
       "id": "sdk/options",
