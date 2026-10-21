@@ -1,10 +1,6 @@
 package kit
 
-import (
-	"fmt"
-
-	"github.com/mark3labs/kit/internal/models"
-)
+import "github.com/mark3labs/kit/internal/models"
 
 // LookupModel returns information about a model, or nil if unknown.
 func LookupModel(provider, modelID string) *ModelInfo {
@@ -43,31 +39,6 @@ func ValidateEnvironment(provider string, apiKey string) error {
 // SuggestModels returns model names similar to an invalid model string.
 func SuggestModels(provider, invalidModel string) []string {
 	return models.GetGlobalRegistry().SuggestModels(provider, invalidModel)
-}
-
-// RefreshModelRegistry reloads the global model database from the current
-// data sources (cache -> embedded). Call after updating the cache.
-//
-// Deprecated: This function has no callers and will be removed in a future
-// release. The registry is loaded once per process; the CLI's model-cache
-// update path reloads it internally.
-func RefreshModelRegistry() {
-	models.ReloadGlobalRegistry()
-}
-
-// CheckProviderReady validates that a provider is properly configured
-// by checking that it exists in the registry and has required environment
-// variables set.
-//
-// Deprecated: Use [GetProviderInfo] (nil means unknown provider) together
-// with [ValidateEnvironment] instead. This function has no callers and will
-// be removed in a future release.
-func CheckProviderReady(provider string) error {
-	info := models.GetGlobalRegistry().GetProviderInfo(provider)
-	if info == nil {
-		return fmt.Errorf("unknown provider: %s", provider)
-	}
-	return models.GetGlobalRegistry().ValidateEnvironment(provider, "")
 }
 
 // ResolveProviderBaseURL returns the base API URL kit will use when talking to

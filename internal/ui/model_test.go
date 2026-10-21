@@ -213,17 +213,19 @@ func newTestAppModel(ctrl AppController) (*AppModel, *stubStreamComponent, *stub
 	stream := &stubStreamComponent{}
 	input := &stubInputComponent{}
 	m := &AppModel{
-		state:                 stateInput,
-		appCtrl:               ctrl,
-		stream:                stream,
-		input:                 input,
-		renderer:              newMessageRenderer(80, false),
-		modelName:             "test-model",
-		width:                 80,
-		height:                24,
-		streamingBashMaxLines: 50, // Initialize buffer cap like NewAppModel does
-		scrollList:            NewScrollList(80, 20),
-		messages:              []MessageItem{},
+		conversationPane: &conversationPane{
+			stream:                stream,
+			renderer:              newMessageRenderer(80, false),
+			messages:              []MessageItem{},
+			streamingBashMaxLines: 50, // Initialize buffer cap like NewAppModel does
+			scrollList:            NewScrollList(80, 20),
+		},
+		state:     stateInput,
+		appCtrl:   ctrl,
+		input:     input,
+		modelName: "test-model",
+		width:     80,
+		height:    24,
 	}
 	return m, stream, input
 }

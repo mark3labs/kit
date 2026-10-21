@@ -38,6 +38,13 @@ type ScrollList struct {
 	autoScroll bool // Whether to auto-scroll to bottom on new content
 	itemGap    int  // Number of blank lines between items (0 = no gap)
 
+	// offscreen is true while the list is not shown (the pane of an agent
+	// that the user does not view). GotoBottom then only records the request
+	// in bottomPending, so that a hidden pane does not render its items to
+	// measure them. See SetOffscreen.
+	offscreen     bool
+	bottomPending bool
+
 	// heightCache maps item ID → rendered line count at current width.
 	// Avoids redundant Render() calls in GotoBottom/clampOffset/AtBottom.
 	// Invalidated on width change; individual entries are refreshed in
@@ -629,7 +636,24 @@ func (s *ScrollList) ScrollBy(lines int) {
 // Uses cached heights and walks backwards from the end to avoid rendering
 // every item in the list.
 func (s *ScrollList) GotoBottom() {
+	if s.offscreen {
+		s.bottomPending = true
+		return
+	}
 	s.offsetIdx, s.offsetLine = s.bottomOffset()
+}
+
+// SetOffscreen sets whether the list is hidden. When the list is shown
+// again, it returns true if a GotoBottom request waits; the caller applies
+// it after the layout pass has set the viewport size.
+func (s *ScrollList) SetOffscreen(offscreen bool) (bottomPending bool) {
+	s.offscreen = offscreen
+	if offscreen {
+		return false
+	}
+	pending := s.bottomPending
+	s.bottomPending = false
+	return pending
 }
 
 // bottomOffset computes the (offsetIdx, offsetLine) at which the last line

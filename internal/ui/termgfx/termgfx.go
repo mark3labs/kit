@@ -214,12 +214,6 @@ func Current() Capabilities {
 	return *caps
 }
 
-// SupportsKittyGraphics reports whether inline Kitty graphics reach the
-// terminal intact.
-func SupportsKittyGraphics() bool {
-	return Current().KittyGraphics
-}
-
 // Mode is how image previews should be drawn.
 type Mode int
 
@@ -285,12 +279,6 @@ func previewMode(c Capabilities) Mode {
 		return ModePlaceholder
 	}
 	return ModeDirect
-}
-
-// UseKittyGraphics reports whether image previews use the Kitty graphics
-// protocol rather than half-block text.
-func UseKittyGraphics() bool {
-	return PreviewMode() != ModeHalfBlock
 }
 
 // detect applies the environment override, then falls back to the live probe.

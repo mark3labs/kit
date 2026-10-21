@@ -522,19 +522,3 @@ func FirstLines(s string, count int) string {
 	}
 	return s
 }
-
-// LastLines returns the last count lines of s, or all of s when it has fewer.
-func LastLines(s string, count int) string {
-	if count <= 0 {
-		return ""
-	}
-	start := len(s)
-	for range count {
-		previous := strings.LastIndexByte(s[:start], '\n')
-		if previous < 0 {
-			return s
-		}
-		start = previous
-	}
-	return s[start+1:]
-}

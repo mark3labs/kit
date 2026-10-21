@@ -121,8 +121,6 @@ host.OnCompaction(func(e kit.CompactionEvent) { /* e.Summary, e.OriginalTokens, 
 host.OnSteerConsumed(func(e kit.SteerConsumedEvent) { /* e.Count */ })
 ```
 
-> **Rename note:** `OnStreaming` has been renamed to `OnMessageUpdate`. The old `OnStreaming` name is kept as a deprecated alias for one release cycle.
-
 ### Generic subscriber (receives all events)
 
 ```go

@@ -25,7 +25,7 @@ func TestThinkingPickerAndCycleUseModelLevels(t *testing.T) {
 	if !slices.Equal(got, []string{"off", "low", "medium", "xhigh", "Future"}) {
 		t.Fatal(got)
 	}
-	m := &AppModel{providerName: "custom", modelName: "effort-fixture", thinkingLevel: "xhigh"}
+	m := &AppModel{conversationPane: &conversationPane{}, providerName: "custom", modelName: "effort-fixture", thinkingLevel: "xhigh"}
 	m.cycleThinkingLevel()
 	if m.thinkingLevel != "Future" {
 		t.Fatal(m.thinkingLevel)

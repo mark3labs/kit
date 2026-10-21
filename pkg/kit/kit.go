@@ -770,7 +770,6 @@ func (m *Kit) GetStructuredMessages() []StructuredMessage {
 // converting each to a message.Message and calling fn to build the result.
 // Returns nil if there is no session. Skips entries that are not
 // MessageEntry or that fail conversion.
-// Deprecated: Use SessionManager.GetCurrentBranch() directly.
 func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.MessageEntry, message.Message) T) []T {
 	if tm == nil {
 		return nil
@@ -1396,12 +1395,12 @@ type Options struct {
 
 	// ShellTimeout sets the default per-call timeout (in seconds) for the
 	// shell tool, applied when the model does not specify one. Zero falls back
-	// to BashTimeout, then the "shell-timeout" config value, then
+	// to the environment, then the "shell-timeout" config value, then
 	// "bash-timeout", then the built-in default (120s).
 	ShellTimeout int
 
 	// ShellMaxTimeout caps the maximum timeout (in seconds) a shell tool call
-	// may request via its timeout argument. Zero falls back to BashMaxTimeout,
+	// may request via its timeout argument. Zero falls back to the environment,
 	// then the "shell-max-timeout" config value, then "bash-max-timeout", then
 	// the built-in default (600s).
 	ShellMaxTimeout int
@@ -1452,20 +1451,6 @@ type Options struct {
 	// "codemode.enabled" config value to false to disable it. Zero fields
 	// fall back to the "codemode" config section.
 	CodeMode *CodeModeOptions
-
-	// BashTimeout is the name ShellTimeout had before the tool's shell became
-	// configurable.
-	//
-	// Deprecated: use ShellTimeout. Both set the same value and ShellTimeout
-	// wins when both are set.
-	BashTimeout int
-
-	// BashMaxTimeout is the name ShellMaxTimeout had before the tool's shell
-	// became configurable.
-	//
-	// Deprecated: use ShellMaxTimeout. Both set the same value and
-	// ShellMaxTimeout wins when both are set.
-	BashMaxTimeout int
 
 	// Session configuration
 	SessionDir  string // Base directory for session discovery (default: cwd)
@@ -3677,9 +3662,10 @@ func (m *Kit) IsReasoningModel() bool {
 	return info != nil && info.Reasoning
 }
 
-// GetThinkingLevel returns the current thinking level.
+// GetThinkingLevel returns the resolved current thinking level, including
+// per-model defaults. It returns "off" when no thinking level is configured.
 func (m *Kit) GetThinkingLevel() string {
-	return m.v.GetString("thinking-level")
+	return m.agent.GetThinkingLevel()
 }
 
 // SetThinkingLevel changes the thinking level and recreates the agent with

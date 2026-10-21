@@ -60,6 +60,26 @@ Ephemeral mode (no session file created):
 kit "Quick question" --no-session
 ```
 
+## Tool execution and trust
+
+The standard CLI/TUI and non-interactive runs execute enabled tool calls without
+a built-in per-call approval prompt by default. Shell commands run with the
+process account's permissions. The write and edit tools can change files without
+using the shell. Custom extensions and SDK hooks can block calls. `--quiet`,
+`--json`, and `--no-session` do not add isolation or approval.
+
+Repository files, fetched content, MCP results, and issue/PR text can influence
+model instructions. With untrusted input, use a dedicated restricted account or
+an isolated runtime. Limit filesystem mounts and network access, and provide only
+the credentials needed for the task. A working directory is not a filesystem
+access boundary. Kit does not automatically provide an OS sandbox.
+
+[ACP server mode](/cli/commands#acp-server) is an exception: its default approval
+mode is `ask`, subject to read-only tool exemptions and remembered session
+decisions. Approval prompts are not an OS sandbox or a complete defense against
+malicious input. This guidance does not add a gate that blocks destructive
+commands.
+
 ## Resuming sessions
 
 Continue the most recent session for the current directory:

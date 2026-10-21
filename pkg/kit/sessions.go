@@ -51,8 +51,8 @@ func (m *Kit) GetSessionManager() SessionManager {
 	return m.session
 }
 
-// GetTreeSession returns the tree session manager, or nil if not configured.
-// Deprecated: Use GetSessionManager instead.
+// GetTreeSession returns the default file-backed tree session, or nil if no
+// session is configured or a custom SessionManager is in use.
 func (m *Kit) GetTreeSession() *TreeManager {
 	// Try to unwrap the adapter if using default implementation
 	if adapter, ok := m.session.(*treeManagerAdapter); ok {
@@ -66,10 +66,9 @@ func (m *Kit) SetSessionManager(sm SessionManager) {
 	m.session = sm
 }
 
-// SetTreeSession replaces the tree session on a Kit instance. This is used by
-// the CLI when it handles session creation externally (e.g. --resume with a
-// TUI picker) and needs to inject the result into a Kit-like workflow.
-// Deprecated: Use SetSessionManager instead.
+// SetTreeSession sets the default file-backed tree session on a Kit instance,
+// replacing any custom SessionManager. GetTreeSession returns nil while a
+// custom SessionManager is in use.
 func (m *Kit) SetTreeSession(ts *TreeManager) {
 	m.session = NewTreeManagerAdapter(ts)
 }

@@ -2106,6 +2106,16 @@ func (a *Agent) SetSystemPrompt(prompt string) {
 	a.rebuildFantasyAgent()
 }
 
+// GetThinkingLevel returns the resolved thinking level of the current provider.
+func (a *Agent) GetThinkingLevel() string {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+	if a.modelConfig == nil || a.modelConfig.ThinkingLevel == "" {
+		return string(models.ThinkingOff)
+	}
+	return string(a.modelConfig.ThinkingLevel)
+}
+
 // GetMaxTokens returns the effective max output tokens the agent currently
 // sends to the LLM provider, after per-model defaults, right-sizing, and any
 // Anthropic thinking-budget adjustments. Returns 0 when no ModelConfig is

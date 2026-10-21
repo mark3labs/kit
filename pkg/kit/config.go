@@ -186,16 +186,6 @@ func initConfig(v *viper.Viper, configFile string, debug, bare, createDefault bo
 	return nil
 }
 
-// LoadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion
-// into the process-global configuration store.
-//
-// Deprecated: Use [InitConfig] or [InitConfigWithOptions] with an explicit
-// ConfigFile instead. [New] loads configuration automatically; this function
-// has no callers and will be removed in a future release.
-func LoadConfigWithEnvSubstitution(configPath string) error {
-	return loadConfigWithEnvSubstitution(viper.GetViper(), configPath)
-}
-
 // loadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion
 // into the supplied per-instance store (or the global store when v is nil).
 func loadConfigWithEnvSubstitution(v *viper.Viper, configPath string) error {

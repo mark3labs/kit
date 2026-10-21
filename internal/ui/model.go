@@ -698,8 +698,27 @@ type AppModelOptions struct {
 // All messages (completed and streaming) are rendered via the ScrollList
 // viewport. The alt screen owns the full terminal.
 type AppModel struct {
-	subagentView                *subagentInspector
-	subagentInspectorGeneration uint64
+	// conversationPane is the transcript pane on screen: parentPane, or the
+	// pane of the subagent run that the user views (see childView). It is
+	// embedded so that the transcript code reads m.messages, m.stream and
+	// the other pane fields of whichever agent is shown.
+	*conversationPane
+
+	// parentPane is the parent agent's pane. It stays the same while a
+	// subagent pane is shown.
+	parentPane *conversationPane
+
+	// childPanes holds one pane per subagent run, keyed by run ID. A pane is
+	// made when the first update of its run arrives, so that it is complete
+	// when the user opens it.
+	childPanes map[string]*conversationPane
+
+	// childView is non-nil while a subagent pane is shown.
+	childView *childView
+
+	// paneRequest is a pane switch that Update applies after the message is
+	// handled, so that the shown pane never changes during a handler.
+	paneRequest *paneRequest
 	// state is the current state machine state.
 	state appState
 
@@ -712,12 +731,6 @@ type AppModel struct {
 	imagePreview           *imagePreviewModal
 	inputYOffset           int
 	imagePreviewGeneration int
-
-	// stream is the child streaming display component (spinner + streaming text).
-	stream streamComponentIface
-
-	// renderer renders completed messages for ScrollList display.
-	renderer Renderer
 
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
@@ -732,37 +745,11 @@ type AppModel struct {
 	// badge above the input. Cleared when the steer is consumed.
 	steeringMessages []string
 
-	// scrollList manages the in-memory message history with viewport scrolling.
-	scrollList *ScrollList
-
-	// messages holds all completed messages in the conversation history.
-	// The scrollList renders from this slice based on its viewport offset.
-	messages []MessageItem
-
 	// pendingUserPrints holds user messages that have been consumed from the
 	// queue but not yet added to the ScrollList. They are deferred until
 	// SpinnerEvent{Show: true} so the previous assistant response can be
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
-
-	// pendingStreamChunks buffers streaming text/reasoning chunks between
-	// coalescing flush ticks. Applying every chunk immediately forces a full
-	// markdown re-render of the accumulated message per chunk (O(n²) over a
-	// long response); instead chunks are batched and applied at most once
-	// per coalescing window (16ms, widened for long messages — see
-	// adaptiveStreamFlushInterval) or before any other event that
-	// depends on the scrollback state. Consecutive same-role chunks are
-	// concatenated in place.
-	pendingStreamChunks []pendingStreamChunk
-
-	// stepMessageMark is len(m.messages) when the current agent step
-	// started. A step resume removes the streaming items that the failed
-	// step added after this index.
-	stepMessageMark int
-
-	// streamFlushPending is true while a coalescing flush tick is scheduled,
-	// preventing duplicate tick commands.
-	streamFlushPending bool
 
 	// lastHeaderHeight is the extension header height measured by the most
 	// recent distributeHeight() pass. Used by currentScrollbackBounds so
@@ -1073,14 +1060,6 @@ type AppModel struct {
 	// in the ambient status bar.
 	gitBranch string
 
-	// turnStartedAt records when the current agent turn began, so the
-	// activity row can show elapsed time. Zero when idle.
-	turnStartedAt time.Time
-
-	// turnToolCount counts tool calls completed during the current turn, for
-	// the turn-completion receipt. Reset when a turn begins.
-	turnToolCount int
-
 	// lastInputHeight is the composer height measured by the last
 	// distributeHeight. The composer grows and shrinks with its content, so
 	// this is compared after every input update to detect a size change that
@@ -1111,18 +1090,6 @@ type AppModel struct {
 	// ctrlCPressedOnce tracks if Ctrl+C was pressed once to clear input.
 	// A second Ctrl+C (or Ctrl+C when input is empty) will quit the app.
 	ctrlCPressedOnce bool
-
-	// streamingBashOutput holds the current streaming bash output lines.
-	// Lines are accumulated as they arrive and displayed in the stream region.
-	streamingBashOutput []string
-	// streamingBashStderr holds stderr lines separately (rendered differently).
-	streamingBashStderr []string
-	// streamingBashMaxLines caps how many lines to accumulate to prevent memory issues.
-	streamingBashMaxLines int
-	// streaming bash fields are only mutated/read from the Bubble Tea event loop
-	// (Update/View), so no mutex is required here.
-	// streamingBashCommand holds the command being executed for display as a header.
-	streamingBashCommand string
 
 	// ---------- Cached layout heights (invalidated by layoutDirty) ----------
 
@@ -1242,21 +1209,21 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	rdr := mr
 
 	m := &AppModel{
-		state:           stateInput,
-		appCtrl:         appCtrl,
-		renderer:        rdr,
-		modelName:       opts.ModelName,
-		providerName:    opts.ProviderName,
-		loadingMessage:  opts.LoadingMessage,
-		serverNames:     opts.ServerNames,
-		toolNames:       opts.ToolNames,
-		getToolNames:    opts.GetToolNames,
-		getMCPToolCount: opts.GetMCPToolCount,
-		usageTracker:    opts.UsageTracker,
-		cwd:             opts.Cwd,
-		shell:           opts.Shell,
-		width:           width,
-		height:          height,
+		conversationPane: &conversationPane{renderer: rdr},
+		state:            stateInput,
+		appCtrl:          appCtrl,
+		modelName:        opts.ModelName,
+		providerName:     opts.ProviderName,
+		loadingMessage:   opts.LoadingMessage,
+		serverNames:      opts.ServerNames,
+		toolNames:        opts.ToolNames,
+		getToolNames:     opts.GetToolNames,
+		getMCPToolCount:  opts.GetMCPToolCount,
+		usageTracker:     opts.UsageTracker,
+		cwd:              opts.Cwd,
+		shell:            opts.Shell,
+		width:            width,
+		height:           height,
 	}
 
 	// Store extension commands for dispatch.
@@ -1317,6 +1284,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Height will be set properly by distributeHeight().
 	m.scrollList = NewScrollList(width, height-10) // Placeholder height
 	m.messages = []MessageItem{}
+	m.parentPane = m.conversationPane
 
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, appCtrl)
@@ -1712,21 +1680,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				strings.TrimSuffix(msg.Err.Error(), "."))
 		}
 	}
-	if m.subagentView != nil {
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			return m, m.handleSubagentInspectorKey(msg.String())
-		case tea.WindowSizeMsg:
-			m.subagentView.width, m.subagentView.height = msg.Width, msg.Height
-			m.refreshSubagentView()
-		case subagentInspectorTick:
-			if msg.generation != m.subagentInspectorGeneration {
-				return m, nil
-			}
-			m.refreshSubagentView()
-			return m, subagentInspectorTickCmd(msg.generation)
-		}
-	}
 	// Handle capabilities before modal sub-loops can consume the message.
 	var capabilityCmd tea.Cmd
 	switch msg := msg.(type) {
@@ -1755,8 +1708,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(gfxFlushMsg); ok {
 		placementCmd = m.completeGfxFlush()
 	}
-	model, cmd := m.update(msg)
-	if m.clipboardNote != "" && m.quietScrollback() {
+	model, cmd := m.routeUpdate(msg)
+	if m.clipboardNote != "" && m.childView == nil && m.quietScrollback() {
 		m.printSystemMessage(m.clipboardNote)
 		m.clipboardNote = ""
 	}
@@ -1891,6 +1844,70 @@ func (m *AppModel) advanceFrame(t frameTickMsg) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	return tea.Batch(append(cmds, m.frames.tick())...)
+}
+
+// routeUpdate sends msg to the pane it belongs to and then applies any
+// pane switch that a handler requested.
+//
+// Subagent run updates and their stream flush ticks go to the child panes,
+// shown or not. While a child pane is shown, the keys, the mouse and the
+// animation frames go to it (see updateChildView). Every other message
+// belongs to the parent agent: it is handled by update with the parent pane
+// shown for the duration of the call, so the parent's transcript keeps up
+// while the user views a child.
+func (m *AppModel) routeUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case app.SubagentRunEvent:
+		cmd = m.applySubagentRunEvent(msg)
+	case streamAppendFlushMsg:
+		if msg.paneID != "" {
+			m.flushChildPane(msg.paneID)
+			break
+		}
+		cmd = m.updateParent(msg)
+	default:
+		if m.childView != nil {
+			if handled, c := m.updateChildView(msg); handled {
+				cmd = c
+				break
+			}
+		}
+		cmd = m.updateParent(msg)
+		if size, ok := msg.(tea.WindowSizeMsg); ok {
+			m.resizeChildPanes(size)
+		}
+	}
+	// A parent dialog (an extension prompt, a password prompt, an overlay)
+	// needs the keyboard, which the child view would keep. Show the parent.
+	if m.childView != nil && m.paneRequest == nil && m.state != stateInput && m.state != stateWorking {
+		m.paneRequest = &paneRequest{}
+	}
+	m.applyPaneRequest()
+	return m, cmd
+}
+
+// updateParent runs update with the parent pane shown.
+func (m *AppModel) updateParent(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	parent := m.parentPane
+	if m.childView == nil || parent == nil {
+		parent = m.conversationPane
+	}
+	m.withPane(parent, func() { _, cmd = m.update(msg) })
+	return cmd
+}
+
+// resizeChildPanes gives a new terminal width to the child panes. The shown
+// pane gets its viewport size from the next layout pass.
+func (m *AppModel) resizeChildPanes(size tea.WindowSizeMsg) {
+	for _, p := range m.childPanes {
+		p.renderer.SetWidth(size.Width)
+		if p.stream != nil {
+			updated, _ := p.stream.Update(size)
+			p.stream, _ = updated.(streamComponentIface)
+		}
+	}
 }
 
 // update is the state machine proper. Callers go through Update, which wraps
@@ -2294,462 +2311,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Keyboard input ───────────────────────────────────────────────────────
 	case tea.KeyPressMsg:
-		// Clear any active mouse selection on keypress.
-		if m.scrollList.HasSelection() {
-			m.scrollList.ClearSelection()
-		}
-		switch msg.String() {
-		case "ctrl+c":
-			// Cancel any active prompt before quitting.
-			if m.promptResponseCh != nil {
-				m.promptResponseCh <- app.PromptResponse{Cancelled: true}
-				m.promptResponseCh = nil
-				m.prompt = nil
-			}
-			// Cancel any active overlay before quitting.
-			if m.overlayResponseCh != nil {
-				m.overlayResponseCh <- app.OverlayResponse{Cancelled: true}
-				m.overlayResponseCh = nil
-				m.overlay = nil
-			}
-
-			// Second Ctrl+C within the timeout window — quit.
-			if m.ctrlCPressedOnce {
-				m.quitting = true
-				if previewCleanup != nil {
-					return m, tea.Sequence(previewCleanup, tea.Quit)
-				}
-				return m, tea.Quit
-			}
-
-			// First Ctrl+C — clear input if it has content, then arm the quit flag.
-			if m.state == stateInput {
-				if ic, ok := m.input.(*InputComponent); ok {
-					ic.Clear()
-				}
-			}
-			m.ctrlCPressedOnce = true
-			// Start reset timer so the flag clears after 3 seconds.
-			if previewCleanup != nil {
-				return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
-			}
-			return m, ctrlCResetCmd()
-		}
-
-		if m.subagentRunPickerOpen() {
-			_, cmd := m.subagentRunPicker.Update(msg)
-			return m, tea.Batch(append(cmds, cmd)...)
-		}
-
-		// Route to the /kill-subagent picker when open. It owns the keyboard
-		// (including esc, which closes it instead of cancelling the turn).
-		if m.killSubagentOpen() {
-			_, cmd := m.killSubagentSelector.Update(msg)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Check extension-registered global keyboard shortcuts. These fire
-		// in all app states except modal prompts/overlays (which return early
-		// above) and message navigation, which rebinds plain keys like j/k
-		// and enter for itself — an extension shortcut on one of those would
-		// otherwise consume it first and silently break navigation.
-		//
-		// An armed leader chord (Ctrl+X) also takes precedence: the chord owns
-		// the next key press outright. Without this guard a shortcut bound to
-		// a chord suffix (s/t/m/e) stole the key and returned early, leaving
-		// leaderKeyActive latched on forever.
-		//
-		// Matched shortcuts are consumed — the key does not propagate
-		// to child components.
-		if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
-			m.openSubagentRunPicker()
-			return m, tea.Batch(cmds...)
-		}
-		if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
-			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
-				if handler, ok := lookupShortcut(shortcuts, msg); ok {
-					// Run in goroutine so blocking extension calls
-					// (PromptSelect, etc.) don't stall the event loop.
-					go handler()
-					return m, tea.Batch(cmds...)
-				}
-			}
-		}
-
-		// Scrollback keybindings (PgUp/PgDn/Ctrl+Home/Ctrl+End) for navigating
-		// message history. Active while the agent works too: a long turn is
-		// exactly when the user wants to read back, and the mouse wheel
-		// already scrolls in that state. Scrolling up clears autoScroll, so
-		// streamed output does not pull the view back to the bottom.
-		if m.state == stateInput || m.state == stateWorking {
-			switch msg.String() {
-			case "pgup":
-				m.scrollList.ScrollBy(-m.scrollList.height)
-				m.scrollList.autoScroll = false
-				return m, tea.Batch(cmds...)
-			case "pgdown":
-				m.scrollList.ScrollBy(m.scrollList.height)
-				if m.scrollList.AtBottom() {
-					m.scrollList.autoScroll = true
-				}
-				return m, tea.Batch(cmds...)
-			case "ctrl+home":
-				m.scrollList.GotoTop()
-				m.scrollList.autoScroll = false
-				return m, tea.Batch(cmds...)
-			case "ctrl+end":
-				m.scrollList.GotoBottom()
-				m.scrollList.autoScroll = true
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Thinking keybindings — only when the model supports reasoning.
-		// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
-		// to avoid conflicts with terminal multiplexers.
-		if m.isReasoningModel {
-			switch msg.String() {
-			case "shift+tab":
-				// Cycle thinking level.
-				m.cycleThinkingLevel()
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Route to tree selector when active.
-		if m.state == stateTreeSelector && m.treeSelector != nil {
-			updated, cmd := m.treeSelector.Update(msg)
-			m.treeSelector = updated.(*TreeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to model selector when active.
-		if m.state == stateModelSelector && m.modelSelector != nil {
-			updated, cmd := m.modelSelector.Update(msg)
-			m.modelSelector = updated.(*ModelSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to thinking-level selector when active.
-		if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
-			updated, cmd := m.thinkingLevelSelector.Update(msg)
-			m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		if m.state == stateModelModeSelector && m.modelModeSelector != nil {
-			updated, cmd := m.modelModeSelector.Update(msg)
-			m.modelModeSelector = updated.(*ModelModeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to theme selector when active.
-		if m.state == stateThemeSelector && m.themeSelector != nil {
-			updated, cmd := m.themeSelector.Update(msg)
-			m.themeSelector = updated.(*ThemeSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to the /connect dialog when active.
-		if m.state == stateProviderConnect && m.providerConnect != nil {
-			updated, cmd := m.providerConnect.Update(msg)
-			m.providerConnect = updated.(*ProviderConnectComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route to session selector when active.
-		if m.state == stateSessionSelector && m.sessionSelector != nil {
-			updated, cmd := m.sessionSelector.Update(msg)
-			m.sessionSelector = updated.(*SessionSelectorComponent)
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Message navigation consumes every key it understands so the
-		// composer never sees j/k as text while the user is browsing.
-		if m.state == stateMessageNav {
-			// Any navigation key retires the previous acknowledgement, except
-			// the one that produces a fresh copy.
-			if msg.String() != "y" {
-				m.navNotice = ""
-			}
-			switch msg.String() {
-			case "up", "k":
-				m.moveMessageSelection(-1)
-				return m, tea.Batch(cmds...)
-			case "down", "j":
-				m.moveMessageSelection(1)
-				return m, tea.Batch(cmds...)
-			case "home", "g":
-				if idx := m.firstSelectableIndex(); idx >= 0 {
-					m.selectMessage(idx)
-				}
-				return m, tea.Batch(cmds...)
-			case "end", "G":
-				if idx := m.lastSelectableIndex(); idx >= 0 {
-					m.selectMessage(idx)
-				}
-				return m, tea.Batch(cmds...)
-			// Jump between the user's own turns. "Scroll back to what I asked"
-			// is the dominant reason to enter navigation at all, and stepping
-			// there one tool result at a time is a lot of keypresses.
-			case "u":
-				m.jumpToRole("user", -1)
-				return m, tea.Batch(cmds...)
-			case "U":
-				m.jumpToRole("user", 1)
-				return m, tea.Batch(cmds...)
-			case "y":
-				cmds = append(cmds, m.copySelectedMessage())
-				return m, tea.Batch(cmds...)
-			case "enter":
-				// A shell block expands in place rather than opening the
-				// inspector: the whole point is to read the output where the
-				// conversation is, with the rest of the turn still in view.
-				// Every other item opens the inspector, which is what the frame
-				// hint advertises.
-				if item := m.selectedShellRun(); item != nil && !item.Spinning() {
-					m.toggleShellRunExpansion(item)
-					return m, tea.Batch(cmds...)
-				}
-				m.inspectSelectedMessage()
-				return m, tea.Batch(cmds...)
-			case "o", "space":
-				if item := m.selectedShellRun(); item != nil {
-					m.toggleShellRunExpansion(item)
-					return m, tea.Batch(cmds...)
-				}
-			case "H", "shift+left":
-				m.scrollSelectedShellRun(-1)
-				return m, tea.Batch(cmds...)
-			case "L", "shift+right":
-				m.scrollSelectedShellRun(1)
-				return m, tea.Batch(cmds...)
-			case "esc", "q":
-				m.exitMessageNav()
-				return m, tea.Batch(cmds...)
-			}
-			// Swallow everything else: an unhandled key must not leak into
-			// the composer while navigation owns the keyboard.
-			return m, tea.Batch(cmds...)
-		}
-
-		// ── Leader key chord handling (Ctrl+X prefix) ──────────────
-		// If the leader key was previously pressed, the current key
-		// completes the chord. We consume it regardless of match so
-		// the prefix doesn't leak to child components.
-		if m.leaderKeyActive {
-			m.leaderKeyActive = false
-			switch msg.String() {
-			case "s":
-				// Ctrl+X s → Steer: inject the current input as a steering
-				// message into the running agent turn.
-				if m.state == stateWorking && m.appCtrl != nil {
-					var text string
-					if ic, ok := m.input.(*InputComponent); ok {
-						text = strings.TrimSpace(ic.textarea.Value())
-					}
-					if text != "" {
-						// Clear the input, collect pending images, and push to history.
-						var images []uicore.ImageAttachment
-						if ic, ok := m.input.(*InputComponent); ok {
-							ic.pushHistory(text)
-							ic.textarea.SetValue("")
-							var cleanup tea.Cmd
-							images, cleanup = ic.ClearPendingImages()
-							if cleanup != nil {
-								cmds = append(cmds, cleanup)
-							}
-						}
-
-						// Preprocess @file references (text files are XML-inlined,
-						// binary files are extracted as multimodal parts).
-						processedText := text
-						var fileParts []kit.LLMFilePart
-						if m.cwd != "" {
-							result := fileutil.ProcessFileAttachments(text, m.cwd, m.mcpResourceReader)
-							processedText = result.ProcessedText
-							for _, fp := range result.FileParts {
-								fileParts = append(fileParts, kit.LLMFilePart{
-									Filename:  fp.Filename,
-									Data:      fp.Data,
-									MediaType: fp.MediaType,
-								})
-							}
-						}
-
-						// Convert clipboard image attachments to kit.LLMFilePart.
-						for _, img := range images {
-							fileParts = append(fileParts, kit.LLMFilePart{
-								Data:      img.Data,
-								MediaType: img.MediaType,
-							})
-						}
-
-						// Build display text (include image count if any).
-						displayText := text
-						if len(images) > 0 {
-							displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
-						}
-
-						// Inject the steer message.
-						sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
-						if sLen > 0 {
-							m.steeringMessages = append(m.steeringMessages, displayText)
-							m.layoutDirty = true
-						} else {
-							// Started immediately (agent was idle).
-							m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-							m.flushStreamAndPendingUserMessages()
-							if !m.agentWorking() {
-								m.setAgentState(stateWorking)
-							}
-						}
-					}
-				}
-			case "t":
-				// Ctrl+X t → Toggle thinking block visibility.
-				if m.isReasoningModel {
-					m.thinkingVisible = !m.thinkingVisible
-					if m.stream != nil {
-						m.stream.SetThinkingVisible(m.thinkingVisible)
-					}
-				}
-			case "m":
-				// Ctrl+X m → Move: navigate messages in the scrollback.
-				m.enterMessageNav()
-			case "e":
-				// Ctrl+X e → open $EDITOR to compose/edit the prompt.
-				editorApp := os.Getenv("VISUAL")
-				if editorApp == "" {
-					editorApp = os.Getenv("EDITOR")
-				}
-				if editorApp == "" {
-					m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use external editor")
-				} else {
-					var currentText string
-					if ic, ok := m.input.(*InputComponent); ok {
-						currentText = ic.textarea.Value()
-					}
-					tmpFile, err := os.CreateTemp("", "kit_prompt_*.md")
-					if err == nil {
-						if currentText != "" {
-							_, _ = tmpFile.WriteString(currentText)
-						}
-						_ = tmpFile.Close()
-						editorCmd, cmdErr := editor.Command(editorApp, tmpFile.Name())
-						if cmdErr != nil {
-							_ = os.Remove(tmpFile.Name())
-							m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
-						} else {
-							cmds = append(cmds, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-								if err != nil {
-									_ = os.Remove(tmpFile.Name())
-									return externalEditorMsg{err: err}
-								}
-								content, readErr := os.ReadFile(tmpFile.Name())
-								_ = os.Remove(tmpFile.Name())
-								if readErr != nil {
-									return externalEditorMsg{err: readErr}
-								}
-								return externalEditorMsg{text: string(content)}
-							}))
-						}
-					}
-				}
-			}
-			// Chord consumed — don't propagate to children.
-			return m, tea.Batch(cmds...)
-		}
-
-		switch msg.String() {
-		case "esc":
-			if m.state == stateWorking {
-				if m.canceling {
-					// Second ESC within the timer window — cancel the step.
-					m.canceling = false
-					if m.appCtrl != nil {
-						m.appCtrl.CancelCurrentStep()
-					}
-				} else {
-					// First ESC — set canceling, start 2s timer.
-					m.canceling = true
-					cmds = append(cmds, cancelTimerCmd())
-				}
-				return m, tea.Batch(cmds...)
-			}
-			// In other states pass ESC through to children below.
-
-		case "ctrl+x":
-			// Activate leader key prefix — the next keypress completes the chord.
-			m.leaderKeyActive = true
-			return m, tea.Batch(cmds...)
-		}
-
-		// Route key events to the focused child. Check for editor
-		// interceptor first — it can consume, remap, or force-submit keys.
-		if m.input != nil {
-			var intercepted bool
-			if m.getEditorInterceptor != nil {
-				if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.HandleKey != nil {
-					var currentText string
-					if ic, ok := m.input.(*InputComponent); ok {
-						currentText = ic.textarea.Value()
-					}
-					action := interceptor.HandleKey(msg.String(), currentText)
-					switch action.Type {
-					case EditorKeyConsumed:
-						intercepted = true
-					case EditorKeyRemap:
-						if remapped, ok := remapKey(action.RemappedKey); ok {
-							updated, cmd := m.input.Update(remapped)
-							m.input, _ = updated.(inputComponentIface)
-							cmds = append(cmds, cmd)
-							m.syncInputHeight()
-							intercepted = true
-						}
-						// If remap target is unrecognized, fall through to normal handling.
-					case EditorKeySubmit:
-						text := action.SubmitText
-						var images []uicore.ImageAttachment
-						if text == "" {
-							if ic, ok := m.input.(*InputComponent); ok {
-								text = strings.TrimSpace(ic.textarea.Value())
-								var cleanup tea.Cmd
-								images, cleanup = ic.ClearPendingImages()
-								if cleanup != nil {
-									cmds = append(cmds, cleanup)
-								}
-								ic.textarea.SetValue("")
-								ic.textarea.CursorEnd()
-							}
-						}
-						if text != "" {
-							cmds = append(cmds, func() tea.Msg {
-								return uicore.SubmitMsg{Text: text, Images: images}
-							})
-						}
-						intercepted = true
-					}
-					// EditorKeyPassthrough falls through to normal input handling.
-				}
-			}
-			if !intercepted {
-				updated, cmd := m.input.Update(msg)
-				m.input, _ = updated.(inputComponentIface)
-				cmds = append(cmds, cmd)
-				// The composer is dynamically sized, so a keystroke that wraps
-				// or unwraps a line changes how much room the transcript has.
-				m.syncInputHeight()
-			}
-		}
+		return m.handleKeyPress(msg, cmds, previewCleanup)
 
 	// ── Cancel timer expired ─────────────────────────────────────────────────
 	case uicore.CancelTimerExpiredMsg:
@@ -2767,182 +2329,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case uicore.SubmitMsg:
-		// Re-enable auto-scroll when user submits a new message.
-		m.scrollList.autoScroll = true
-		// Reset Ctrl+C flag so next Ctrl+C clears input instead of quitting.
-		m.ctrlCPressedOnce = false
-
-		// Handle slash commands locally — they should never reach app.Run().
-		// Parse once: split on the first space so argument-bearing commands
-		// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
-		// their name and their args are passed through to the handler.
-		if strings.HasPrefix(msg.Text, "/") {
-			name, args, _ := strings.Cut(msg.Text, " ")
-			if sc := commands.GetCommandByName(name); sc != nil {
-				if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				return m, tea.Batch(cmds...)
-			}
-		}
-
-		// Check extension-registered slash commands. These support arguments
-		// (e.g. "/sub list files"), so we split on the first space.
-		if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Check MCP prompt commands (/<server>:<prompt> [args]).
-		if cmd := m.handleMCPPromptCommand(msg.Text); cmd != nil {
-			cmds = append(cmds, cmd)
-			return m, tea.Batch(cmds...)
-		}
-
-		// Expand prompt templates. If the input matches a template name,
-		// substitute arguments and use the expanded content as the prompt.
-		if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
-			// Validation failed — re-populate the input so the user can
-			// append the missing arguments without retyping.
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.Text + " ")
-				ic.textarea.CursorEnd()
-			}
-			return m, tea.Batch(cmds...)
-		} else if ok {
-			msg.Text = expanded
-		}
-
-		// No usable provider: do not send the prompt, tell the user how to
-		// fix it (mirrors opencode's "Connect a provider to send prompts").
-		if m.providerError != nil {
-			m.printSystemMessage(m.providerErrorNotice())
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.Text)
-				ic.textarea.CursorEnd()
-			}
-			return m, tea.Batch(cmds...)
-		}
-
-		// Regular prompt — forward to the app layer.
-		// Preprocess @file references: text files are XML-inlined, binary files
-		// (images, audio, etc.) are extracted as multimodal parts. The display
-		// text (shown in ScrollList) uses the original user text so the UI stays clean.
-		processedText := msg.Text
-		var fileParts []kit.LLMFilePart
-		if m.cwd != "" {
-			result := fileutil.ProcessFileAttachments(msg.Text, m.cwd, m.mcpResourceReader)
-			processedText = result.ProcessedText
-			for _, fp := range result.FileParts {
-				fileParts = append(fileParts, kit.LLMFilePart{
-					Filename:  fp.Filename,
-					Data:      fp.Data,
-					MediaType: fp.MediaType,
-				})
-			}
-		}
-
-		// Convert clipboard image attachments to kit.LLMFilePart.
-		fileOnlyCount := len(fileParts) // binary @file parts (before clipboard images)
-		for _, img := range msg.Images {
-			fileParts = append(fileParts, kit.LLMFilePart{
-				Data:      img.Data,
-				MediaType: img.MediaType,
-			})
-		}
-
-		// Build display text for ScrollList (include attachment counts).
-		displayText := msg.Text
-		if len(msg.Images) > 0 || fileOnlyCount > 0 {
-			var badges []string
-			if len(msg.Images) > 0 {
-				badges = append(badges, fmt.Sprintf("%d image(s) pasted", len(msg.Images)))
-			}
-			if fileOnlyCount > 0 {
-				badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
-			}
-			displayText = fmt.Sprintf("%s\n[%s]", msg.Text, strings.Join(badges, ", "))
-		}
-
-		if m.appCtrl != nil {
-			// Run returns the queue depth: >0 means the prompt was queued
-			// (agent is busy). We update queuedMessages directly here
-			// instead of relying on an event from prog.Send(), which would
-			// deadlock when called synchronously from within Update().
-			var qLen int
-			if len(fileParts) > 0 {
-				qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
-			} else {
-				qLen = m.appCtrl.Run(processedText)
-			}
-			if qLen > 0 {
-				// Queued: anchor the message text above the input with a
-				// "queued" badge. It will be added to the ScrollList when
-				// the agent picks it up (via SpinnerEvent).
-				m.queuedMessages = append(m.queuedMessages, displayText)
-				m.layoutDirty = true
-			} else {
-				// Started immediately. Flush any leftover stream content
-				// from the previous step first, then print the user
-				// message — combined via the ScrollList so
-				// messages stay in chronological order.
-				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-				m.flushStreamAndPendingUserMessages()
-				// Insert inline thumbnail previews after the user message.
-				cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
-			}
-		} else {
-			m.printUserMessage(displayText)
-			// Insert inline thumbnail previews after the user message.
-			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
-		}
-		if !m.agentWorking() {
-			m.setAgentState(stateWorking)
-		}
+		return m.handleSubmit(msg, cmds)
 
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
-		// Each preview becomes its own item, chained after the one before it so
-		// several images attached to one message keep their order.
-		//
-		// Static: the block is decoded pixel data, not a styled text block.
-		// Repainting it would mean re-decoding the image, and only its
-		// background tint comes from the theme.
-		anchor := msg.anchorID
-		placed := false
-		for _, preview := range msg.previews {
-			if preview.cells == "" {
-				continue
-			}
-			item := NewStyledMessageItem(generateMessageID(), "user", "", preview.cells)
-			if preview.image != nil {
-				item = item.WithDirectImage(*preview.image)
-				placed = true
-			}
-			m.insertMessageAfter(anchor, item)
-			anchor = item.ID()
-		}
-		if anchor != msg.anchorID {
-			m.refreshContent()
-			m.layoutDirty = true
-		}
-		if msg.transmit != "" {
-			// The image data cannot travel inside the view text. Placeholder
-			// cells just inserted into the transcript display it as soon as it
-			// lands; a directly-placed image is drawn separately, below.
-			//
-			// It is deliberately never deleted: the message stays in the
-			// scrollback for the rest of the session, and freeing the data
-			// would blank the preview the next time it scrolls into view.
-			cmds = append(cmds, tea.Raw(msg.transmit))
-		}
-		if placed {
-			// A directly-placed image is drawn by View, which can only work out
-			// where it goes once this frame has been laid out. Nothing else
-			// would arrive to trigger that write, so ask for one more Update
-			// after the coming View.
-			cmds = append(cmds, gfxNudgeCmd())
-		}
+		return m.handleImagePreviewReady(msg, cmds)
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
 	case uicore.ShellCommandMsg:
@@ -2969,744 +2360,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setAgentState(stateInput)
 		cmds = append(cmds, m.handleShellCommandResult(msg))
 
-	// ── App layer events ─────────────────────────────────────────────────────
-
-	case app.SpinnerEvent:
-		// SpinnerEvent{Show: true} means a new agent step has started (either
-		// freshly or from the queue after a previous step completed). Flush
-		// any leftover stream content from the previous step to the ScrollList
-		// before starting the new one, followed by any pending user messages
-		// from the queue. Everything goes through the ScrollList to
-		// guarantee chronological ordering.
-		if msg.Show {
-			m.flushStreamAndPendingUserMessages()
-			m.setAgentState(stateWorking)
-			m.layoutDirty = true
-		}
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ReasoningChunkEvent:
-		// Forward to stream component for display rendering
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Buffer for the coalesced ScrollList update (live display flushes
-		// on the next streamAppendFlushMsg tick, ~60 fps).
-		if cmd := m.bufferStreamChunk("reasoning", msg.Delta); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ReasoningCompleteEvent:
-		// Forward to stream component to freeze reasoning duration
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Mark the reasoning StreamingMessageItem as complete to freeze its counter
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && streamMsg.role == "reasoning" {
-				streamMsg.MarkComplete()
-			}
-		}
-
-	case app.StreamChunkEvent:
-		// Forward to stream component for display rendering
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Buffer for the coalesced ScrollList update (live display flushes
-		// on the next streamAppendFlushMsg tick, ~60 fps).
-		if cmd := m.bufferStreamChunk("assistant", msg.Content); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolCallStartedEvent:
-		// Flush any accumulated streaming text to the ScrollList first (streaming
-		// always completes before tool calls fire). The tool call itself is
-		// NOT printed here — a unified block (header + result) will be
-		// rendered when the ToolResultEvent arrives.
-		m.flushStreamContent()
-
-		// For shell commands, extract and store the command for the streaming
-		// output header. The earlier tool name is accepted too, so a replayed
-		// session keeps its header.
-		if msg.ToolName == core.ShellToolName || msg.ToolName == core.LegacyShellToolName {
-			var args struct {
-				Command string `json:"command"`
-			}
-			if err := json.Unmarshal([]byte(msg.ToolArgs), &args); err == nil && args.Command != "" {
-				m.streamingBashCommand = args.Command
-			}
-		}
-		// Code mode streams its nested call log through the same item;
-		// give it a header so the log is not anonymous.
-		if msg.ToolName == core.CodeModeToolName {
-			m.streamingBashCommand = "Running script"
-		}
-
-	case app.ToolExecutionEvent:
-		// Pass to stream component for execution spinner display.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolResultEvent:
-		// Remove streaming bash output item (if present) before adding the final tool result.
-		// The tool result will contain the truncated output.
-		if len(m.messages) > 0 {
-			if _, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
-				// Remove the streaming bash item
-				m.messages = m.messages[:len(m.messages)-1]
-			}
-		}
-
-		// Add the final tool result with truncated output.
-		m.printToolResult(msg)
-
-		// Clear legacy bash output state
-		m.streamingBashOutput = nil
-		m.streamingBashStderr = nil
-		m.streamingBashCommand = ""
-
-		// Start spinner again while waiting for the next LLM response.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolOutputEvent:
-		// Append bash output to streaming bash item in ScrollList.
-		// Find or create the streaming bash output item.
-		var bashItem *StreamingBashOutputItem
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
-				bashItem = item
-			}
-		}
-
-		// Create new bash output item if needed
-		if bashItem == nil {
-			bashItem = NewStreamingBashOutputItem(generateMessageID(), m.streamingBashCommand)
-			m.messages = append(m.messages, bashItem)
-		}
-
-		// Append the chunk
-		if msg.IsStderr {
-			bashItem.AppendStderr(msg.Chunk)
-		} else {
-			bashItem.AppendStdout(msg.Chunk)
-		}
-		// Invalidate cached height after mutation.
-		if m.scrollList != nil {
-			m.scrollList.InvalidateItemHeight(bashItem.ID())
-		}
-
-		// Check height and cap if needed - we don't want streaming output to grow forever
-		const maxStreamingBashHeight = 20 // Max lines to show during streaming
-		if bashItem.Height() > maxStreamingBashHeight {
-			// Stop showing new output once we hit the limit
-			// The final tool result will show truncated output
-			return m, nil
-		}
-
-		// Refresh ScrollList (handles autoscroll internally)
-		m.refreshContent()
-
-	case app.ToolCallContentEvent:
-		// In streaming mode this text was already delivered via StreamChunkEvents
-		// and will be flushed before the next tool call. Ignore to avoid
-		// double-printing.
-
-	case app.RetryEvent:
-		// Only pre-output retries reach the UI. Keep completed steps and
-		// their messages; reset only the transient stream component.
-		if m.stream != nil {
-			m.stream.Reset()
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.layoutDirty = true
-
-	case app.StepStartedEvent:
-		// Buffered chunks of the previous step were applied before this
-		// handler ran, so items from this index on belong to this step.
-		m.stepMessageMark = len(m.messages)
-
-	case app.StepResumeEvent:
-		// The failed step's output is discarded by the agent and is not
-		// saved. Remove it from the display, so the restarted step does
-		// not show the same text twice. Completed steps stay.
-		m.discardStepStreamingItems()
-		m.pendingStreamChunks = m.pendingStreamChunks[:0]
-		if m.stream != nil {
-			m.stream.Reset()
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.printSystemMessage(stepResumeNotice(msg))
-		m.layoutDirty = true
-
-	case app.ResponseCompleteEvent:
-		// This event fires for both streaming and non-streaming paths.
-		// In streaming mode, mark the StreamingMessageItem as complete.
-		// In non-streaming mode (no stream content accumulated), print the text.
-
-		// Check if we have an active StreamingMessageItem
-		hasStreamingItem := false
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-				hasStreamingItem = true
-			}
-		}
-
-		// Reset stream component
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-
-		// If no streaming item exists and we have content, print it as a regular message
-		if !hasStreamingItem && strings.TrimSpace(msg.Content) != "" {
-			m.printAssistantMessage(msg.Content)
-		}
-
-	case app.MessageCreatedEvent:
-		// Informational — no action needed by parent.
-
-	case app.QueueUpdatedEvent:
-		// drainQueue popped item(s) from the queue. Move consumed
-		// messages to pendingUserPrints — they will be printed to
-		// the ScrollList in the next SpinnerEvent{Show: true} after the
-		// previous assistant response is flushed.
-		for len(m.queuedMessages) > msg.Length {
-			text := m.queuedMessages[0]
-			m.queuedMessages[0] = "" // release the string in the backing array for GC
-			m.queuedMessages = m.queuedMessages[1:]
-			m.pendingUserPrints = append(m.pendingUserPrints, text)
-		}
-		m.layoutDirty = true
-
-	case app.SteerConsumedEvent:
-		// Steering messages were consumed — either injected mid-turn via
-		// PrepareStep, or drained into the queue after a text-only turn.
-		//
-		// Two cases:
-		//
-		//  1. Mid-turn (stateWorking, PrepareStep fired): no SpinnerEvent{Show:
-		//     true} will follow within this turn, so we cannot rely on
-		//     flushStreamAndPendingUserMessages() being called. Flush any live
-		//     stream content first (assistant text up to the steer point), then
-		//     render the steering user messages immediately to the ScrollList.
-		//
-		//  2. Post-turn (text-only response, drained after StepComplete): a
-		//     SpinnerEvent{Show: true} for the next turn is already in flight.
-		//     Defer to pendingUserPrints so the previous assistant response is
-		//     flushed first, preserving chronological order.
-		if m.agentWorking() {
-			// Case 1: mid-turn — flush + print immediately.
-			m.flushStreamContent()
-			for _, text := range m.steeringMessages {
-				m.printUserMessage(text)
-			}
-			m.steeringMessages = m.steeringMessages[:0]
-			m.layoutDirty = true
-		} else {
-			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
-			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
-			m.steeringMessages = m.steeringMessages[:0]
-			m.layoutDirty = true
-		}
-
-	case app.StepCompleteEvent:
-		// Stop the spinner and return to input state. The response is already
-		// mirrored in the ScrollList as a StreamingMessageItem, so
-		// finalizeStreamTurn() freezes it and drops the stream component's
-		// redundant copy (see its doc comment).
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.finalizeStreamTurn()
-		m.printTurnReceipt(turnDone)
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.StepCancelledEvent:
-		// User cancelled the step (double-ESC). The partial response stays
-		// visible via the ScrollList copy; the stream component's copy is
-		// dropped so the next turn does not re-print it after the receipt.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
-				item.MarkIncomplete()
-			}
-		}
-		m.finalizeStreamTurn()
-		m.printTurnReceipt(turnCancelled)
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.StepErrorEvent:
-		// The partial response stays visible via the ScrollList copy; the
-		// error block is printed after it, in chronological order.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
-				item.MarkIncomplete()
-			}
-		}
-		m.finalizeStreamTurn()
-		if msg.Err != nil {
-			m.printErrorResponse(msg)
-		}
-		// Close the turn with a failure receipt, consistent with the Done and
-		// Interrupted receipts on the other terminal events. The error block
-		// above says what went wrong; the receipt records the turn's shape
-		// (tool count, elapsed) that the error itself omits.
-		m.printTurnReceipt(turnFailed)
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.CompactCompleteEvent:
-		// Finalize any streaming compaction content.
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-		m.setAgentState(stateInput)
-
-		// Mark the last streaming message as complete in ScrollList.
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-			}
-		}
-
-		// Refresh content to show the finalized message.
-		m.refreshContent()
-
-		// Reset context token display — the pre-compaction count is stale.
-		// The next API call will set the accurate post-compaction value.
-		if m.usageTracker != nil {
-			m.usageTracker.SetContextTokens(0)
-		}
-
-		// Print stats as a separate system message.
-		saved := msg.OriginalTokens - msg.CompactedTokens
-		statsMsg := fmt.Sprintf(
-			"Compaction complete: %d messages summarised, ~%dk tokens freed (%dk -> %dk)",
-			msg.MessagesRemoved, saved/1000, msg.OriginalTokens/1000, msg.CompactedTokens/1000,
-		)
-		m.printSystemMessage(statsMsg)
-
-	case app.CompactErrorEvent:
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-		m.setAgentState(stateInput)
-		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
-
-	case app.ModelChangedEvent:
-		// Extension changed the model — update display name in status bar
-		// and message attribution.
-		m.providerName = msg.ProviderName
-		m.modelName = msg.ModelName
-
-	case app.UsageUpdatedEvent:
-		// Token usage was updated after a completed LLM step. No state
-		// changes needed — the UsageTracker was already mutated in-place.
-		// Returning from Update() triggers View() which re-renders the
-		// status bar with the latest token counts, cost, and context %.
-
-	case app.ThemeChangedEvent:
-		// The theme was replaced from outside the /theme command (an
-		// extension's ctx.SetTheme). The global theme is already set; this
-		// repaints the components that cache styling derived from it.
-		m.refreshTheme()
-
-	case app.WidgetUpdateEvent:
-		// Extension widget changed — recalculate height distribution so the
-		// stream region accounts for widget space. View() will read the
-		// latest widget state on the next render.
-		m.layoutDirty = true
-
-		// Refresh extension commands (e.g. after hot-reload). The callback
-		// returns the current set from the runner which may have changed.
-		if m.getExtensionCommands != nil {
-			newCmds := m.getExtensionCommands()
-			m.extensionCommands = newCmds
-			if ic, ok := m.input.(*InputComponent); ok {
-				// Remove old extension commands and add fresh ones.
-				var builtins []commands.SlashCommand
-				for _, sc := range ic.commands {
-					if sc.Category != "Extensions" {
-						builtins = append(builtins, sc)
-					}
-				}
-				for _, ec := range newCmds {
-					builtins = append(builtins, commands.SlashCommand{
-						Name:        ec.Name,
-						Description: ec.Description,
-						Category:    "Extensions",
-						Complete:    ec.Complete,
-					})
-				}
-				ic.commands = builtins
-			}
-		}
-
-	case app.ContentReloadEvent:
-		// Prompt templates or skills changed on disk — refresh from providers.
-		m.refreshPromptTemplates()
-		m.refreshSkillItems()
-		m.printSystemMessage("Prompts and skills reloaded.")
-
-	case app.MCPServerLoadedEvent:
-		// An extension that prints its own summary of the servers can hide
-		// the message for each server that loaded, but not a failure.
-		if msg.Error == nil && m.uiVis().HideMCPStartupMessages {
-			break
-		}
-		// A single MCP server finished loading — display a system message.
-		if msg.Error != nil {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
-		} else if msg.ToolCount > 0 {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded with %d tools", msg.ServerName, msg.ToolCount))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded (no tools)", msg.ServerName))
-		}
-
-	case app.EditorTextSetEvent:
-		// Extension wants to pre-fill the input editor with text.
-		if ic, ok := m.input.(*InputComponent); ok {
-			ic.textarea.SetValue(msg.Text)
-			ic.textarea.CursorEnd()
-		}
-
-	case app.NewSessionRequestEvent:
-		// Extension wants to end the current session and start a fresh
-		// one (with an optional initial prompt). Stash the response
-		// channel so performNewSession (or the before-hook cancellation
-		// path) can signal completion, then run the same /new pipeline
-		// the user would trigger.
-		if msg.ResponseCh != nil {
-			// Only one new-session request in flight at a time. If a
-			// previous response channel is still pending, fail it before
-			// replacing it so the prior extension goroutine unblocks.
-			if m.newSessionResultCh != nil {
-				m.newSessionResultCh <- fmt.Errorf("superseded by a newer NewSession request")
-			}
-			m.newSessionResultCh = msg.ResponseCh
-		}
-		if cmd := m.handleNewCommand(msg.InitialPrompt); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.PasswordPromptEvent:
-		// Sudo password prompt - show a modal input prompt
-		// If already in prompt state, cancel the new request
-		if m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.prePromptState = m.state
-		m.state = statePrompt
-		// Create a custom response channel that converts PasswordPromptResponse
-		passwordResponseCh := make(chan app.PromptResponse, 1)
-		m.promptResponseCh = passwordResponseCh
-
-		// Create password input prompt (masked input)
-		m.prompt = newPasswordPrompt(msg.Prompt, m.width, m.height)
-
-		// Handle the response conversion
-		go func() {
-			resp := <-passwordResponseCh
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PasswordPromptResponse{
-					Password:  resp.Value,
-					Cancelled: resp.Cancelled,
-				}
-			}
-		}()
-
-		if m.prompt != nil {
-			cmds = append(cmds, m.prompt.Init())
-		}
-
-	case app.PromptRequestEvent:
-		// Extension wants to show an interactive prompt. Enter prompt state.
-		// If already in prompt state (concurrent prompt from another
-		// extension), immediately cancel the new request.
-		if m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.prePromptState = m.state
-		m.state = statePrompt
-		m.promptResponseCh = msg.ResponseCh
-
-		switch msg.PromptType {
-		case "select":
-			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
-		case "multiselect":
-			m.prompt = newMultiSelectPrompt(msg.Message, msg.Options, msg.DefaultSelected, m.width, m.height)
-		case "confirm":
-			defaultVal := msg.Default == "true"
-			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
-		case "input":
-			m.prompt = newInputPrompt(msg.Message, msg.Placeholder, msg.Default, m.width, m.height)
-		default:
-			// Unknown prompt type — cancel immediately.
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
-			}
-			m.state = m.prePromptState
-			m.promptResponseCh = nil
-			return m, tea.Batch(cmds...)
-		}
-		if m.prompt != nil {
-			cmds = append(cmds, m.prompt.Init())
-		}
-
-	case app.OverlayRequestEvent:
-		// Extension wants to show a modal overlay dialog. Enter overlay state.
-		// If already in overlay or prompt state, immediately cancel the request.
-		if m.state == stateOverlay || m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.preOverlayState = m.state
-		m.state = stateOverlay
-		m.overlayResponseCh = msg.ResponseCh
-
-		m.overlay = newOverlayDialog(
-			msg.Title, msg.Content, msg.Markdown,
-			msg.BorderColor, msg.Background,
-			msg.Width, msg.MaxHeight, msg.Anchor,
-			msg.Actions,
-			m.width, m.height,
-		)
-		if m.overlay != nil {
-			cmds = append(cmds, m.overlay.Init())
-		}
-
-	case extensionCmdResultMsg:
-		// Async extension slash command completed. Render output/error.
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
-		} else if msg.output != "" {
-			m.printSystemMessage(msg.output)
-		}
-
-	case mcpPromptResultMsg:
-		// Async MCP prompt expansion completed. Submit the expanded text
-		// as a user message (same behavior as local prompt templates).
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
-		} else if msg.text != "" || len(msg.fileParts) > 0 {
-			// Process @file references and submit.
-			processedText := msg.text
-			var fileParts []kit.LLMFilePart
-			if m.cwd != "" {
-				result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
-				processedText = result.ProcessedText
-				for _, fp := range result.FileParts {
-					fileParts = append(fileParts, kit.LLMFilePart{
-						Filename:  fp.Filename,
-						Data:      fp.Data,
-						MediaType: fp.MediaType,
-					})
-				}
-			}
-			// Merge file parts from embedded resources (images, audio, blobs)
-			// with any @file/@mcp: file parts extracted from the text.
-			fileParts = append(fileParts, msg.fileParts...)
-
-			// Build display text with attachment badges (matches the
-			// normal submit path so embedded resources look like pasted
-			// images / attached files).
-			displayText := msg.text
-			if len(msg.fileParts) > 0 {
-				var imageCount, fileCount int
-				for _, fp := range msg.fileParts {
-					if strings.HasPrefix(fp.MediaType, "image/") {
-						imageCount++
-					} else {
-						fileCount++
-					}
-				}
-				var badges []string
-				if imageCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
-				}
-				if fileCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
-				}
-				if len(badges) > 0 {
-					displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
-				}
-			}
-
-			if m.appCtrl != nil {
-				var qLen int
-				if len(fileParts) > 0 {
-					qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
-				} else {
-					qLen = m.appCtrl.Run(processedText)
-				}
-				if qLen > 0 {
-					m.queuedMessages = append(m.queuedMessages, displayText)
-					m.layoutDirty = true
-				} else {
-					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-					m.flushStreamAndPendingUserMessages()
-				}
-				if !m.agentWorking() {
-					m.setAgentState(stateWorking)
-				}
-			}
-		}
-
-	case externalEditorMsg:
-		// User returned from $EDITOR. Replace input textarea content with
-		// whatever they saved in the temp file. On error (e.g. :cq in vim)
-		// the original input is silently preserved.
-		if msg.err == nil {
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.text)
-				// Move cursor to the end of the inserted text.
-				ic.textarea.CursorEnd()
-			}
-			m.layoutDirty = true
-		}
-
-	case editFileMsg:
-		// User returned from $EDITOR after `/edit <path>`. The file was
-		// edited directly on disk — no textarea changes. Report the result.
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Editor exited with error: %v", msg.err))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("Edited `%s`", msg.path))
-		}
-		m.layoutDirty = true
-
-	case extReloadResultMsg:
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
-		} else {
-			m.refreshExtensionItems()
-			m.printSystemMessage("Extensions reloaded.")
-		}
-
-	case beforeSessionSwitchResultMsg:
-		// Async before-session-switch hook completed. Proceed with the
-		// session reset if the hook did not cancel.
-		if msg.cancelled {
-			m.printSystemMessage(msg.reason)
-			m.signalNewSessionResult(fmt.Errorf("session switch cancelled: %s", msg.reason))
-		} else {
-			cmds = append(cmds, m.performNewSession(msg.initialPrompt))
-		}
-
-	case beforeForkResultMsg:
-		// Async before-fork hook completed. Proceed with the fork if the
-		// hook did not cancel.
-		if msg.cancelled {
-			m.printSystemMessage(msg.reason)
-		} else {
-			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
-		}
-
-	case shareResultMsg:
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Share failed: %v", msg.err))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
-		}
-		return m, nil
-
-	case app.ExtensionPrintEvent:
-		// Extension output — route through styled renderers when a level is set.
-		switch msg.Level {
-		case "info":
-			m.printSystemMessage(msg.Text)
-		case "error":
-			m.printErrorResponse(app.StepErrorEvent{
-				Err: fmt.Errorf("%s", msg.Text),
-			})
-		case "block":
-			m.printExtensionBlock(msg)
-		default:
-			// Plain text from extension — add as system message.
-			m.printSystemMessage(msg.Text)
-		}
-
-	// ── Clipboard image attached / thumbnail rendered ────────────────────────
-	// Both messages change the input region's rendered height (the pill and
-	// the async half-block preview), so forward them to the input and mark the
-	// layout dirty — otherwise distributeHeight keeps a stale, too-short input
-	// height and the preview is clipped off the bottom of the screen.
-	case clipboardImageMsg, thumbnailReadyMsg:
-		if m.input != nil {
-			updated, cmd := m.input.Update(msg)
-			m.input, _ = updated.(inputComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.layoutDirty = true
-
 	default:
-		// The /connect key input owns paste and cursor-blink messages while
-		// it is open; the composer must not receive a pasted API key.
-		if m.state == stateProviderConnect && m.providerConnect != nil {
-			updated, cmd := m.providerConnect.Update(msg)
-			m.providerConnect = updated.(*ProviderConnectComponent)
-			cmds = append(cmds, cmd)
-			if _, isPaste := msg.(tea.PasteMsg); isPaste {
-				return m, tea.Batch(cmds...)
-			}
-		}
-		// Pass unrecognised messages to all children.
-		if m.input != nil {
-			updated, cmd := m.input.Update(msg)
-			m.input, _ = updated.(inputComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
+		return m.handleAppMessage(msg, cmds)
+
 	}
 
 	return m, tea.Batch(cmds...)
@@ -3718,11 +2374,6 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // layout shifts; the activity row appears only while the agent is working.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
-	if m.subagentView != nil {
-		v := tea.NewView(m.renderSubagentInspector())
-		v.AltScreen = true
-		return v
-	}
 	// When quitting, disable alt screen for clean terminal restoration.
 	// This prevents terminal corruption issues on exit.
 	if m.quitting {
@@ -4229,6 +2880,9 @@ func (m *AppModel) renderSeparator() string {
 // is active and provides a Render function, the default content is passed
 // through it for wrapping/modification.
 func (m *AppModel) renderInput() string {
+	if m.childView != nil && m.child != nil {
+		return m.renderChildBar()
+	}
 	if m.input == nil {
 		return ""
 	}
@@ -4761,7 +3415,7 @@ func (m *AppModel) printUserMessage(text string) {
 func (m *AppModel) printAssistantMessage(text string) {
 	if strings.TrimSpace(text) != "" {
 		now := time.Now()
-		modelName := m.modelName
+		modelName := m.paneModelName()
 
 		// Add to in-memory scrollList. The renderer call is deferred into a
 		// closure so the block repaints itself after a theme change.
@@ -5751,12 +4405,10 @@ func (m *AppModel) finalizeStreamTurn() {
 	m.layoutDirty = true
 }
 
-// flushStreamAndPendingUserMessages moves the previous assistant response and
-// any pending queued user messages into the ScrollList. Called from
-// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
-// have been processed.
-func (m *AppModel) flushStreamAndPendingUserMessages() {
-	// 1. Flush previous stream content (assistant response).
+// flushPreviousStream moves the previous assistant response of the shown
+// pane from the stream component into the ScrollList. Called when a new step
+// starts, where all previous stream chunks have been processed.
+func (m *AppModel) flushPreviousStream() {
 	if m.stream != nil {
 		if content := m.stream.GetRenderedContent(); content != "" {
 			m.stream.Reset()
@@ -5776,7 +4428,7 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 
 			if !alreadyInList {
 				now := time.Now()
-				modelName := m.modelName
+				modelName := m.paneModelName()
 
 				// Add to in-memory scrollList. The renderer call is deferred
 				// into a closure so the block repaints on a theme change.
@@ -5787,6 +4439,16 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 			}
 		}
 	}
+	m.refreshContent()
+}
+
+// flushStreamAndPendingUserMessages moves the previous assistant response and
+// any pending queued user messages into the ScrollList. Called from
+// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
+// have been processed.
+func (m *AppModel) flushStreamAndPendingUserMessages() {
+	// 1. Flush previous stream content (assistant response).
+	m.flushPreviousStream()
 
 	// 2. Render pending user messages from the queue.
 	for _, text := range m.pendingUserPrints {
@@ -5847,14 +4509,18 @@ func (m *AppModel) isComposerTextKey(msg tea.KeyPressMsg) bool {
 }
 
 // streamAppendFlushMsg fires when buffered stream chunks should be applied
-// to the ScrollList. See AppModel.pendingStreamChunks.
-type streamAppendFlushMsg struct{}
+// to the ScrollList. See conversationPane.pendingStreamChunks.
+type streamAppendFlushMsg struct {
+	// paneID names the pane whose chunks are buffered: "" for the parent
+	// agent, a run ID for a subagent pane.
+	paneID string
+}
 
 // streamAppendFlushTickCmd schedules a coalescing flush of buffered stream
 // chunks after delay.
-func streamAppendFlushTickCmd(delay time.Duration) tea.Cmd {
+func streamAppendFlushTickCmd(paneID string, delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(_ time.Time) tea.Msg {
-		return streamAppendFlushMsg{}
+		return streamAppendFlushMsg{paneID: paneID}
 	})
 }
 
@@ -5907,7 +4573,7 @@ func (m *AppModel) bufferStreamChunk(role, content string) tea.Cmd {
 		return nil
 	}
 	m.streamFlushPending = true
-	return streamAppendFlushTickCmd(m.streamFlushDelay())
+	return streamAppendFlushTickCmd(m.paneID, m.streamFlushDelay())
 }
 
 // flushPendingStreamChunks applies all buffered stream chunks to the
@@ -5969,7 +4635,7 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 
 	// Otherwise, create a new StreamingMessageItem
 	id := generateMessageID()
-	newMsg := NewStreamingMessageItem(id, role, m.modelName)
+	newMsg := NewStreamingMessageItem(id, role, m.paneModelName())
 	newMsg.AppendChunk(content)
 	m.messages = append(m.messages, newMsg)
 
@@ -6554,18 +5220,23 @@ func (m *AppModel) handleRefreshCommand() tea.Cmd {
 // the exceptions: components that build styles once and keep them, and caches
 // keyed on something other than the theme.
 func (m *AppModel) refreshTheme() {
-	m.renderer.UpdateTheme()
-	m.stream.UpdateTheme()
+	for _, p := range m.allPanes() {
+		p.renderer.UpdateTheme()
+		if p.stream != nil {
+			p.stream.UpdateTheme()
+		}
+		// Scrollback items repaint themselves lazily on the next draw (see
+		// themeStamp), but their cached heights were measured against the
+		// old rendering and a repainted block can occupy a different number
+		// of lines.
+		if p.scrollList != nil {
+			p.scrollList.InvalidateHeights()
+		}
+	}
 	// The composer paints its own background, so it has to be repainted too
 	// or the bar keeps the previous theme's fill until restart.
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.UpdateTheme()
-	}
-	// Scrollback items repaint themselves lazily on the next draw (see
-	// themeStamp), but their cached heights were measured against the old
-	// rendering and a repainted block can occupy a different number of lines.
-	if m.scrollList != nil {
-		m.scrollList.InvalidateHeights()
 	}
 	m.layoutDirty = true
 }
@@ -8110,4 +6781,1188 @@ func (m *AppModel) transcriptPlacements(parts []string, scrollPartIndex int) []g
 		})
 	}
 	return out
+}
+
+// handleKeyPress routes a key through the app before the focused child.
+func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd, previewCleanup tea.Cmd) (tea.Model, tea.Cmd) {
+	// Clear any active mouse selection on keypress.
+	if m.scrollList.HasSelection() {
+		m.scrollList.ClearSelection()
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		// Cancel any active prompt before quitting.
+		if m.promptResponseCh != nil {
+			m.promptResponseCh <- app.PromptResponse{Cancelled: true}
+			m.promptResponseCh = nil
+			m.prompt = nil
+		}
+		// Cancel any active overlay before quitting.
+		if m.overlayResponseCh != nil {
+			m.overlayResponseCh <- app.OverlayResponse{Cancelled: true}
+			m.overlayResponseCh = nil
+			m.overlay = nil
+		}
+
+		// Second Ctrl+C within the timeout window — quit.
+		if m.ctrlCPressedOnce {
+			m.quitting = true
+			if previewCleanup != nil {
+				return m, tea.Sequence(previewCleanup, tea.Quit)
+			}
+			return m, tea.Quit
+		}
+
+		// First Ctrl+C — clear input if it has content, then arm the quit flag.
+		if m.state == stateInput {
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.Clear()
+			}
+		}
+		m.ctrlCPressedOnce = true
+		// Start reset timer so the flag clears after 3 seconds.
+		if previewCleanup != nil {
+			return m, tea.Sequence(previewCleanup, ctrlCResetCmd())
+		}
+		return m, ctrlCResetCmd()
+	}
+
+	if m.subagentRunPickerOpen() {
+		_, cmd := m.subagentRunPicker.Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	// Route to the /kill-subagent picker when open. It owns the keyboard
+	// (including esc, which closes it instead of cancelling the turn).
+	if m.killSubagentOpen() {
+		_, cmd := m.killSubagentSelector.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Check extension-registered global keyboard shortcuts. These fire
+	// in all app states except modal prompts/overlays (which return early
+	// above) and message navigation, which rebinds plain keys like j/k
+	// and enter for itself — an extension shortcut on one of those would
+	// otherwise consume it first and silently break navigation.
+	//
+	// An armed leader chord (Ctrl+X) also takes precedence: the chord owns
+	// the next key press outright. Without this guard a shortcut bound to
+	// a chord suffix (s/t/m/e) stole the key and returned early, leaving
+	// leaderKeyActive latched on forever.
+	//
+	// Matched shortcuts are consumed — the key does not propagate
+	// to child components.
+	if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
+		m.openSubagentRunPicker()
+		return m, tea.Batch(cmds...)
+	}
+	if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
+		if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
+			if handler, ok := lookupShortcut(shortcuts, msg); ok {
+				// Run in goroutine so blocking extension calls
+				// (PromptSelect, etc.) don't stall the event loop.
+				go handler()
+				return m, tea.Batch(cmds...)
+			}
+		}
+	}
+
+	if cmd, handled := m.handleScrollbackKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleThinkingKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.routeOverlayKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleMessageNavKey(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	if cmd, handled := m.handleLeaderChord(msg); handled {
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
+	// Route key events to the focused child. Check for editor
+	// interceptor first — it can consume, remap, or force-submit keys.
+	if m.input != nil {
+		var intercepted bool
+		if m.getEditorInterceptor != nil {
+			if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.HandleKey != nil {
+				var currentText string
+				if ic, ok := m.input.(*InputComponent); ok {
+					currentText = ic.textarea.Value()
+				}
+				action := interceptor.HandleKey(msg.String(), currentText)
+				switch action.Type {
+				case EditorKeyConsumed:
+					intercepted = true
+				case EditorKeyRemap:
+					if remapped, ok := remapKey(action.RemappedKey); ok {
+						updated, cmd := m.input.Update(remapped)
+						m.input, _ = updated.(inputComponentIface)
+						cmds = append(cmds, cmd)
+						m.syncInputHeight()
+						intercepted = true
+					}
+					// If remap target is unrecognized, fall through to normal handling.
+				case EditorKeySubmit:
+					text := action.SubmitText
+					var images []uicore.ImageAttachment
+					if text == "" {
+						if ic, ok := m.input.(*InputComponent); ok {
+							text = strings.TrimSpace(ic.textarea.Value())
+							var cleanup tea.Cmd
+							images, cleanup = ic.ClearPendingImages()
+							if cleanup != nil {
+								cmds = append(cmds, cleanup)
+							}
+							ic.textarea.SetValue("")
+							ic.textarea.CursorEnd()
+						}
+					}
+					if text != "" {
+						cmds = append(cmds, func() tea.Msg {
+							return uicore.SubmitMsg{Text: text, Images: images}
+						})
+					}
+					intercepted = true
+				}
+				// EditorKeyPassthrough falls through to normal input handling.
+			}
+		}
+		if !intercepted {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+			// The composer is dynamically sized, so a keystroke that wraps
+			// or unwraps a line changes how much room the transcript has.
+			m.syncInputHeight()
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleScrollbackKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Scrollback keybindings (PgUp/PgDn/Ctrl+Home/Ctrl+End) for navigating
+	// message history. Active while the agent works too: a long turn is
+	// exactly when the user wants to read back, and the mouse wheel
+	// already scrolls in that state. Scrolling up clears autoScroll, so
+	// streamed output does not pull the view back to the bottom.
+	if m.state == stateInput || m.state == stateWorking {
+		switch msg.String() {
+		case "pgup":
+			m.scrollList.ScrollBy(-m.scrollList.height)
+			m.scrollList.autoScroll = false
+			return nil, true
+		case "pgdown":
+			m.scrollList.ScrollBy(m.scrollList.height)
+			if m.scrollList.AtBottom() {
+				m.scrollList.autoScroll = true
+			}
+			return nil, true
+		case "ctrl+home":
+			m.scrollList.GotoTop()
+			m.scrollList.autoScroll = false
+			return nil, true
+		case "ctrl+end":
+			m.scrollList.GotoBottom()
+			m.scrollList.autoScroll = true
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleThinkingKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Thinking keybindings — only when the model supports reasoning.
+	// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
+	// to avoid conflicts with terminal multiplexers.
+	if m.isReasoningModel {
+		switch msg.String() {
+		case "shift+tab":
+			// Cycle thinking level.
+			m.cycleThinkingLevel()
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (m *AppModel) routeOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Route to tree selector when active.
+	if m.state == stateTreeSelector && m.treeSelector != nil {
+		updated, cmd := m.treeSelector.Update(msg)
+		m.treeSelector = updated.(*TreeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to model selector when active.
+	if m.state == stateModelSelector && m.modelSelector != nil {
+		updated, cmd := m.modelSelector.Update(msg)
+		m.modelSelector = updated.(*ModelSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to thinking-level selector when active.
+	if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
+		updated, cmd := m.thinkingLevelSelector.Update(msg)
+		m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
+		return cmd, true
+	}
+
+	if m.state == stateModelModeSelector && m.modelModeSelector != nil {
+		updated, cmd := m.modelModeSelector.Update(msg)
+		m.modelModeSelector = updated.(*ModelModeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to theme selector when active.
+	if m.state == stateThemeSelector && m.themeSelector != nil {
+		updated, cmd := m.themeSelector.Update(msg)
+		m.themeSelector = updated.(*ThemeSelectorComponent)
+		return cmd, true
+	}
+
+	// Route to the /connect dialog when active.
+	if m.state == stateProviderConnect && m.providerConnect != nil {
+		updated, cmd := m.providerConnect.Update(msg)
+		m.providerConnect = updated.(*ProviderConnectComponent)
+		return cmd, true
+	}
+
+	// Route to session selector when active.
+	if m.state == stateSessionSelector && m.sessionSelector != nil {
+		updated, cmd := m.sessionSelector.Update(msg)
+		m.sessionSelector = updated.(*SessionSelectorComponent)
+		return cmd, true
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleMessageNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Message navigation consumes every key it understands so the
+	// composer never sees j/k as text while the user is browsing.
+	if m.state == stateMessageNav {
+		// Any navigation key retires the previous acknowledgement, except
+		// the one that produces a fresh copy.
+		if msg.String() != "y" {
+			m.navNotice = ""
+		}
+		switch msg.String() {
+		case "up", "k":
+			m.moveMessageSelection(-1)
+			return nil, true
+		case "down", "j":
+			m.moveMessageSelection(1)
+			return nil, true
+		case "home", "g":
+			if idx := m.firstSelectableIndex(); idx >= 0 {
+				m.selectMessage(idx)
+			}
+			return nil, true
+		case "end", "G":
+			if idx := m.lastSelectableIndex(); idx >= 0 {
+				m.selectMessage(idx)
+			}
+			return nil, true
+		// Jump between the user's own turns. "Scroll back to what I asked"
+		// is the dominant reason to enter navigation at all, and stepping
+		// there one tool result at a time is a lot of keypresses.
+		case "u":
+			m.jumpToRole("user", -1)
+			return nil, true
+		case "U":
+			m.jumpToRole("user", 1)
+			return nil, true
+		case "y":
+			return m.copySelectedMessage(), true
+		case "enter":
+			// A shell block expands in place rather than opening the
+			// inspector: the whole point is to read the output where the
+			// conversation is, with the rest of the turn still in view.
+			// Every other item opens the inspector, which is what the frame
+			// hint advertises.
+			if item := m.selectedShellRun(); item != nil && !item.Spinning() {
+				m.toggleShellRunExpansion(item)
+				return nil, true
+			}
+			m.inspectSelectedMessage()
+			return nil, true
+		case "o", "space":
+			if item := m.selectedShellRun(); item != nil {
+				m.toggleShellRunExpansion(item)
+				return nil, true
+			}
+		case "H", "shift+left":
+			m.scrollSelectedShellRun(-1)
+			return nil, true
+		case "L", "shift+right":
+			m.scrollSelectedShellRun(1)
+			return nil, true
+		case "esc", "q":
+			m.exitMessageNav()
+			return nil, true
+		}
+		// Swallow everything else: an unhandled key must not leak into
+		// the composer while navigation owns the keyboard.
+		return nil, true
+	}
+	return nil, false
+}
+
+func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	var cmds []tea.Cmd
+
+	// ── Leader key chord handling (Ctrl+X prefix) ──────────────
+	// If the leader key was previously pressed, the current key
+	// completes the chord. We consume it regardless of match so
+	// the prefix doesn't leak to child components.
+	if m.leaderKeyActive {
+		m.leaderKeyActive = false
+		switch msg.String() {
+		case "s":
+			// Ctrl+X s → Steer: inject the current input as a steering
+			// message into the running agent turn.
+			if m.state == stateWorking && m.appCtrl != nil {
+				var text string
+				if ic, ok := m.input.(*InputComponent); ok {
+					text = strings.TrimSpace(ic.textarea.Value())
+				}
+				if text != "" {
+					// Clear the input, collect pending images, and push to history.
+					var images []uicore.ImageAttachment
+					if ic, ok := m.input.(*InputComponent); ok {
+						ic.pushHistory(text)
+						ic.textarea.SetValue("")
+						var cleanup tea.Cmd
+						images, cleanup = ic.ClearPendingImages()
+						if cleanup != nil {
+							cmds = append(cmds, cleanup)
+						}
+					}
+
+					// Preprocess @file references (text files are XML-inlined,
+					// binary files are extracted as multimodal parts).
+					processedText := text
+					var fileParts []kit.LLMFilePart
+					if m.cwd != "" {
+						result := fileutil.ProcessFileAttachments(text, m.cwd, m.mcpResourceReader)
+						processedText = result.ProcessedText
+						for _, fp := range result.FileParts {
+							fileParts = append(fileParts, kit.LLMFilePart{
+								Filename:  fp.Filename,
+								Data:      fp.Data,
+								MediaType: fp.MediaType,
+							})
+						}
+					}
+
+					// Convert clipboard image attachments to kit.LLMFilePart.
+					for _, img := range images {
+						fileParts = append(fileParts, kit.LLMFilePart{
+							Data:      img.Data,
+							MediaType: img.MediaType,
+						})
+					}
+
+					// Build display text (include image count if any).
+					displayText := text
+					if len(images) > 0 {
+						displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
+					}
+
+					// Inject the steer message.
+					sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
+					if sLen > 0 {
+						m.steeringMessages = append(m.steeringMessages, displayText)
+						m.layoutDirty = true
+					} else {
+						// Started immediately (agent was idle).
+						m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+						m.flushStreamAndPendingUserMessages()
+						if !m.agentWorking() {
+							m.setAgentState(stateWorking)
+						}
+					}
+				}
+			}
+		case "t":
+			// Ctrl+X t → Toggle thinking block visibility.
+			if m.isReasoningModel {
+				m.thinkingVisible = !m.thinkingVisible
+				for _, p := range m.allPanes() {
+					if p.stream != nil {
+						p.stream.SetThinkingVisible(m.thinkingVisible)
+					}
+				}
+			}
+		case "m":
+			// Ctrl+X m → Move: navigate messages in the scrollback.
+			m.enterMessageNav()
+		case "e":
+			// Ctrl+X e → open $EDITOR to compose/edit the prompt.
+			editorApp := os.Getenv("VISUAL")
+			if editorApp == "" {
+				editorApp = os.Getenv("EDITOR")
+			}
+			if editorApp == "" {
+				m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use external editor")
+			} else {
+				var currentText string
+				if ic, ok := m.input.(*InputComponent); ok {
+					currentText = ic.textarea.Value()
+				}
+				tmpFile, err := os.CreateTemp("", "kit_prompt_*.md")
+				if err == nil {
+					if currentText != "" {
+						_, _ = tmpFile.WriteString(currentText)
+					}
+					_ = tmpFile.Close()
+					editorCmd, cmdErr := editor.Command(editorApp, tmpFile.Name())
+					if cmdErr != nil {
+						_ = os.Remove(tmpFile.Name())
+						m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
+					} else {
+						cmds = append(cmds, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+							if err != nil {
+								_ = os.Remove(tmpFile.Name())
+								return externalEditorMsg{err: err}
+							}
+							content, readErr := os.ReadFile(tmpFile.Name())
+							_ = os.Remove(tmpFile.Name())
+							if readErr != nil {
+								return externalEditorMsg{err: readErr}
+							}
+							return externalEditorMsg{text: string(content)}
+						}))
+					}
+				}
+			}
+		}
+		// Chord consumed — don't propagate to children.
+		return tea.Batch(cmds...), true
+	}
+
+	switch msg.String() {
+	case "esc":
+		if m.state == stateWorking {
+			if m.canceling {
+				// Second ESC within the timer window — cancel the step.
+				m.canceling = false
+				if m.appCtrl != nil {
+					m.appCtrl.CancelCurrentStep()
+				}
+			} else {
+				// First ESC — set canceling, start 2s timer.
+				m.canceling = true
+				cmds = append(cmds, cancelTimerCmd())
+			}
+			return tea.Batch(cmds...), true
+		}
+		// In other states pass ESC through to children below.
+
+	case "ctrl+x":
+		// Activate leader key prefix — the next keypress completes the chord.
+		m.leaderKeyActive = true
+		return tea.Batch(cmds...), true
+	}
+	return nil, false
+}
+
+// handleSubmit processes commands and forwards prompts to the app layer.
+func (m *AppModel) handleSubmit(msg uicore.SubmitMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Re-enable auto-scroll when user submits a new message.
+	m.scrollList.autoScroll = true
+	// Reset Ctrl+C flag so next Ctrl+C clears input instead of quitting.
+	m.ctrlCPressedOnce = false
+
+	// Handle slash commands locally — they should never reach app.Run().
+	// Parse once: split on the first space so argument-bearing commands
+	// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
+	// their name and their args are passed through to the handler.
+	if strings.HasPrefix(msg.Text, "/") {
+		name, args, _ := strings.Cut(msg.Text, " ")
+		if sc := commands.GetCommandByName(name); sc != nil {
+			if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+	}
+
+	// Check extension-registered slash commands. These support arguments
+	// (e.g. "/sub list files"), so we split on the first space.
+	if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Check MCP prompt commands (/<server>:<prompt> [args]).
+	if cmd := m.handleMCPPromptCommand(msg.Text); cmd != nil {
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Expand prompt templates. If the input matches a template name,
+	// substitute arguments and use the expanded content as the prompt.
+	if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
+		// Validation failed — re-populate the input so the user can
+		// append the missing arguments without retyping.
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text + " ")
+			ic.textarea.CursorEnd()
+		}
+		return m, tea.Batch(cmds...)
+	} else if ok {
+		msg.Text = expanded
+	}
+
+	// No usable provider: do not send the prompt, tell the user how to
+	// fix it (mirrors opencode's "Connect a provider to send prompts").
+	if m.providerError != nil {
+		m.printSystemMessage(m.providerErrorNotice())
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text)
+			ic.textarea.CursorEnd()
+		}
+		return m, tea.Batch(cmds...)
+	}
+
+	// Regular prompt — forward to the app layer.
+	// Preprocess @file references: text files are XML-inlined, binary files
+	// (images, audio, etc.) are extracted as multimodal parts. The display
+	// text (shown in ScrollList) uses the original user text so the UI stays clean.
+	processedText := msg.Text
+	var fileParts []kit.LLMFilePart
+	if m.cwd != "" {
+		result := fileutil.ProcessFileAttachments(msg.Text, m.cwd, m.mcpResourceReader)
+		processedText = result.ProcessedText
+		for _, fp := range result.FileParts {
+			fileParts = append(fileParts, kit.LLMFilePart{
+				Filename:  fp.Filename,
+				Data:      fp.Data,
+				MediaType: fp.MediaType,
+			})
+		}
+	}
+
+	// Convert clipboard image attachments to kit.LLMFilePart.
+	fileOnlyCount := len(fileParts) // binary @file parts (before clipboard images)
+	for _, img := range msg.Images {
+		fileParts = append(fileParts, kit.LLMFilePart{
+			Data:      img.Data,
+			MediaType: img.MediaType,
+		})
+	}
+
+	// Build display text for ScrollList (include attachment counts).
+	displayText := msg.Text
+	if len(msg.Images) > 0 || fileOnlyCount > 0 {
+		var badges []string
+		if len(msg.Images) > 0 {
+			badges = append(badges, fmt.Sprintf("%d image(s) pasted", len(msg.Images)))
+		}
+		if fileOnlyCount > 0 {
+			badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
+		}
+		displayText = fmt.Sprintf("%s\n[%s]", msg.Text, strings.Join(badges, ", "))
+	}
+
+	if m.appCtrl != nil {
+		// Run returns the queue depth: >0 means the prompt was queued
+		// (agent is busy). We update queuedMessages directly here
+		// instead of relying on an event from prog.Send(), which would
+		// deadlock when called synchronously from within Update().
+		var qLen int
+		if len(fileParts) > 0 {
+			qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+		} else {
+			qLen = m.appCtrl.Run(processedText)
+		}
+		if qLen > 0 {
+			// Queued: anchor the message text above the input with a
+			// "queued" badge. It will be added to the ScrollList when
+			// the agent picks it up (via SpinnerEvent).
+			m.queuedMessages = append(m.queuedMessages, displayText)
+			m.layoutDirty = true
+		} else {
+			// Started immediately. Flush any leftover stream content
+			// from the previous step first, then print the user
+			// message — combined via the ScrollList so
+			// messages stay in chronological order.
+			m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+			m.flushStreamAndPendingUserMessages()
+			// Insert inline thumbnail previews after the user message.
+			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
+		}
+	} else {
+		m.printUserMessage(displayText)
+		// Insert inline thumbnail previews after the user message.
+		cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
+	}
+	if !m.agentWorking() {
+		m.setAgentState(stateWorking)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// handleAppMessage dispatches app events and forwards other messages to children.
+func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	// ── App layer events ─────────────────────────────────────────────────────
+
+	case app.SpinnerEvent:
+		// SpinnerEvent{Show: true} means a new agent step has started (either
+		// freshly or from the queue after a previous step completed). Flush
+		// any leftover stream content from the previous step to the ScrollList
+		// before starting the new one, followed by any pending user messages
+		// from the queue. Everything goes through the ScrollList to
+		// guarantee chronological ordering.
+		if msg.Show {
+			m.flushStreamAndPendingUserMessages()
+			m.setAgentState(stateWorking)
+			m.layoutDirty = true
+		}
+		cmds = append(cmds, m.applyPaneEvent(msg))
+
+	case app.ReasoningChunkEvent, app.ReasoningCompleteEvent, app.StreamChunkEvent,
+		app.ToolCallStartedEvent, app.ToolExecutionEvent, app.ToolResultEvent, app.ToolOutputEvent:
+		// Transcript and activity-row events. The subagent panes apply the
+		// same events with the same function.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+
+	case app.ToolCallContentEvent:
+		// In streaming mode this text was already delivered via StreamChunkEvents
+		// and will be flushed before the next tool call. Ignore to avoid
+		// double-printing.
+
+	case app.RetryEvent, app.StepStartedEvent, app.StepResumeEvent, app.ResponseCompleteEvent:
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+
+	case app.MessageCreatedEvent:
+		// Informational — no action needed by parent.
+
+	case app.QueueUpdatedEvent:
+		// drainQueue popped item(s) from the queue. Move consumed
+		// messages to pendingUserPrints — they will be printed to
+		// the ScrollList in the next SpinnerEvent{Show: true} after the
+		// previous assistant response is flushed.
+		for len(m.queuedMessages) > msg.Length {
+			text := m.queuedMessages[0]
+			m.queuedMessages[0] = "" // release the string in the backing array for GC
+			m.queuedMessages = m.queuedMessages[1:]
+			m.pendingUserPrints = append(m.pendingUserPrints, text)
+		}
+		m.layoutDirty = true
+
+	case app.SteerConsumedEvent:
+		// Steering messages were consumed — either injected mid-turn via
+		// PrepareStep, or drained into the queue after a text-only turn.
+		//
+		// Two cases:
+		//
+		//  1. Mid-turn (stateWorking, PrepareStep fired): no SpinnerEvent{Show:
+		//     true} will follow within this turn, so we cannot rely on
+		//     flushStreamAndPendingUserMessages() being called. Flush any live
+		//     stream content first (assistant text up to the steer point), then
+		//     render the steering user messages immediately to the ScrollList.
+		//
+		//  2. Post-turn (text-only response, drained after StepComplete): a
+		//     SpinnerEvent{Show: true} for the next turn is already in flight.
+		//     Defer to pendingUserPrints so the previous assistant response is
+		//     flushed first, preserving chronological order.
+		if m.agentWorking() {
+			// Case 1: mid-turn — flush + print immediately.
+			m.flushStreamContent()
+			for _, text := range m.steeringMessages {
+				m.printUserMessage(text)
+			}
+			m.steeringMessages = m.steeringMessages[:0]
+			m.layoutDirty = true
+		} else {
+			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
+			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
+			m.steeringMessages = m.steeringMessages[:0]
+			m.layoutDirty = true
+		}
+
+	case app.StepCompleteEvent, app.StepCancelledEvent, app.StepErrorEvent:
+		// The pane freezes the streamed response and prints the error block
+		// (if any) and the turn receipt; then the composer gets focus again.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+		m.setAgentState(stateInput)
+		m.canceling = false
+
+	case app.CompactCompleteEvent:
+		// Finalize any streaming compaction content.
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.setAgentState(stateInput)
+
+		// Mark the last streaming message as complete in ScrollList.
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
+		}
+
+		// Refresh content to show the finalized message.
+		m.refreshContent()
+
+		// Reset context token display — the pre-compaction count is stale.
+		// The next API call will set the accurate post-compaction value.
+		if m.usageTracker != nil {
+			m.usageTracker.SetContextTokens(0)
+		}
+
+		// Print stats as a separate system message.
+		saved := msg.OriginalTokens - msg.CompactedTokens
+		statsMsg := fmt.Sprintf(
+			"Compaction complete: %d messages summarised, ~%dk tokens freed (%dk -> %dk)",
+			msg.MessagesRemoved, saved/1000, msg.OriginalTokens/1000, msg.CompactedTokens/1000,
+		)
+		m.printSystemMessage(statsMsg)
+
+	case app.CompactErrorEvent:
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.setAgentState(stateInput)
+		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
+
+	case app.ModelChangedEvent:
+		// Extension changed the model — update display name in status bar
+		// and message attribution.
+		m.providerName = msg.ProviderName
+		m.modelName = msg.ModelName
+
+	case app.UsageUpdatedEvent:
+		// Token usage was updated after a completed LLM step. No state
+		// changes needed — the UsageTracker was already mutated in-place.
+		// Returning from Update() triggers View() which re-renders the
+		// status bar with the latest token counts, cost, and context %.
+
+	case app.ThemeChangedEvent:
+		// The theme was replaced from outside the /theme command (an
+		// extension's ctx.SetTheme). The global theme is already set; this
+		// repaints the components that cache styling derived from it.
+		m.refreshTheme()
+
+	case app.WidgetUpdateEvent:
+		// Extension widget changed — recalculate height distribution so the
+		// stream region accounts for widget space. View() will read the
+		// latest widget state on the next render.
+		m.layoutDirty = true
+
+		// Refresh extension commands (e.g. after hot-reload). The callback
+		// returns the current set from the runner which may have changed.
+		if m.getExtensionCommands != nil {
+			newCmds := m.getExtensionCommands()
+			m.extensionCommands = newCmds
+			if ic, ok := m.input.(*InputComponent); ok {
+				// Remove old extension commands and add fresh ones.
+				var builtins []commands.SlashCommand
+				for _, sc := range ic.commands {
+					if sc.Category != "Extensions" {
+						builtins = append(builtins, sc)
+					}
+				}
+				for _, ec := range newCmds {
+					builtins = append(builtins, commands.SlashCommand{
+						Name:        ec.Name,
+						Description: ec.Description,
+						Category:    "Extensions",
+						Complete:    ec.Complete,
+					})
+				}
+				ic.commands = builtins
+			}
+		}
+
+	case app.ContentReloadEvent:
+		// Prompt templates or skills changed on disk — refresh from providers.
+		m.refreshPromptTemplates()
+		m.refreshSkillItems()
+		m.printSystemMessage("Prompts and skills reloaded.")
+
+	case app.MCPServerLoadedEvent:
+		// An extension that prints its own summary of the servers can hide
+		// the message for each server that loaded, but not a failure.
+		if msg.Error == nil && m.uiVis().HideMCPStartupMessages {
+			break
+		}
+		// A single MCP server finished loading — display a system message.
+		if msg.Error != nil {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
+		} else if msg.ToolCount > 0 {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded with %d tools", msg.ServerName, msg.ToolCount))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded (no tools)", msg.ServerName))
+		}
+
+	case app.EditorTextSetEvent:
+		// Extension wants to pre-fill the input editor with text.
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text)
+			ic.textarea.CursorEnd()
+		}
+
+	case app.NewSessionRequestEvent:
+		// Extension wants to end the current session and start a fresh
+		// one (with an optional initial prompt). Stash the response
+		// channel so performNewSession (or the before-hook cancellation
+		// path) can signal completion, then run the same /new pipeline
+		// the user would trigger.
+		if msg.ResponseCh != nil {
+			// Only one new-session request in flight at a time. If a
+			// previous response channel is still pending, fail it before
+			// replacing it so the prior extension goroutine unblocks.
+			if m.newSessionResultCh != nil {
+				m.newSessionResultCh <- fmt.Errorf("superseded by a newer NewSession request")
+			}
+			m.newSessionResultCh = msg.ResponseCh
+		}
+		if cmd := m.handleNewCommand(msg.InitialPrompt); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case app.PasswordPromptEvent:
+		// Sudo password prompt - show a modal input prompt
+		// If already in prompt state, cancel the new request
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		// Create a custom response channel that converts PasswordPromptResponse
+		passwordResponseCh := make(chan app.PromptResponse, 1)
+		m.promptResponseCh = passwordResponseCh
+
+		// Create password input prompt (masked input)
+		m.prompt = newPasswordPrompt(msg.Prompt, m.width, m.height)
+
+		// Handle the response conversion
+		go func() {
+			resp := <-passwordResponseCh
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{
+					Password:  resp.Value,
+					Cancelled: resp.Cancelled,
+				}
+			}
+		}()
+
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
+	case app.PromptRequestEvent:
+		// Extension wants to show an interactive prompt. Enter prompt state.
+		// If already in prompt state (concurrent prompt from another
+		// extension), immediately cancel the new request.
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		m.promptResponseCh = msg.ResponseCh
+
+		switch msg.PromptType {
+		case "select":
+			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
+		case "multiselect":
+			m.prompt = newMultiSelectPrompt(msg.Message, msg.Options, msg.DefaultSelected, m.width, m.height)
+		case "confirm":
+			defaultVal := msg.Default == "true"
+			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
+		case "input":
+			m.prompt = newInputPrompt(msg.Message, msg.Placeholder, msg.Default, m.width, m.height)
+		default:
+			// Unknown prompt type — cancel immediately.
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			m.state = m.prePromptState
+			m.promptResponseCh = nil
+			return m, tea.Batch(cmds...)
+		}
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
+	case app.OverlayRequestEvent:
+		// Extension wants to show a modal overlay dialog. Enter overlay state.
+		// If already in overlay or prompt state, immediately cancel the request.
+		if m.state == stateOverlay || m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.preOverlayState = m.state
+		m.state = stateOverlay
+		m.overlayResponseCh = msg.ResponseCh
+
+		m.overlay = newOverlayDialog(
+			msg.Title, msg.Content, msg.Markdown,
+			msg.BorderColor, msg.Background,
+			msg.Width, msg.MaxHeight, msg.Anchor,
+			msg.Actions,
+			m.width, m.height,
+		)
+		if m.overlay != nil {
+			cmds = append(cmds, m.overlay.Init())
+		}
+
+	case extensionCmdResultMsg:
+		// Async extension slash command completed. Render output/error.
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
+		} else if msg.output != "" {
+			m.printSystemMessage(msg.output)
+		}
+
+	case mcpPromptResultMsg:
+		return m.handleMCPPromptResult(msg, cmds)
+
+	case externalEditorMsg:
+		// User returned from $EDITOR. Replace input textarea content with
+		// whatever they saved in the temp file. On error (e.g. :cq in vim)
+		// the original input is silently preserved.
+		if msg.err == nil {
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.textarea.SetValue(msg.text)
+				// Move cursor to the end of the inserted text.
+				ic.textarea.CursorEnd()
+			}
+			m.layoutDirty = true
+		}
+
+	case editFileMsg:
+		// User returned from $EDITOR after `/edit <path>`. The file was
+		// edited directly on disk — no textarea changes. Report the result.
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Editor exited with error: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Edited `%s`", msg.path))
+		}
+		m.layoutDirty = true
+
+	case extReloadResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
+		} else {
+			m.refreshExtensionItems()
+			m.printSystemMessage("Extensions reloaded.")
+		}
+
+	case beforeSessionSwitchResultMsg:
+		// Async before-session-switch hook completed. Proceed with the
+		// session reset if the hook did not cancel.
+		if msg.cancelled {
+			m.printSystemMessage(msg.reason)
+			m.signalNewSessionResult(fmt.Errorf("session switch cancelled: %s", msg.reason))
+		} else {
+			cmds = append(cmds, m.performNewSession(msg.initialPrompt))
+		}
+
+	case beforeForkResultMsg:
+		// Async before-fork hook completed. Proceed with the fork if the
+		// hook did not cancel.
+		if msg.cancelled {
+			m.printSystemMessage(msg.reason)
+		} else {
+			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
+		}
+
+	case shareResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Share failed: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
+		}
+		return m, nil
+
+	case app.ExtensionPrintEvent:
+		// Extension output — route through styled renderers when a level is set.
+		switch msg.Level {
+		case "info":
+			m.printSystemMessage(msg.Text)
+		case "error":
+			m.printErrorResponse(app.StepErrorEvent{
+				Err: fmt.Errorf("%s", msg.Text),
+			})
+		case "block":
+			m.printExtensionBlock(msg)
+		default:
+			// Plain text from extension — add as system message.
+			m.printSystemMessage(msg.Text)
+		}
+
+	// ── Clipboard image attached / thumbnail rendered ────────────────────────
+	// Both messages change the input region's rendered height (the pill and
+	// the async half-block preview), so forward them to the input and mark the
+	// layout dirty — otherwise distributeHeight keeps a stale, too-short input
+	// height and the preview is clipped off the bottom of the screen.
+	case clipboardImageMsg, thumbnailReadyMsg:
+		if m.input != nil {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		m.layoutDirty = true
+
+	default:
+		// The /connect key input owns paste and cursor-blink messages while
+		// it is open; the composer must not receive a pasted API key.
+		if m.state == stateProviderConnect && m.providerConnect != nil {
+			updated, cmd := m.providerConnect.Update(msg)
+			m.providerConnect = updated.(*ProviderConnectComponent)
+			cmds = append(cmds, cmd)
+			if _, isPaste := msg.(tea.PasteMsg); isPaste {
+				return m, tea.Batch(cmds...)
+			}
+		}
+		// Pass unrecognised messages to all children.
+		if m.input != nil {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		if m.stream != nil {
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleImagePreviewReady(msg imagePreviewReadyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Each preview becomes its own item, chained after the one before it so
+	// several images attached to one message keep their order.
+	//
+	// Static: the block is decoded pixel data, not a styled text block.
+	// Repainting it would mean re-decoding the image, and only its
+	// background tint comes from the theme.
+	anchor := msg.anchorID
+	placed := false
+	for _, preview := range msg.previews {
+		if preview.cells == "" {
+			continue
+		}
+		item := NewStyledMessageItem(generateMessageID(), "user", "", preview.cells)
+		if preview.image != nil {
+			item = item.WithDirectImage(*preview.image)
+			placed = true
+		}
+		m.insertMessageAfter(anchor, item)
+		anchor = item.ID()
+	}
+	if anchor != msg.anchorID {
+		m.refreshContent()
+		m.layoutDirty = true
+	}
+	if msg.transmit != "" {
+		// The image data cannot travel inside the view text. Placeholder
+		// cells just inserted into the transcript display it as soon as it
+		// lands; a directly-placed image is drawn separately, below.
+		//
+		// It is deliberately never deleted: the message stays in the
+		// scrollback for the rest of the session, and freeing the data
+		// would blank the preview the next time it scrolls into view.
+		cmds = append(cmds, tea.Raw(msg.transmit))
+	}
+	if placed {
+		// A directly-placed image is drawn by View, which can only work out
+		// where it goes once this frame has been laid out. Nothing else
+		// would arrive to trigger that write, so ask for one more Update
+		// after the coming View.
+		cmds = append(cmds, gfxNudgeCmd())
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleMCPPromptResult(msg mcpPromptResultMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Async MCP prompt expansion completed. Submit the expanded text
+	// as a user message (same behavior as local prompt templates).
+	if msg.err != nil {
+		m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
+	} else if msg.text != "" || len(msg.fileParts) > 0 {
+		// Process @file references and submit.
+		processedText := msg.text
+		var fileParts []kit.LLMFilePart
+		if m.cwd != "" {
+			result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
+			processedText = result.ProcessedText
+			for _, fp := range result.FileParts {
+				fileParts = append(fileParts, kit.LLMFilePart{
+					Filename:  fp.Filename,
+					Data:      fp.Data,
+					MediaType: fp.MediaType,
+				})
+			}
+		}
+		// Merge file parts from embedded resources (images, audio, blobs)
+		// with any @file/@mcp: file parts extracted from the text.
+		fileParts = append(fileParts, msg.fileParts...)
+
+		// Build display text with attachment badges (matches the
+		// normal submit path so embedded resources look like pasted
+		// images / attached files).
+		displayText := msg.text
+		if len(msg.fileParts) > 0 {
+			var imageCount, fileCount int
+			for _, fp := range msg.fileParts {
+				if strings.HasPrefix(fp.MediaType, "image/") {
+					imageCount++
+				} else {
+					fileCount++
+				}
+			}
+			var badges []string
+			if imageCount > 0 {
+				badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
+			}
+			if fileCount > 0 {
+				badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
+			}
+			if len(badges) > 0 {
+				displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
+			}
+		}
+
+		if m.appCtrl != nil {
+			var qLen int
+			if len(fileParts) > 0 {
+				qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+			} else {
+				qLen = m.appCtrl.Run(processedText)
+			}
+			if qLen > 0 {
+				m.queuedMessages = append(m.queuedMessages, displayText)
+				m.layoutDirty = true
+			} else {
+				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+				m.flushStreamAndPendingUserMessages()
+			}
+			if !m.agentWorking() {
+				m.setAgentState(stateWorking)
+			}
+		}
+	}
+	return m, tea.Batch(cmds...)
 }

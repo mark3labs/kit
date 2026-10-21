@@ -282,3 +282,59 @@ func TestKillSubagent_ToolReportsKillToParent(t *testing.T) {
 		t.Fatal("KillSubagent returned true for a completed subagent")
 	}
 }
+
+func TestSubagentRegistry_SubscribeOrdersUpdatesAndMatchesSnapshotSeq(t *testing.T) {
+	var r subagentRegistry
+	var got []SubagentRunUpdate
+	unsub := r.subscribe(func(u SubagentRunUpdate) { got = append(got, u) })
+
+	id, _ := r.add(RunningSubagent{ID: "run"}, nil)
+	r.update(id, func(s *SubagentRun) { s.Status = "running" })
+	r.update(id, func(s *SubagentRun) { s.SessionID = "child" }) // no status change: no update
+	r.addEvent(id, MessageUpdateEvent{Chunk: "a"})
+	r.addEvent(id, MessageUpdateEvent{Chunk: "b"}) // combined in Events, still an update
+	r.update(id, func(s *SubagentRun) { s.Status = "failed"; s.Error = "boom" })
+
+	statuses := []string{"starting", "running", "running", "running", "failed"}
+	if len(got) != len(statuses) {
+		t.Fatalf("got %d updates, want %d: %+v", len(got), len(statuses), got)
+	}
+	for i, u := range got {
+		if u.RunID != id || u.Seq != uint64(i+1) || u.Status != statuses[i] {
+			t.Fatalf("update %d = %+v", i, u)
+		}
+	}
+	if got[2].Event == nil || got[1].Event != nil || got[4].Error != "boom" {
+		t.Fatalf("updates = %+v", got)
+	}
+	snap, _ := r.get(id)
+	if snap.Seq != got[len(got)-1].Seq || len(snap.Events) != 1 {
+		t.Fatalf("snapshot seq %d events %d, want seq %d and one combined event", snap.Seq, len(snap.Events), got[len(got)-1].Seq)
+	}
+
+	unsub()
+	r.addEvent(id, MessageUpdateEvent{Chunk: "c"})
+	if len(got) != len(statuses) {
+		t.Fatal("listener called after unsubscribe")
+	}
+}
+
+func TestSubagentRegistry_CombinesReasoningAndToolOutput(t *testing.T) {
+	var r subagentRegistry
+	id, _ := r.add(RunningSubagent{ID: "events"}, nil)
+	for range 300 {
+		r.addEvent(id, ReasoningDeltaEvent{Delta: "r"})
+	}
+	for range 300 {
+		r.addEvent(id, ToolOutputEvent{ToolCallID: "t1", Chunk: "o"})
+	}
+	r.addEvent(id, ToolOutputEvent{ToolCallID: "t1", Chunk: "e", IsStderr: true})
+	r.addEvent(id, ToolOutputEvent{ToolCallID: "t2", Chunk: "o"})
+	got, _ := r.get(id)
+	if len(got.Events) != 4 || got.DroppedEvents != 0 {
+		t.Fatalf("events = %d, dropped %d, want 4 and 0", len(got.Events), got.DroppedEvents)
+	}
+	if got.Events[0].(ReasoningDeltaEvent).Delta != strings.Repeat("r", 300) || got.Events[1].(ToolOutputEvent).Chunk != strings.Repeat("o", 300) {
+		t.Fatalf("combined events = %+v", got.Events[:2])
+	}
+}

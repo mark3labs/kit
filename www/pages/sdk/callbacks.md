@@ -77,8 +77,7 @@ Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are 
 ```go
 host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     // h.ToolCallID, h.ToolName, h.ToolArgs
-    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
-    // and the deprecated kit.NewBashTool register it under that name).
+    // The command-execution tool from kit.NewShellTool reports itself as "shell".
     if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
         return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
@@ -92,8 +91,10 @@ user or try something else). This is the same as a block from an extension.
 
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
+remain necessary when input is untrusted.
 
 ### AfterToolResult — modify tool output
 
@@ -206,8 +207,6 @@ Lower values run first. First non-nil result wins.
 | `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |
 | `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |
 
-> **Note:** `OnStreaming` is a deprecated alias for `OnMessageUpdate` and will be removed in a future release.
-
 ### Compaction telemetry
 
 `CompactionEvent` fires after every compaction attempt. On success `Err` is
@@ -246,6 +245,6 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 })
 ```
 
-For retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
+For retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. To follow every run of the host as it changes, use `SubscribeSubagentRuns`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
 
 `SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.

@@ -490,3 +490,24 @@ type StepResumeEvent struct {
 }
 
 func (StepResumeEvent) isAppEvent() {}
+
+// SubagentRunEvent reports one change to a subagent run: its registration,
+// a child event, or a status change. The TUI shows each run with the same
+// components as the parent agent, so Event is the child event converted to
+// the app event that the parent would get (see ConvertSDKEvent). Event is nil
+// for a status-only change and for a child event that has no display form.
+type SubagentRunEvent struct {
+	// RunID identifies the run (see kit.SubagentRun.ID).
+	RunID string
+	// Seq numbers the changes of the run. It matches kit.SubagentRun.Seq,
+	// so a display that starts from a snapshot can skip the changes that
+	// the snapshot already contains.
+	Seq uint64
+	// Event is the converted child event, or nil.
+	Event Event
+	// Status and Error are the run's status and error after the change.
+	Status string
+	Error  string
+}
+
+func (SubagentRunEvent) isAppEvent() {}
