@@ -949,59 +949,18 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// completedSteps counts steps that finished in this turn, across all
 	// replays. stepOffset is the value of completedSteps when the current
 	// stream call started, so step numbers stay turn-wide after a replay.
-	t := &streamTurn{a: a, cb: cb, ctx: ctx, messages: messages, history: history, toolCallArgs: make(map[string]string), attemptID: rand.Text()}
-
-	// stepCounter tracks the current step number for StepStart/StepFinish events.
-
-	// pendingMedia holds step messages that are not persisted yet because
-	// they contain a media tool result that the provider has not accepted.
-	// The provider sees a tool result only in the NEXT request, so a step
-	// with an image is held back until a later step completes (proof that
-	// the request carrying the image was accepted). Messages produced after
-	// a held step are held too, to keep the persisted order. See
-	// media_recovery.go.
-	// persistStep persists msgs through cb.OnStepMessages, or holds them in
-	// pendingMedia as described above.
-
-	// flushPending persists the held messages. Call it only when the
-	// provider has accepted the request that carried them.
-
-	// mediaRetries counts replays after a provider rejected a media tool
-	// result. It bounds the recovery loop below.
-	// canRecoverMedia reports whether err can be recovered by replacing the
-	// held media tool results and replaying the turn.
-
-	// Step resume: after a transient provider failure, restart the failed
-	// step from the last completed step. The stream library runs tools only
-	// after a step stream ends without error, so the failed step ran no
-	// local tools and completed steps are never repeated. See resume.go.
+	t := &streamTurn{
+		a: a, cb: cb, ctx: ctx,
+		messages: messages, history: history,
+		toolCallArgs: make(map[string]string), attemptID: rand.Text(),
+	}
 
 	streamCall := t.streamCall(prompt, files)
-
-	// Always wire up PrepareStep. It serves three purposes:
-	//   1. Re-read the live tool set each step so runtime AddTools/
-	//      RemoveTools (and MCP server changes) take effect at the next
-	//      LLM step of the *current* turn, as documented. The entire
-	//      multi-step loop runs inside a single fantasy Stream call that
-	//      otherwise captures the tool snapshot taken when Stream began;
-	//      populating PrepareStepResult.Tools makes fantasy re-read tools
-	//      per step instead.
-	//   2. Steering: drain queued steer messages.
-	//   3. The OnPrepareStep hook.
-	// Steering drains its channel first, then OnPrepareStep hooks run
-	// against the (possibly already steered) messages.
-	// injectedSteer records every steer message injected during this turn
-	// and where it was injected. The LLM library rebuilds each step's
-	// prompt from the original prompt plus the step responses, so messages
-	// added in PrepareStep apply to one step only. To keep steer messages
-	// in the conversation for all later steps, PrepareStep puts them back
-	// at their recorded positions on every step.
 
 	a.promptMu.Lock()
 	loop := a.fantasyAgent
 	t.hadManagedPrompt = a.systemPrompt != ""
 	a.promptMu.Unlock()
-	streamCall.PrepareStep = t.prepareStep
 
 	result, err := loop.Stream(ctx, streamCall)
 
@@ -1048,53 +1007,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		cb.OnError(err)
 	}
 
-	if err != nil {
-		partialMessages := append(append([]fantasy.Message(nil), messages...), t.completedStepMessages...)
-		return &GenerateWithLoopResult{
-			ConversationMessages: partialMessages, PersistedMessageCount: t.persistedCount,
-			PartialText: t.unfinished.String(), AttemptID: t.attemptID, Incomplete: true,
-			TotalUsage: t.completedUsage, PersistenceError: t.persistenceErr,
-		}, errors.Join(preparationFailure(err, t.preparationErr), t.persistenceErr)
-	}
-
-	// Fire the response callback so callers (e.g. the TUI) can reset
-	// streaming state. This must fire even when the response text is
-	// empty (e.g. reasoning-only responses) so the UI properly resets
-	// the stream component and avoids duplicate content on the next
-	// flush.
-	if cb.OnResponse != nil {
-		cb.OnResponse(result.Response.Content.Text())
-	}
-
-	// No request follows the last step, so nothing can reject its media
-	// now. Persist what is still held.
-	t.flushPending()
-
-	r := convertAgentResult(result, messages)
-	if len(t.injectedSteer) > 0 || t.mediaRetries > 0 || t.resumes > 0 {
-		// result.Steps does not contain the injected steer messages, and
-		// after a media replay or a step resume it holds only the steps of
-		// the last stream call.
-		// completedStepMessages has every step message plus the steer
-		// messages in conversation order, so build the result from it.
-		// This keeps PersistedMessageCount aligned with
-		// ConversationMessages.
-		r.ConversationMessages = make([]fantasy.Message, 0, len(messages)+len(t.completedStepMessages))
-		r.ConversationMessages = append(r.ConversationMessages, messages...)
-		r.ConversationMessages = append(r.ConversationMessages, t.completedStepMessages...)
-		r.Messages = make([]message.Message, 0, len(r.ConversationMessages))
-		for _, fm := range r.ConversationMessages {
-			r.Messages = append(r.Messages, message.FromLLMMessage(fm))
-		}
-	}
-	if t.mediaRetries > 0 || t.resumes > 0 {
-		// Usage of all completed steps, not only of the last stream call.
-		r.TotalUsage = t.completedUsage
-	}
-	r.PersistedMessageCount = t.persistedCount
-	r.AttemptID = t.attemptID
-	r.PersistenceError = t.persistenceErr
-	return r, t.persistenceErr
+	return t.finish(result, err)
 }
 
 // steerInjection is a steer message that PrepareStep injected into the
