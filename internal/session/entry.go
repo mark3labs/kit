@@ -59,6 +59,11 @@ type Entry struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// header returns the common fields promoted by every tree entry that embeds Entry.
+func (e *Entry) header() *Entry { return e }
+
+type treeEntry interface{ header() *Entry }
+
 // MessageEntry stores a conversation message as a tree entry. The message
 // content uses the same type-tagged parts format as the existing session
 // persistence layer, enabling reuse of MarshalParts/UnmarshalParts.
