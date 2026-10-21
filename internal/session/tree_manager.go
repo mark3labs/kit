@@ -674,15 +674,7 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 		return "", err
 	}
 
-	if err := tm.appendAndPersist(entry); err != nil {
-		return "", err
-	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush message: %w", err)
-	}
-
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return tm.commitLeafLocked(entry, entry.ID, "message")
 }
 
 // AppendLLMMessage converts an LLM message and appends it.
@@ -884,15 +876,7 @@ func (tm *TreeManager) AppendModelChange(provider, modelID string) (string, erro
 	defer tm.mu.Unlock()
 
 	entry := NewModelChangeEntry(tm.leafID, provider, modelID)
-	if err := tm.appendAndPersist(entry); err != nil {
-		return "", err
-	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush model change: %w", err)
-	}
-
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return tm.commitLeafLocked(entry, entry.ID, "model change")
 }
 
 // AppendBranchSummary adds a summary of an abandoned branch.
@@ -901,15 +885,7 @@ func (tm *TreeManager) AppendBranchSummary(fromID, summary string) (string, erro
 	defer tm.mu.Unlock()
 
 	entry := NewBranchSummaryEntry(tm.leafID, fromID, summary)
-	if err := tm.appendAndPersist(entry); err != nil {
-		return "", err
-	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush branch summary: %w", err)
-	}
-
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return tm.commitLeafLocked(entry, entry.ID, "branch summary")
 }
 
 // AppendLabel sets a label on a target entry.
@@ -918,16 +894,12 @@ func (tm *TreeManager) AppendLabel(targetID, label string) (string, error) {
 	defer tm.mu.Unlock()
 
 	entry := NewLabelEntry(tm.leafID, targetID, label)
-	if err := tm.appendAndPersist(entry); err != nil {
+	id, err := tm.commitLeafLocked(entry, entry.ID, "label")
+	if err != nil {
 		return "", err
 	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush label: %w", err)
-	}
-
 	tm.labels[targetID] = label
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return id, nil
 }
 
 // AppendSessionInfo sets a display name for the session.
@@ -936,16 +908,12 @@ func (tm *TreeManager) AppendSessionInfo(name string) (string, error) {
 	defer tm.mu.Unlock()
 
 	entry := NewSessionInfoEntry(tm.leafID, name)
-	if err := tm.appendAndPersist(entry); err != nil {
+	id, err := tm.commitLeafLocked(entry, entry.ID, "session info")
+	if err != nil {
 		return "", err
 	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush session info: %w", err)
-	}
-
 	tm.sessionName = name
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return id, nil
 }
 
 // AppendExtensionData adds an extension data entry to the tree and persists it.
@@ -955,15 +923,7 @@ func (tm *TreeManager) AppendExtensionData(extType, data string) (string, error)
 	defer tm.mu.Unlock()
 
 	entry := NewExtensionDataEntry(tm.leafID, extType, data)
-	if err := tm.appendAndPersist(entry); err != nil {
-		return "", err
-	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush extension data: %w", err)
-	}
-
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return tm.commitLeafLocked(entry, entry.ID, "extension data")
 }
 
 // AppendCompaction adds a compaction entry to the tree. The entry records
@@ -989,15 +949,7 @@ func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokens
 	// post-compaction branch. This ensures old compacted messages are not
 	// traversed when walking from the current leaf.
 	entry := NewCompactionEntry("", summary, firstKeptEntryID, tokensBefore, tokensAfter, messagesRemoved, readFiles, modifiedFiles)
-	if err := tm.appendAndPersist(entry); err != nil {
-		return "", err
-	}
-	if err := tm.flushLocked(); err != nil {
-		return "", fmt.Errorf("failed to flush compaction: %w", err)
-	}
-
-	tm.leafID = entry.ID
-	return entry.ID, nil
+	return tm.commitLeafLocked(entry, entry.ID, "compaction")
 }
 
 // GetExtensionData returns all extension data entries matching the given type,
@@ -1524,6 +1476,19 @@ func (tm *TreeManager) addEntryToIndex(entry any) {
 	}
 }
 
+// commitLeafLocked persists entry, flushes it, and makes it the new leaf.
+// The caller must hold tm.mu.
+func (tm *TreeManager) commitLeafLocked(entry any, id, what string) (string, error) {
+	if err := tm.appendAndPersist(entry); err != nil {
+		return "", err
+	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush %s: %w", what, err)
+	}
+	tm.leafID = id
+	return id, nil
+}
+
 // appendAndPersist adds an entry to indices and writes it to the JSONL file.
 func (tm *TreeManager) appendAndPersist(entry any) error {
 	line, err := json.Marshal(entry)
@@ -1558,50 +1523,18 @@ func (tm *TreeManager) writeEntry(entry any) error {
 
 // EntryID extracts the ID from any entry type.
 func (tm *TreeManager) EntryID(entry any) string {
-	switch e := entry.(type) {
-	case *IncompleteOutputEntry:
-		return e.ID
-	case *MessageEntry:
-		return e.ID
-	case *ModelChangeEntry:
-		return e.ID
-	case *BranchSummaryEntry:
-		return e.ID
-	case *LabelEntry:
-		return e.ID
-	case *SessionInfoEntry:
-		return e.ID
-	case *ExtensionDataEntry:
-		return e.ID
-	case *CompactionEntry:
-		return e.ID
-	default:
-		return ""
+	if te, ok := entry.(treeEntry); ok {
+		return te.header().ID
 	}
+	return ""
 }
 
 // entryParentID extracts the ParentID from any entry type.
 func (tm *TreeManager) entryParentID(entry any) string {
-	switch e := entry.(type) {
-	case *IncompleteOutputEntry:
-		return e.ParentID
-	case *MessageEntry:
-		return e.ParentID
-	case *ModelChangeEntry:
-		return e.ParentID
-	case *BranchSummaryEntry:
-		return e.ParentID
-	case *LabelEntry:
-		return e.ParentID
-	case *SessionInfoEntry:
-		return e.ParentID
-	case *ExtensionDataEntry:
-		return e.ParentID
-	case *CompactionEntry:
-		return e.ParentID
-	default:
-		return ""
+	if te, ok := entry.(treeEntry); ok {
+		return te.header().ParentID
 	}
+	return ""
 }
 
 // getBranchLocked walks from an entry to the root (must hold at least RLock).
