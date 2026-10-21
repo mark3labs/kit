@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestThinkingDefaultsEffectiveState checks resolved defaults without making them explicit overrides.
 func TestThinkingDefaultsEffectiveState(t *testing.T) {
 	for _, tc := range []struct{ name, settings, override, want string }{
 		{"model settings", "modelSettings:\n  custom/default-effort:\n    thinkingLevel: medium\n", "", "medium"},

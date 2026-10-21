@@ -6,6 +6,7 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 )
 
+// TestGetThinkingLevel checks the effective provider level and defensive off fallback.
 func TestGetThinkingLevel(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

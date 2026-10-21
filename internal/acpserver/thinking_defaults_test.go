@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TestNewSessionThinkingDefaults checks startup precedence, runtime changes, and session isolation.
 func TestNewSessionThinkingDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		name, flag, env, top, want string
