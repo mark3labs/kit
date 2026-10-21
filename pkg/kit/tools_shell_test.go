@@ -8,20 +8,17 @@ import (
 	"github.com/mark3labs/kit/internal/core"
 )
 
-// The exported surface of the shell tool: the current spelling, the earlier
-// spelling kept as an alias, and the resolution order between them.
+// The exported shell-tool constructors and options, plus config-name aliases.
 
-func TestFirstNonZero_CurrentSpellingWins(t *testing.T) {
+func TestFirstNonZero_FirstValueWins(t *testing.T) {
 	cases := []struct {
 		name string
 		in   []int
 		want int
 	}{
-		{"shell only", []int{30, 0, 0, 0}, 30},
-		{"bash only", []int{0, 45, 0, 0}, 45},
-		{"shell beats bash at the SDK layer", []int{30, 45, 0, 0}, 30},
-		{"config shell beats config bash", []int{0, 0, 60, 90}, 60},
-		{"SDK beats config", []int{0, 45, 60, 90}, 45},
+		{"first value", []int{30, 45, 60}, 30},
+		{"skip zero", []int{0, 45, 60}, 45},
+		{"last value", []int{0, 0, 60}, 60},
 		{"none set", []int{0, 0, 0, 0}, 0},
 	}
 	for _, c := range cases {
@@ -31,29 +28,21 @@ func TestFirstNonZero_CurrentSpellingWins(t *testing.T) {
 	}
 }
 
-func TestToolOptionAliases_SetTheSameField(t *testing.T) {
+func TestShellToolOptions_SetTimeouts(t *testing.T) {
 	cfg := core.ApplyOptions([]core.ToolOption{WithShellTimeout(30 * time.Second)})
 	if cfg.ShellTimeout != 30*time.Second {
 		t.Errorf("WithShellTimeout: got %v, want 30s", cfg.ShellTimeout)
-	}
-	cfg = core.ApplyOptions([]core.ToolOption{WithBashTimeout(30 * time.Second)})
-	if cfg.ShellTimeout != 30*time.Second {
-		t.Errorf("WithBashTimeout: got %v, want 30s", cfg.ShellTimeout)
 	}
 
 	cfg = core.ApplyOptions([]core.ToolOption{WithShellMaxTimeout(90 * time.Second)})
 	if cfg.ShellMaxTimeout != 90*time.Second {
 		t.Errorf("WithShellMaxTimeout: got %v, want 90s", cfg.ShellMaxTimeout)
 	}
-	cfg = core.ApplyOptions([]core.ToolOption{WithBashMaxTimeout(90 * time.Second)})
-	if cfg.ShellMaxTimeout != 90*time.Second {
-		t.Errorf("WithBashMaxTimeout: got %v, want 90s", cfg.ShellMaxTimeout)
-	}
 
 	// Both are functional options, so the later one in the list wins. That is
 	// the existing convention for every option in this package.
 	cfg = core.ApplyOptions([]core.ToolOption{
-		WithBashTimeout(30 * time.Second),
+		WithShellTimeout(30 * time.Second),
 		WithShellTimeout(45 * time.Second),
 	})
 	if cfg.ShellTimeout != 45*time.Second {
@@ -61,12 +50,9 @@ func TestToolOptionAliases_SetTheSameField(t *testing.T) {
 	}
 }
 
-func TestConstructorAlias_ProducesTheSameTool(t *testing.T) {
+func TestNewShellTool_Name(t *testing.T) {
 	if got := NewShellTool().Info().Name; got != "shell" {
 		t.Errorf("NewShellTool name = %q, want \"shell\"", got)
-	}
-	if got := NewBashTool().Info().Name; got != "shell" {
-		t.Errorf("NewBashTool name = %q, want \"shell\"", got)
 	}
 }
 

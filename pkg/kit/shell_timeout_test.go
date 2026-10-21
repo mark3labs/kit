@@ -22,6 +22,10 @@ func fileStore(t *testing.T, yml string) *viper.Viper {
 // Precedence follows the source, not the spelling: SDK option, environment,
 // configuration file; within one source the shell-named spelling wins.
 func TestResolveShellTimeouts_SourceBeatsSpelling(t *testing.T) {
+	for _, key := range []string{"KIT_SHELL_TIMEOUT", "KIT_BASH_TIMEOUT", "KIT_SHELL_MAX_TIMEOUT", "KIT_BASH_MAX_TIMEOUT"} {
+		t.Setenv(key, "")
+	}
+
 	// Within one source the shell-named spelling wins.
 	if got, _ := resolveShellTimeouts(&Options{}, fileStore(t, "shell-timeout: 30\nbash-timeout: 90\n")); got != 30 {
 		t.Errorf("both spellings in the file: timeout = %d, want 30", got)
@@ -43,14 +47,27 @@ func TestResolveShellTimeouts_SourceBeatsSpelling(t *testing.T) {
 	}
 	t.Setenv("KIT_SHELL_TIMEOUT", "")
 
-	// The SDK earlier spelling beats every file value.
-	if got, _ := resolveShellTimeouts(&Options{BashTimeout: 15}, fileStore(t, "shell-timeout: 60\nbash-timeout: 90\n")); got != 15 {
-		t.Errorf("SDK earlier over file: timeout = %d, want 15", got)
+	// SDK options beat both environment spellings and file values.
+	t.Setenv("KIT_SHELL_TIMEOUT", "45")
+	t.Setenv("KIT_BASH_TIMEOUT", "90")
+	t.Setenv("KIT_SHELL_MAX_TIMEOUT", "500")
+	t.Setenv("KIT_BASH_MAX_TIMEOUT", "700")
+	gotTimeout, gotMax := resolveShellTimeouts(
+		&Options{ShellTimeout: 15, ShellMaxTimeout: 300},
+		fileStore(t, "shell-timeout: 60\nbash-timeout: 90\nshell-max-timeout: 600\nbash-max-timeout: 900\n"),
+	)
+	if gotTimeout != 15 || gotMax != 300 {
+		t.Errorf("SDK over env and file: timeouts = (%d, %d), want (15, 300)", gotTimeout, gotMax)
 	}
+	t.Setenv("KIT_SHELL_TIMEOUT", "")
+	t.Setenv("KIT_BASH_TIMEOUT", "")
+	t.Setenv("KIT_SHELL_MAX_TIMEOUT", "")
+	t.Setenv("KIT_BASH_MAX_TIMEOUT", "")
 
-	// The SDK current spelling beats the SDK earlier one.
-	if got, _ := resolveShellTimeouts(&Options{ShellTimeout: 10, BashTimeout: 15}, viper.New()); got != 10 {
-		t.Errorf("SDK current over SDK earlier: timeout = %d, want 10", got)
+	// Keep support for both earlier config-file keys.
+	gotTimeout, gotMax = resolveShellTimeouts(&Options{}, fileStore(t, "bash-timeout: 90\nbash-max-timeout: 700\n"))
+	if gotTimeout != 90 || gotMax != 700 {
+		t.Errorf("earlier file keys: timeouts = (%d, %d), want (90, 700)", gotTimeout, gotMax)
 	}
 
 	// The maximum timeout follows the same rule.

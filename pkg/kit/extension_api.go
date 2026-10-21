@@ -399,8 +399,8 @@ func (e *extensionAPI) GetSessionMessages() []ExtensionSessionMessage {
 		return nil
 	}
 
-	// Try to use the legacy iterBranchMessages for backward compatibility
-	// with the default TreeManager adapter
+	// Use the fast path for the default TreeManager adapter to convert
+	// branch messages directly from the file-backed tree.
 	if adapter, ok := e.kit.session.(*treeManagerAdapter); ok {
 		return iterBranchMessages(adapter.inner, func(me *session.MessageEntry, msg message.Message) ExtensionSessionMessage {
 			return ExtensionSessionMessage{

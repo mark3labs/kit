@@ -11,8 +11,7 @@ Hooks can **modify or cancel** operations. Events are read-only; hooks are read-
 ```go
 unsub := host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     // h.ToolCallID, h.ToolName, h.ToolArgs
-    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
-    // and the deprecated kit.NewBashTool register it under that name).
+    // The command-execution tool from kit.NewShellTool reports itself as "shell".
     if h.ToolName == "shell" {
         return &kit.BeforeToolCallResult{Block: true, Reason: "shell disabled"}
     }
