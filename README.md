@@ -165,7 +165,7 @@ Supported ACP features:
 - **MCP servers**: servers the client passes in `mcpServers` (stdio, HTTP, SSE) are connected in addition to the ones in Kit's config
 - **Tool approval**: before edits, commands, subagents and MCP/extension tools, Kit asks the client with `session/request_permission` (allow/reject, once or always). Set the default with `kit acp --approval ask|auto_edit|auto`; clients change it per session with the `approval` config option
 - **Editor integration**: when the client supports them, file reads and writes go through `fs/read_text_file` / `fs/write_text_file` (so the agent sees unsaved buffers), and shell commands run in client terminals (`terminal/*`) that are shown in the tool call
-- **Config options**: `approval`, `model` and, for reasoning models, `thinking_level`, set with `session/set_config_option`
+- **Config options**: `approval`, `model` and, for reasoning models, `thinking_level`, set with `session/set_config_option`. Initial thinking uses normal configuration precedence, including per-model defaults, unless explicitly overridden
 - **Slash commands**: prompt templates and skills are sent as `available_commands_update`; `/name args` expands them
 - **Plans**: the model publishes its plan with the `update_plan` tool, shown as an ACP plan
 - **Prompt content**: text, images, embedded resources, and resource links
