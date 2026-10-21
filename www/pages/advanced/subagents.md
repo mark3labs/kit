@@ -368,17 +368,44 @@ for _, run := range host.SubagentRuns() {
 
 History is local to the host Kit instance. It retains up to 100 finished runs plus all active runs and up to 500 event records per run. `Events` is in emission order; adjacent text, reasoning, and tool output chunks can be combined. `DroppedEvents` counts records removed by the event limit. Snapshot calls copy the event slice, but do not deep-copy payloads inside each event. `GetSubagentRun` returns `false` for an unknown or evicted ID. History is also available for `NoSession` runs, but it is not restored from saved sessions.
 
-`SubscribeSubagentRuns` calls its listener synchronously for each change, so the listener must return quickly. Each `SubagentRunUpdate` carries the run ID, the child event (nil for a status-only change), the status and error after the change, and `Seq`. `Seq` increases by one for each update of a run and matches `SubagentRun.Seq`, so a consumer that starts from a snapshot can skip the updates that the snapshot already contains:
+`SubscribeSubagentRuns` calls its listener synchronously for each change, so the listener must return quickly. Each `SubagentRunUpdate` carries the run ID, the child event (nil for a status-only change), the status and error after the change, and `Seq`. `Seq` increases by one for each update of a run and matches `SubagentRun.Seq`, so a consumer that starts from a snapshot can skip the updates that the snapshot already contains. Subscribe before you take the snapshot, or a change between the two calls is lost. Buffer the updates under a mutex until the snapshot is ready:
 
 ```go
-snapshot, _ := host.GetSubagentRun(id)
-unsub := host.SubscribeSubagentRuns(func(u kit.SubagentRunUpdate) {
-    if u.RunID != id || u.Seq <= snapshot.Seq {
-        return // another run, or already in the snapshot
+var (
+    mu      sync.Mutex
+    ready   bool
+    pending []kit.SubagentRunUpdate
+    lastSeq uint64
+)
+apply := func(u kit.SubagentRunUpdate) { // call with mu held
+    if u.Seq <= lastSeq {
+        return // already in the snapshot
     }
-    // apply u.Event / u.Status
+    lastSeq = u.Seq
+    // apply u.Event / u.Status (must not block)
+}
+unsub := host.SubscribeSubagentRuns(func(u kit.SubagentRunUpdate) {
+    if u.RunID != id {
+        return // another run
+    }
+    mu.Lock()
+    defer mu.Unlock()
+    if !ready {
+        pending = append(pending, u)
+        return
+    }
+    apply(u)
 })
 defer unsub()
+
+snapshot, _ := host.GetSubagentRun(id)
+mu.Lock()
+lastSeq, ready = snapshot.Seq, true
+for _, u := range pending {
+    apply(u)
+}
+pending = nil
+mu.Unlock()
 ```
 
 `RunningSubagents` still lists only active runs, and `KillSubagent` still returns `false` when the run is no longer active. Existing live callbacks continue to receive events; retention does not replace them.
