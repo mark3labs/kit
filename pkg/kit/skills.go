@@ -43,7 +43,7 @@ func LoadSkill(path string) (*Skill, error) {
 
 // LoadSkillsFromDir loads all skills from a single directory. It finds *.md
 // and *.txt files directly in the directory, and SKILL.md files in immediate
-// subdirectories.
+// subdirectories. Symlinked entries are followed; broken links are skipped.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	return skills.LoadSkillsFromDir(dir)
 }

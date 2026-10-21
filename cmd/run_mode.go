@@ -684,6 +684,7 @@ func startContentWatcher(ctx context.Context, appInstance *app.App) func() {
 			filepath.Join(cwd, ".kit", "prompts"),
 		}
 		skillStdDirs = []string{
+			filepath.Join(homeDir, ".agents", "skills"),
 			filepath.Join(homeDir, ".config", "kit", "skills"),
 			filepath.Join(cwd, ".agents", "skills"),
 			filepath.Join(cwd, ".kit", "skills"),

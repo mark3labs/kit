@@ -239,6 +239,57 @@ func TestLoadSkillsFromDir_CaseInsensitiveSKILLmd(t *testing.T) {
 	}
 }
 
+// Dotfile managers (e.g. home-manager, stow) commonly populate
+// ~/.agents/skills with symlinks to skill directories elsewhere.
+func TestLoadSkillsFromDir_SymlinkedEntries(t *testing.T) {
+	target := t.TempDir()
+	skillDir := filepath.Join(target, "linked-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: linked-skill\ndescription: d\ndisable-model-invocation: true\n---\nbody"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "flat.md"), []byte("flat skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	links := map[string]string{
+		"linked-skill": skillDir,
+		"flat.md":      filepath.Join(target, "flat.md"),
+		"broken":       filepath.Join(target, "missing"),
+	}
+	for name, dest := range links {
+		if err := os.Symlink(dest, filepath.Join(dir, name)); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+	}
+
+	skills, err := LoadSkillsFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]*Skill{}
+	for _, s := range skills {
+		got[s.Name] = s
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 skills, got %d: %v", len(got), got)
+	}
+	linked, ok := got["linked-skill"]
+	if !ok {
+		t.Fatal("symlinked skill directory not loaded")
+	}
+	if !linked.DisableModelInvocation {
+		t.Error("disable-model-invocation not parsed through symlink")
+	}
+	if _, ok := got["flat"]; !ok {
+		t.Error("symlinked flat skill file not loaded")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // LoadSkills (auto-discovery)
 // ---------------------------------------------------------------------------
