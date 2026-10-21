@@ -2311,47 +2311,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
-		// Each preview becomes its own item, chained after the one before it so
-		// several images attached to one message keep their order.
-		//
-		// Static: the block is decoded pixel data, not a styled text block.
-		// Repainting it would mean re-decoding the image, and only its
-		// background tint comes from the theme.
-		anchor := msg.anchorID
-		placed := false
-		for _, preview := range msg.previews {
-			if preview.cells == "" {
-				continue
-			}
-			item := NewStyledMessageItem(generateMessageID(), "user", "", preview.cells)
-			if preview.image != nil {
-				item = item.WithDirectImage(*preview.image)
-				placed = true
-			}
-			m.insertMessageAfter(anchor, item)
-			anchor = item.ID()
-		}
-		if anchor != msg.anchorID {
-			m.refreshContent()
-			m.layoutDirty = true
-		}
-		if msg.transmit != "" {
-			// The image data cannot travel inside the view text. Placeholder
-			// cells just inserted into the transcript display it as soon as it
-			// lands; a directly-placed image is drawn separately, below.
-			//
-			// It is deliberately never deleted: the message stays in the
-			// scrollback for the rest of the session, and freeing the data
-			// would blank the preview the next time it scrolls into view.
-			cmds = append(cmds, tea.Raw(msg.transmit))
-		}
-		if placed {
-			// A directly-placed image is drawn by View, which can only work out
-			// where it goes once this frame has been laid out. Nothing else
-			// would arrive to trigger that write, so ask for one more Update
-			// after the coming View.
-			cmds = append(cmds, gfxNudgeCmd())
-		}
+		return m.handleImagePreviewReady(msg, cmds)
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
 	case uicore.ShellCommandMsg:
@@ -7931,6 +7891,51 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *AppModel) handleImagePreviewReady(msg imagePreviewReadyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// Each preview becomes its own item, chained after the one before it so
+	// several images attached to one message keep their order.
+	//
+	// Static: the block is decoded pixel data, not a styled text block.
+	// Repainting it would mean re-decoding the image, and only its
+	// background tint comes from the theme.
+	anchor := msg.anchorID
+	placed := false
+	for _, preview := range msg.previews {
+		if preview.cells == "" {
+			continue
+		}
+		item := NewStyledMessageItem(generateMessageID(), "user", "", preview.cells)
+		if preview.image != nil {
+			item = item.WithDirectImage(*preview.image)
+			placed = true
+		}
+		m.insertMessageAfter(anchor, item)
+		anchor = item.ID()
+	}
+	if anchor != msg.anchorID {
+		m.refreshContent()
+		m.layoutDirty = true
+	}
+	if msg.transmit != "" {
+		// The image data cannot travel inside the view text. Placeholder
+		// cells just inserted into the transcript display it as soon as it
+		// lands; a directly-placed image is drawn separately, below.
+		//
+		// It is deliberately never deleted: the message stays in the
+		// scrollback for the rest of the session, and freeing the data
+		// would blank the preview the next time it scrolls into view.
+		cmds = append(cmds, tea.Raw(msg.transmit))
+	}
+	if placed {
+		// A directly-placed image is drawn by View, which can only work out
+		// where it goes once this frame has been laid out. Nothing else
+		// would arrive to trigger that write, so ask for one more Update
+		// after the coming View.
+		cmds = append(cmds, gfxNudgeCmd())
 	}
 	return m, tea.Batch(cmds...)
 }
