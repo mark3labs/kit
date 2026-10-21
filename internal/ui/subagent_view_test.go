@@ -335,3 +335,24 @@ func TestParentDialogShowsParentPane(t *testing.T) {
 		t.Fatalf("child view stayed open over a parent dialog (state %v)", m.state)
 	}
 }
+
+// TestEvictedRunIsNotShown: a run that the registry evicted after the user
+// picked it is not shown as an empty pane, and its late updates are ignored.
+func TestEvictedRunIsNotShown(t *testing.T) {
+	m, c := childModel(t, kit.SubagentRun{ID: "r", ParentSessionID: "p", Status: "completed"})
+	m = sendMsg(m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt})
+	c.runs = nil // evicted while the picker was open
+	m.paneRequest = &paneRequest{runID: "r", parentSessionID: "p"}
+	m.applyPaneRequest()
+	if m.childView != nil || m.conversationPane != m.parentPane || m.childPanes["r"] != nil {
+		t.Fatal("an evicted run was shown")
+	}
+	msgs := m.parentPane.messages
+	if len(msgs) == 0 || !strings.Contains(msgs[len(msgs)-1].(*TextMessageItem).RawContent(), "no longer retained") {
+		t.Fatalf("no notice for the evicted run: %q", paneItems(m.parentPane))
+	}
+	m = sendMsg(m, app.SubagentRunEvent{RunID: "r", Seq: 9, Status: "completed"})
+	if m.childPanes["r"] != nil {
+		t.Fatal("a late update made a pane for an evicted run")
+	}
+}

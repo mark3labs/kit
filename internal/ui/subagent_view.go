@@ -91,10 +91,16 @@ func (m *AppModel) showPane(p *conversationPane) {
 
 // showChildPane shows the pane of the run with the given ID.
 func (m *AppModel) showChildPane(runID, parentSessionID string) {
+	p := m.ensureChildPane(runID)
+	if p == nil {
+		// The run was evicted after the user picked it.
+		m.printSystemMessage("This subagent run is no longer retained.")
+		return
+	}
 	if m.parentPane == nil {
 		m.parentPane = m.conversationPane
 	}
-	m.showPane(m.ensureChildPane(runID))
+	m.showPane(p)
 	m.childView = &childView{parentSessionID: parentSessionID}
 }
 
@@ -110,6 +116,7 @@ func (m *AppModel) showParentPane() {
 // ensureChildPane returns the pane of a run and makes it when it does not
 // exist. A new pane is filled from the retained snapshot of the run, so a
 // run that started before its first live update still shows its history.
+// It returns nil when the registry no longer retains the run.
 func (m *AppModel) ensureChildPane(runID string) *conversationPane {
 	if p := m.childPanes[runID]; p != nil {
 		return p
@@ -117,9 +124,11 @@ func (m *AppModel) ensureChildPane(runID string) *conversationPane {
 	run := kit.SubagentRun{ID: runID}
 	c, ok := m.appCtrl.(subagentInspectorController)
 	if ok {
-		if snapshot, found := c.GetSubagentRun(runID); found {
-			run = snapshot
+		snapshot, found := c.GetSubagentRun(runID)
+		if !found {
+			return nil
 		}
+		run = snapshot
 	}
 	if m.childPanes == nil {
 		m.childPanes = make(map[string]*conversationPane)
@@ -226,6 +235,9 @@ func (m *AppModel) replayChildRun(run kit.SubagentRun) {
 // date when the user opens it.
 func (m *AppModel) applySubagentRunEvent(ev app.SubagentRunEvent) tea.Cmd {
 	p := m.ensureChildPane(ev.RunID)
+	if p == nil {
+		return nil
+	}
 	var cmd tea.Cmd
 	m.withPane(p, func() {
 		// The snapshot that made the pane can already contain this update.
