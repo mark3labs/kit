@@ -364,249 +364,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case tea.KeyPressMsg:
-		if !s.showPopup {
-			switch msg.String() {
-			case "enter":
-				value := s.textarea.Value()
-				s.pushHistory(value)
-				s.textarea.SetValue("")
-				s.textarea.CursorEnd()
-				s.lastValue = ""
-				return s, s.handleSubmit(value)
-			case "up":
-				// Navigate prompt history backward (older entries).
-				if len(s.history) > 0 {
-					if !s.browsingHistory {
-						// Start browsing — save current input.
-						s.savedInput = s.textarea.Value()
-						s.browsingHistory = true
-						s.historyIndex = len(s.history)
-					}
-					if s.historyIndex > 0 {
-						s.historyIndex--
-						s.textarea.SetValue(s.history[s.historyIndex])
-						s.textarea.CursorEnd()
-						s.lastValue = s.textarea.Value()
-					}
-					return s, nil
-				}
-			case "down":
-				// Navigate prompt history forward (newer entries).
-				if s.browsingHistory {
-					if s.historyIndex < len(s.history)-1 {
-						s.historyIndex++
-						s.textarea.SetValue(s.history[s.historyIndex])
-						s.textarea.CursorEnd()
-						s.lastValue = s.textarea.Value()
-					} else {
-						// Past the end — restore saved input.
-						s.historyIndex = len(s.history)
-						s.browsingHistory = false
-						s.textarea.SetValue(s.savedInput)
-						s.textarea.CursorEnd()
-						s.lastValue = s.textarea.Value()
-						s.savedInput = ""
-					}
-					return s, nil
-				}
-			case "ctrl+v":
-				// Try to read an image from the clipboard asynchronously.
-				return s, readClipboardImageCmd()
-			case "ctrl+u":
-				// Clear all pending image attachments.
-				if len(s.pendingImages) > 0 {
-					cleanup := s.releaseImages()
-					s.pendingImages = nil
-					s.imageGen++
-					return s, cleanup
-				}
-			}
-		}
-
-		// Handle popup navigation
-		if s.showPopup {
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up"))):
-				if s.selected > 0 {
-					s.selected--
-				}
-				return s, nil
-
-			case key.Matches(msg, key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down"))):
-				if s.selected < len(s.filtered)-1 {
-					s.selected++
-				}
-				return s, nil
-
-			case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
-				if s.selected < len(s.filtered) {
-					if s.fileMode {
-						s.applyFileCompletion(s.selected)
-					} else if s.argMode {
-						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
-						s.showPopup = false
-						s.selected = 0
-					} else {
-						s.textarea.SetValue(s.filtered[s.selected].Command.Name)
-						s.showPopup = false
-						s.selected = 0
-					}
-					s.textarea.CursorEnd()
-				}
-				return s, nil
-
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-				if s.selected < len(s.filtered) {
-					if s.fileMode {
-						// Apply file completion but don't submit.
-						s.applyFileCompletion(s.selected)
-						s.textarea.CursorEnd()
-						return s, nil
-					}
-					selectedCmd := s.filtered[s.selected].Command
-					// Populate textarea with selected item and submit on next tick.
-					if s.argMode {
-						s.textarea.SetValue(s.argCommand + " " + selectedCmd.Name)
-					} else {
-						s.textarea.SetValue(selectedCmd.Name)
-					}
-					s.textarea.CursorEnd()
-					s.showPopup = false
-					s.selected = 0
-					// If the selected command expects arguments, populate
-					// the input with the command + trailing space so the
-					// user can type args, instead of auto-submitting.
-					if !s.argMode && selectedCmd.HasArgs {
-						s.textarea.SetValue(selectedCmd.Name + " ")
-						s.textarea.CursorEnd()
-					} else {
-						s.submitNext = true
-					}
-					return s, nil
-				}
-				return s, nil
-
-			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				s.showPopup = false
-				s.selected = 0
-				return s, nil
-			}
-		}
-
-		// Pass the key to the textarea.
-		s.textarea, cmd = s.textarea.Update(msg)
-
-		// Update autocomplete popup state.
-		value := s.textarea.Value()
-		if value != s.lastValue {
-			s.lastValue = value
-			// User typed something — exit history browsing mode.
-			if s.browsingHistory {
-				s.browsingHistory = false
-				s.savedInput = ""
-			}
-			lines := strings.Split(value, "\n")
-			line := lines[len(lines)-1] // current line (last line for multi-line)
-
-			// Check for @file trigger first.
-			cursorCol := len(line) // approximate: cursor is at end after typing
-			if hasAt, prefix, atIdx := ExtractAtPrefix(line, cursorCol); hasAt {
-				var suggestions []FileSuggestion
-
-				// Local file suggestions (only if cwd is set).
-				if s.cwd != "" {
-					suggestions = GetFileSuggestions(prefix, s.cwd)
-				}
-
-				// MCP resource suggestions — merge with file suggestions.
-				if s.mcpResources != nil {
-					mcpSuggestions := s.mcpResources()
-					if prefix != "" {
-						// Fuzzy-filter MCP resources against the typed prefix.
-						queryLower := strings.ToLower(prefix)
-						var filtered []FileSuggestion
-						for _, r := range mcpSuggestions {
-							score := scoreFilePath(queryLower, r.RelPath)
-							if score <= 0 {
-								// Also try matching against the resource name without prefix.
-								score = scoreFilePath(queryLower, r.MCPServerName+"/"+r.RelPath)
-							}
-							if score > 0 {
-								r.Score = score
-								filtered = append(filtered, r)
-							}
-						}
-						mcpSuggestions = filtered
-					}
-					suggestions = append(suggestions, mcpSuggestions...)
-				}
-
-				if len(suggestions) > 0 {
-					// Sort by score descending, cap at maxFileSuggestions.
-					sort.Slice(suggestions, func(i, j int) bool {
-						return suggestions[i].Score > suggestions[j].Score
-					})
-					if len(suggestions) > maxFileSuggestions {
-						suggestions = suggestions[:maxFileSuggestions]
-					}
-
-					s.showPopup = true
-					s.fileMode = true
-					s.argMode = false
-					s.filePrefix = prefix
-					s.fileAtStartIdx = atIdx
-					s.fileSuggestions = suggestions
-					s.fileSynthCmds = make([]commands.SlashCommand, len(suggestions))
-					s.filtered = make([]FuzzyMatch, len(suggestions))
-					for i, fs := range suggestions {
-						name := fs.RelPath
-						desc := ""
-						if fs.IsDir {
-							desc = "directory"
-						} else if fs.IsMCPResource {
-							desc = "mcp:" + fs.MCPServerName
-						}
-						s.fileSynthCmds[i] = commands.SlashCommand{Name: name, Description: desc}
-						s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
-					}
-					s.selected = 0
-				} else {
-					s.showPopup = false
-					s.fileMode = false
-					s.fileEditMode = false
-				}
-			} else if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
-				s.fileMode = false
-				s.fileEditMode = false
-				if cmdLen, pathPrefix, isEdit := ExtractEditPrefix(lines[0]); isEdit {
-					// /edit fuzzy-file picker. Behaves like @ except
-					// MCP resources are excluded and selecting a file
-					// submits the line (running $EDITOR).
-					s.updateEditFilePopup(cmdLen, pathPrefix)
-				} else if !strings.Contains(lines[0], " ") {
-					// Command name completion.
-					s.showPopup = true
-					s.argMode = false
-					s.filtered = FuzzyMatchCommands(lines[0], s.commands)
-					s.selected = 0
-				} else if suggestions := s.completeArgs(lines[0]); len(suggestions) > 0 {
-					// Argument completion for a command with a Complete function.
-					s.showPopup = true
-					// s.argMode, s.argCommand, s.argSynthCmds, s.filtered
-					// are set by completeArgs.
-					s.selected = 0
-				} else {
-					s.showPopup = false
-					s.argMode = false
-				}
-			} else {
-				s.showPopup = false
-				s.argMode = false
-				s.fileMode = false
-				s.fileEditMode = false
-			}
-		}
-		return s, cmd
+		return s.handleKey(msg)
 
 	default:
 		s.textarea, cmd = s.textarea.Update(msg)
@@ -1261,4 +1019,253 @@ func commandBadge(category string) string {
 	default:
 		return ""
 	}
+}
+
+// handleKey handles composer keys and updates autocomplete state.
+func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	if !s.showPopup {
+		switch msg.String() {
+		case "enter":
+			value := s.textarea.Value()
+			s.pushHistory(value)
+			s.textarea.SetValue("")
+			s.textarea.CursorEnd()
+			s.lastValue = ""
+			return s, s.handleSubmit(value)
+		case "up":
+			// Navigate prompt history backward (older entries).
+			if len(s.history) > 0 {
+				if !s.browsingHistory {
+					// Start browsing — save current input.
+					s.savedInput = s.textarea.Value()
+					s.browsingHistory = true
+					s.historyIndex = len(s.history)
+				}
+				if s.historyIndex > 0 {
+					s.historyIndex--
+					s.textarea.SetValue(s.history[s.historyIndex])
+					s.textarea.CursorEnd()
+					s.lastValue = s.textarea.Value()
+				}
+				return s, nil
+			}
+		case "down":
+			// Navigate prompt history forward (newer entries).
+			if s.browsingHistory {
+				if s.historyIndex < len(s.history)-1 {
+					s.historyIndex++
+					s.textarea.SetValue(s.history[s.historyIndex])
+					s.textarea.CursorEnd()
+					s.lastValue = s.textarea.Value()
+				} else {
+					// Past the end — restore saved input.
+					s.historyIndex = len(s.history)
+					s.browsingHistory = false
+					s.textarea.SetValue(s.savedInput)
+					s.textarea.CursorEnd()
+					s.lastValue = s.textarea.Value()
+					s.savedInput = ""
+				}
+				return s, nil
+			}
+		case "ctrl+v":
+			// Try to read an image from the clipboard asynchronously.
+			return s, readClipboardImageCmd()
+		case "ctrl+u":
+			// Clear all pending image attachments.
+			if len(s.pendingImages) > 0 {
+				cleanup := s.releaseImages()
+				s.pendingImages = nil
+				s.imageGen++
+				return s, cleanup
+			}
+		}
+	}
+
+	// Handle popup navigation
+	if s.showPopup {
+		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up"))):
+			if s.selected > 0 {
+				s.selected--
+			}
+			return s, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down"))):
+			if s.selected < len(s.filtered)-1 {
+				s.selected++
+			}
+			return s, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+			if s.selected < len(s.filtered) {
+				if s.fileMode {
+					s.applyFileCompletion(s.selected)
+				} else if s.argMode {
+					s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
+					s.showPopup = false
+					s.selected = 0
+				} else {
+					s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+					s.showPopup = false
+					s.selected = 0
+				}
+				s.textarea.CursorEnd()
+			}
+			return s, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+			if s.selected < len(s.filtered) {
+				if s.fileMode {
+					// Apply file completion but don't submit.
+					s.applyFileCompletion(s.selected)
+					s.textarea.CursorEnd()
+					return s, nil
+				}
+				selectedCmd := s.filtered[s.selected].Command
+				// Populate textarea with selected item and submit on next tick.
+				if s.argMode {
+					s.textarea.SetValue(s.argCommand + " " + selectedCmd.Name)
+				} else {
+					s.textarea.SetValue(selectedCmd.Name)
+				}
+				s.textarea.CursorEnd()
+				s.showPopup = false
+				s.selected = 0
+				// If the selected command expects arguments, populate
+				// the input with the command + trailing space so the
+				// user can type args, instead of auto-submitting.
+				if !s.argMode && selectedCmd.HasArgs {
+					s.textarea.SetValue(selectedCmd.Name + " ")
+					s.textarea.CursorEnd()
+				} else {
+					s.submitNext = true
+				}
+				return s, nil
+			}
+			return s, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+			s.showPopup = false
+			s.selected = 0
+			return s, nil
+		}
+	}
+
+	// Pass the key to the textarea.
+	s.textarea, cmd = s.textarea.Update(msg)
+
+	// Update autocomplete popup state.
+	value := s.textarea.Value()
+	if value != s.lastValue {
+		s.lastValue = value
+		// User typed something — exit history browsing mode.
+		if s.browsingHistory {
+			s.browsingHistory = false
+			s.savedInput = ""
+		}
+		lines := strings.Split(value, "\n")
+		line := lines[len(lines)-1] // current line (last line for multi-line)
+
+		// Check for @file trigger first.
+		cursorCol := len(line) // approximate: cursor is at end after typing
+		if hasAt, prefix, atIdx := ExtractAtPrefix(line, cursorCol); hasAt {
+			var suggestions []FileSuggestion
+
+			// Local file suggestions (only if cwd is set).
+			if s.cwd != "" {
+				suggestions = GetFileSuggestions(prefix, s.cwd)
+			}
+
+			// MCP resource suggestions — merge with file suggestions.
+			if s.mcpResources != nil {
+				mcpSuggestions := s.mcpResources()
+				if prefix != "" {
+					// Fuzzy-filter MCP resources against the typed prefix.
+					queryLower := strings.ToLower(prefix)
+					var filtered []FileSuggestion
+					for _, r := range mcpSuggestions {
+						score := scoreFilePath(queryLower, r.RelPath)
+						if score <= 0 {
+							// Also try matching against the resource name without prefix.
+							score = scoreFilePath(queryLower, r.MCPServerName+"/"+r.RelPath)
+						}
+						if score > 0 {
+							r.Score = score
+							filtered = append(filtered, r)
+						}
+					}
+					mcpSuggestions = filtered
+				}
+				suggestions = append(suggestions, mcpSuggestions...)
+			}
+
+			if len(suggestions) > 0 {
+				// Sort by score descending, cap at maxFileSuggestions.
+				sort.Slice(suggestions, func(i, j int) bool {
+					return suggestions[i].Score > suggestions[j].Score
+				})
+				if len(suggestions) > maxFileSuggestions {
+					suggestions = suggestions[:maxFileSuggestions]
+				}
+
+				s.showPopup = true
+				s.fileMode = true
+				s.argMode = false
+				s.filePrefix = prefix
+				s.fileAtStartIdx = atIdx
+				s.fileSuggestions = suggestions
+				s.fileSynthCmds = make([]commands.SlashCommand, len(suggestions))
+				s.filtered = make([]FuzzyMatch, len(suggestions))
+				for i, fs := range suggestions {
+					name := fs.RelPath
+					desc := ""
+					if fs.IsDir {
+						desc = "directory"
+					} else if fs.IsMCPResource {
+						desc = "mcp:" + fs.MCPServerName
+					}
+					s.fileSynthCmds[i] = commands.SlashCommand{Name: name, Description: desc}
+					s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
+				}
+				s.selected = 0
+			} else {
+				s.showPopup = false
+				s.fileMode = false
+				s.fileEditMode = false
+			}
+		} else if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
+			s.fileMode = false
+			s.fileEditMode = false
+			if cmdLen, pathPrefix, isEdit := ExtractEditPrefix(lines[0]); isEdit {
+				// /edit fuzzy-file picker. Behaves like @ except
+				// MCP resources are excluded and selecting a file
+				// submits the line (running $EDITOR).
+				s.updateEditFilePopup(cmdLen, pathPrefix)
+			} else if !strings.Contains(lines[0], " ") {
+				// Command name completion.
+				s.showPopup = true
+				s.argMode = false
+				s.filtered = FuzzyMatchCommands(lines[0], s.commands)
+				s.selected = 0
+			} else if suggestions := s.completeArgs(lines[0]); len(suggestions) > 0 {
+				// Argument completion for a command with a Complete function.
+				s.showPopup = true
+				// s.argMode, s.argCommand, s.argSynthCmds, s.filtered
+				// are set by completeArgs.
+				s.selected = 0
+			} else {
+				s.showPopup = false
+				s.argMode = false
+			}
+		} else {
+			s.showPopup = false
+			s.argMode = false
+			s.fileMode = false
+			s.fileEditMode = false
+		}
+	}
+	return s, cmd
 }
