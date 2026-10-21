@@ -387,6 +387,9 @@ func repairUnquotedColons(frontmatter string) (string, bool) {
 //   - *.md and *.txt files directly in dir
 //   - SKILL.md (case-insensitive) in immediate subdirectories
 //
+// Symlinked entries are followed, so skill directories linked in by a dotfile
+// manager are discovered; broken links are skipped.
+//
 // Files that fail to parse are skipped with a warning logged via the
 // returned error list.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
@@ -406,7 +409,16 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
 
-		if !entry.IsDir() {
+		isDir, err := resolveEntryIsDir(full, entry)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				log.Debug("skipping broken skill symlink", "path", full)
+				continue
+			}
+			errs = append(errs, fmt.Errorf("resolving skill symlink %s: %w", full, err))
+			continue
+		}
+		if !isDir {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
 			if ext == ".md" || ext == ".txt" {
 				s, err := LoadSkill(full)
@@ -441,6 +453,21 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 		return skills, fmt.Errorf("some skills failed to load: %w", errors.Join(errs...))
 	}
 	return skills, nil
+}
+
+// resolveEntryIsDir reports whether entry is a directory, following symlinks
+// so that linked skill directories (e.g. from dotfile managers) are
+// discovered. The error from stat'ing a symlink's target is returned as-is so
+// callers can tell a broken link (fs.ErrNotExist) from a genuine failure.
+func resolveEntryIsDir(full string, entry fs.DirEntry) (bool, error) {
+	if entry.Type()&fs.ModeSymlink == 0 {
+		return entry.IsDir(), nil
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return false, err
+	}
+	return info.IsDir(), nil
 }
 
 // LoadSkillsFromFS is the fs.FS-typed counterpart of LoadSkillsFromDir. It

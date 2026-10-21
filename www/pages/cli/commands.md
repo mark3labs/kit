@@ -132,6 +132,8 @@ Skills follow the [agentskills.io](https://agentskills.io/specification) convent
 | Project-local (cross-client) | `<project>/.agents/skills/` |
 | Project-local (Kit) | `<project>/.kit/skills/` |
 
+Entries in these directories may be symlinks — for example, skill directories linked in by a dotfile manager such as home-manager or GNU Stow. Kit follows the link to a skill directory or a `.md`/`.txt` file, and silently skips a broken link.
+
 When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
 
 Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/<name>` slash command.

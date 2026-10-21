@@ -194,6 +194,146 @@ func TestContentWatcher_WatchesSubdirectories(t *testing.T) {
 	_ = w.Close()
 }
 
+func TestContentWatcher_WatchesSymlinkedSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+
+	// The skill lives outside the watched directory and is linked in, as a
+	// dotfile manager would do.
+	target := filepath.Join(t.TempDir(), "my-skill")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "my-skill")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	var reloadCount atomic.Int32
+	w, err := New(Options{
+		Dirs:       []string{dir},
+		Extensions: []string{".md"},
+		OnReload:   func() { reloadCount.Add(1) },
+		Label:      "test",
+		Debounce:   50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go w.Start(t.Context())
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Write to the symlink target.
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# Skill"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if got := reloadCount.Load(); got != 1 {
+		t.Errorf("expected 1 reload for symlinked subdirectory file, got %d", got)
+	}
+
+	_ = w.Close()
+}
+
+// startLinkWatcher links name in a fresh watched directory to target and
+// starts a watcher on it, returning the reload counter.
+func startLinkWatcher(t *testing.T, name, target string) *atomic.Int32 {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	var reloadCount atomic.Int32
+	w, err := New(Options{
+		Dirs:       []string{dir},
+		Extensions: []string{".md"},
+		OnReload:   func() { reloadCount.Add(1) },
+		Label:      "test",
+		Debounce:   50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	go w.Start(t.Context())
+	time.Sleep(100 * time.Millisecond)
+	return &reloadCount
+}
+
+func TestContentWatcher_WatchesSymlinkedFile(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "flat.md")
+	if err := os.WriteFile(target, []byte("# Flat"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reloadCount := startLinkWatcher(t, "flat.md", target)
+
+	if err := os.WriteFile(target, []byte("# Flat, edited"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if got := reloadCount.Load(); got != 1 {
+		t.Errorf("expected 1 reload for symlinked file edit, got %d", got)
+	}
+}
+
+func TestContentWatcher_IgnoresUnrelatedFilesNextToLinkTarget(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "flat.md")
+	if err := os.WriteFile(target, []byte("# Flat"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reloadCount := startLinkWatcher(t, "flat.md", target)
+
+	if err := os.WriteFile(filepath.Join(parent, "other.md"), []byte("# Other"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if got := reloadCount.Load(); got != 0 {
+		t.Errorf("expected no reload for an unlinked file beside the target, got %d", got)
+	}
+}
+
+func TestContentWatcher_WatchesReplacedSymlinkTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "my-skill")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# v1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reloadCount := startLinkWatcher(t, "my-skill", target)
+
+	// Replace the target as a deployment would: remove it, then create it
+	// again with new content.
+	if err := os.RemoveAll(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# v2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	reloadCount.Store(0)
+
+	// A later edit must still be seen through the new target directory.
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# v3"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if got := reloadCount.Load(); got != 1 {
+		t.Errorf("expected 1 reload for an edit after target replacement, got %d", got)
+	}
+}
+
 func TestContentWatcher_WatchesNewSubdirectory(t *testing.T) {
 	dir := t.TempDir()
 

@@ -29,6 +29,17 @@ type ContentWatcher struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 	mu         sync.Mutex
+
+	// roots are the configured directories, rescanned for symlinked entries.
+	roots []string
+	// watchedDirs are directories watched for all their matching files.
+	watchedDirs map[string]bool
+	// linkTargets are the resolved targets of symlinked entries in roots, and
+	// linkParents the directories watched only so that edits to, or a
+	// replacement of, those targets are seen. Other events in linkParents
+	// are ignored. Only the Start goroutine touches these after New.
+	linkTargets map[string]bool
+	linkParents map[string]bool
 }
 
 // Options configures a ContentWatcher.
@@ -60,10 +71,29 @@ func New(opts Options) (*ContentWatcher, error) {
 		return nil, fmt.Errorf("creating file watcher: %w", err)
 	}
 
+	debounce := opts.Debounce
+	if debounce == 0 {
+		debounce = 300 * time.Millisecond
+	}
+
+	w := &ContentWatcher{
+		watcher:     fsw,
+		onReload:    opts.OnReload,
+		extensions:  opts.Extensions,
+		label:       opts.Label,
+		debounce:    debounce,
+		done:        make(chan struct{}),
+		roots:       opts.Dirs,
+		watchedDirs: make(map[string]bool),
+		linkTargets: make(map[string]bool),
+		linkParents: make(map[string]bool),
+	}
+
 	for _, dir := range opts.Dirs {
 		if err := fsw.Add(dir); err != nil {
 			continue
 		}
+		w.watchedDirs[dir] = true
 
 		// Also watch immediate subdirectories (for skill/SKILL.md pattern).
 		entries, err := os.ReadDir(dir)
@@ -73,24 +103,63 @@ func New(opts Options) (*ContentWatcher, error) {
 		for _, entry := range entries {
 			if entry.IsDir() {
 				subdir := filepath.Join(dir, entry.Name())
-				_ = fsw.Add(subdir)
+				if fsw.Add(subdir) == nil {
+					w.watchedDirs[subdir] = true
+				}
 			}
 		}
 	}
+	w.watchSymlinkTargets()
 
-	debounce := opts.Debounce
-	if debounce == 0 {
-		debounce = 300 * time.Millisecond
+	return w, nil
+}
+
+// watchSymlinkTargets resolves the symlinked entries in the root directories
+// and watches their targets. fsnotify does not follow links, so an edit to a
+// target outside the watched tree would otherwise go unnoticed. A linked
+// directory is watched directly; for both linked directories and linked
+// files the target's parent is watched too, so a replaced target (removed
+// and created again, as a deployment does) is picked up. Adding an existing
+// watch is a no-op, so this is safe to call again after any change.
+func (w *ContentWatcher) watchSymlinkTargets() {
+	for _, dir := range w.roots {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			target, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			info, err := os.Stat(target)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				if w.watcher.Add(target) == nil {
+					w.watchedDirs[target] = true
+				}
+			} else if !w.matchesExtension(entry.Name()) {
+				continue
+			}
+			parent := filepath.Dir(target)
+			if w.watcher.Add(parent) == nil {
+				w.linkTargets[target] = true
+				w.linkParents[parent] = true
+			}
+		}
 	}
+}
 
-	return &ContentWatcher{
-		watcher:    fsw,
-		onReload:   opts.OnReload,
-		extensions: opts.Extensions,
-		label:      opts.Label,
-		debounce:   debounce,
-		done:       make(chan struct{}),
-	}, nil
+// isUnrelatedLinkEvent reports whether name is in a directory watched only
+// for symlink targets and is not one of those targets.
+func (w *ContentWatcher) isUnrelatedLinkEvent(name string) bool {
+	dir := filepath.Dir(name)
+	return w.linkParents[dir] && !w.watchedDirs[dir] && !w.linkTargets[name]
 }
 
 // Start begins watching for file changes. It blocks until the context
@@ -118,6 +187,16 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 				return
 			}
 
+			if w.isUnrelatedLinkEvent(event.Name) {
+				continue
+			}
+
+			// A symlink or its target may have been added, removed or
+			// replaced; refresh the target watches.
+			if event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
+				w.watchSymlinkTargets()
+			}
+
 			// When a new subdirectory is created, start watching it so
 			// that files added inside (e.g. new-skill/SKILL.md) trigger
 			// reload events. Also schedule a reload in case the directory
@@ -125,6 +204,7 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 					if addErr := w.watcher.Add(event.Name); addErr == nil {
+						w.watchedDirs[event.Name] = true
 						// Check if the new directory already contains matching files.
 						if w.dirContainsMatchingFiles(event.Name) {
 							if timer != nil {
@@ -138,8 +218,9 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 				}
 			}
 
-			// Only care about files matching our extensions.
-			if !w.matchesExtension(event.Name) {
+			// Only care about files matching our extensions. A symlinked
+			// file's target may be named without one.
+			if !w.matchesExtension(event.Name) && !w.linkTargets[event.Name] {
 				continue
 			}
 
