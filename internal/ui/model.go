@@ -2378,504 +2378,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setAgentState(stateInput)
 		cmds = append(cmds, m.handleShellCommandResult(msg))
 
-	// ── App layer events ─────────────────────────────────────────────────────
-
-	case app.SpinnerEvent:
-		// SpinnerEvent{Show: true} means a new agent step has started (either
-		// freshly or from the queue after a previous step completed). Flush
-		// any leftover stream content from the previous step to the ScrollList
-		// before starting the new one, followed by any pending user messages
-		// from the queue. Everything goes through the ScrollList to
-		// guarantee chronological ordering.
-		if msg.Show {
-			m.flushStreamAndPendingUserMessages()
-			m.setAgentState(stateWorking)
-			m.layoutDirty = true
-		}
-		cmds = append(cmds, m.applyPaneEvent(msg))
-
-	case app.ReasoningChunkEvent, app.ReasoningCompleteEvent, app.StreamChunkEvent,
-		app.ToolCallStartedEvent, app.ToolExecutionEvent, app.ToolResultEvent, app.ToolOutputEvent:
-		// Transcript and activity-row events. The subagent panes apply the
-		// same events with the same function.
-		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
-
-	case app.ToolCallContentEvent:
-		// In streaming mode this text was already delivered via StreamChunkEvents
-		// and will be flushed before the next tool call. Ignore to avoid
-		// double-printing.
-
-	case app.RetryEvent, app.StepStartedEvent, app.StepResumeEvent, app.ResponseCompleteEvent:
-		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
-
-	case app.MessageCreatedEvent:
-		// Informational — no action needed by parent.
-
-	case app.QueueUpdatedEvent:
-		// drainQueue popped item(s) from the queue. Move consumed
-		// messages to pendingUserPrints — they will be printed to
-		// the ScrollList in the next SpinnerEvent{Show: true} after the
-		// previous assistant response is flushed.
-		for len(m.queuedMessages) > msg.Length {
-			text := m.queuedMessages[0]
-			m.queuedMessages[0] = "" // release the string in the backing array for GC
-			m.queuedMessages = m.queuedMessages[1:]
-			m.pendingUserPrints = append(m.pendingUserPrints, text)
-		}
-		m.layoutDirty = true
-
-	case app.SteerConsumedEvent:
-		// Steering messages were consumed — either injected mid-turn via
-		// PrepareStep, or drained into the queue after a text-only turn.
-		//
-		// Two cases:
-		//
-		//  1. Mid-turn (stateWorking, PrepareStep fired): no SpinnerEvent{Show:
-		//     true} will follow within this turn, so we cannot rely on
-		//     flushStreamAndPendingUserMessages() being called. Flush any live
-		//     stream content first (assistant text up to the steer point), then
-		//     render the steering user messages immediately to the ScrollList.
-		//
-		//  2. Post-turn (text-only response, drained after StepComplete): a
-		//     SpinnerEvent{Show: true} for the next turn is already in flight.
-		//     Defer to pendingUserPrints so the previous assistant response is
-		//     flushed first, preserving chronological order.
-		if m.agentWorking() {
-			// Case 1: mid-turn — flush + print immediately.
-			m.flushStreamContent()
-			for _, text := range m.steeringMessages {
-				m.printUserMessage(text)
-			}
-			m.steeringMessages = m.steeringMessages[:0]
-			m.layoutDirty = true
-		} else {
-			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
-			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
-			m.steeringMessages = m.steeringMessages[:0]
-			m.layoutDirty = true
-		}
-
-	case app.StepCompleteEvent, app.StepCancelledEvent, app.StepErrorEvent:
-		// The pane freezes the streamed response and prints the error block
-		// (if any) and the turn receipt; then the composer gets focus again.
-		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.CompactCompleteEvent:
-		// Finalize any streaming compaction content.
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-		m.setAgentState(stateInput)
-
-		// Mark the last streaming message as complete in ScrollList.
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-			}
-		}
-
-		// Refresh content to show the finalized message.
-		m.refreshContent()
-
-		// Reset context token display — the pre-compaction count is stale.
-		// The next API call will set the accurate post-compaction value.
-		if m.usageTracker != nil {
-			m.usageTracker.SetContextTokens(0)
-		}
-
-		// Print stats as a separate system message.
-		saved := msg.OriginalTokens - msg.CompactedTokens
-		statsMsg := fmt.Sprintf(
-			"Compaction complete: %d messages summarised, ~%dk tokens freed (%dk -> %dk)",
-			msg.MessagesRemoved, saved/1000, msg.OriginalTokens/1000, msg.CompactedTokens/1000,
-		)
-		m.printSystemMessage(statsMsg)
-
-	case app.CompactErrorEvent:
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-		m.setAgentState(stateInput)
-		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
-
-	case app.ModelChangedEvent:
-		// Extension changed the model — update display name in status bar
-		// and message attribution.
-		m.providerName = msg.ProviderName
-		m.modelName = msg.ModelName
-
-	case app.UsageUpdatedEvent:
-		// Token usage was updated after a completed LLM step. No state
-		// changes needed — the UsageTracker was already mutated in-place.
-		// Returning from Update() triggers View() which re-renders the
-		// status bar with the latest token counts, cost, and context %.
-
-	case app.ThemeChangedEvent:
-		// The theme was replaced from outside the /theme command (an
-		// extension's ctx.SetTheme). The global theme is already set; this
-		// repaints the components that cache styling derived from it.
-		m.refreshTheme()
-
-	case app.WidgetUpdateEvent:
-		// Extension widget changed — recalculate height distribution so the
-		// stream region accounts for widget space. View() will read the
-		// latest widget state on the next render.
-		m.layoutDirty = true
-
-		// Refresh extension commands (e.g. after hot-reload). The callback
-		// returns the current set from the runner which may have changed.
-		if m.getExtensionCommands != nil {
-			newCmds := m.getExtensionCommands()
-			m.extensionCommands = newCmds
-			if ic, ok := m.input.(*InputComponent); ok {
-				// Remove old extension commands and add fresh ones.
-				var builtins []commands.SlashCommand
-				for _, sc := range ic.commands {
-					if sc.Category != "Extensions" {
-						builtins = append(builtins, sc)
-					}
-				}
-				for _, ec := range newCmds {
-					builtins = append(builtins, commands.SlashCommand{
-						Name:        ec.Name,
-						Description: ec.Description,
-						Category:    "Extensions",
-						Complete:    ec.Complete,
-					})
-				}
-				ic.commands = builtins
-			}
-		}
-
-	case app.ContentReloadEvent:
-		// Prompt templates or skills changed on disk — refresh from providers.
-		m.refreshPromptTemplates()
-		m.refreshSkillItems()
-		m.printSystemMessage("Prompts and skills reloaded.")
-
-	case app.MCPServerLoadedEvent:
-		// An extension that prints its own summary of the servers can hide
-		// the message for each server that loaded, but not a failure.
-		if msg.Error == nil && m.uiVis().HideMCPStartupMessages {
-			break
-		}
-		// A single MCP server finished loading — display a system message.
-		if msg.Error != nil {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
-		} else if msg.ToolCount > 0 {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded with %d tools", msg.ServerName, msg.ToolCount))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded (no tools)", msg.ServerName))
-		}
-
-	case app.EditorTextSetEvent:
-		// Extension wants to pre-fill the input editor with text.
-		if ic, ok := m.input.(*InputComponent); ok {
-			ic.textarea.SetValue(msg.Text)
-			ic.textarea.CursorEnd()
-		}
-
-	case app.NewSessionRequestEvent:
-		// Extension wants to end the current session and start a fresh
-		// one (with an optional initial prompt). Stash the response
-		// channel so performNewSession (or the before-hook cancellation
-		// path) can signal completion, then run the same /new pipeline
-		// the user would trigger.
-		if msg.ResponseCh != nil {
-			// Only one new-session request in flight at a time. If a
-			// previous response channel is still pending, fail it before
-			// replacing it so the prior extension goroutine unblocks.
-			if m.newSessionResultCh != nil {
-				m.newSessionResultCh <- fmt.Errorf("superseded by a newer NewSession request")
-			}
-			m.newSessionResultCh = msg.ResponseCh
-		}
-		if cmd := m.handleNewCommand(msg.InitialPrompt); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.PasswordPromptEvent:
-		// Sudo password prompt - show a modal input prompt
-		// If already in prompt state, cancel the new request
-		if m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.prePromptState = m.state
-		m.state = statePrompt
-		// Create a custom response channel that converts PasswordPromptResponse
-		passwordResponseCh := make(chan app.PromptResponse, 1)
-		m.promptResponseCh = passwordResponseCh
-
-		// Create password input prompt (masked input)
-		m.prompt = newPasswordPrompt(msg.Prompt, m.width, m.height)
-
-		// Handle the response conversion
-		go func() {
-			resp := <-passwordResponseCh
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PasswordPromptResponse{
-					Password:  resp.Value,
-					Cancelled: resp.Cancelled,
-				}
-			}
-		}()
-
-		if m.prompt != nil {
-			cmds = append(cmds, m.prompt.Init())
-		}
-
-	case app.PromptRequestEvent:
-		// Extension wants to show an interactive prompt. Enter prompt state.
-		// If already in prompt state (concurrent prompt from another
-		// extension), immediately cancel the new request.
-		if m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.prePromptState = m.state
-		m.state = statePrompt
-		m.promptResponseCh = msg.ResponseCh
-
-		switch msg.PromptType {
-		case "select":
-			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
-		case "multiselect":
-			m.prompt = newMultiSelectPrompt(msg.Message, msg.Options, msg.DefaultSelected, m.width, m.height)
-		case "confirm":
-			defaultVal := msg.Default == "true"
-			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
-		case "input":
-			m.prompt = newInputPrompt(msg.Message, msg.Placeholder, msg.Default, m.width, m.height)
-		default:
-			// Unknown prompt type — cancel immediately.
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
-			}
-			m.state = m.prePromptState
-			m.promptResponseCh = nil
-			return m, tea.Batch(cmds...)
-		}
-		if m.prompt != nil {
-			cmds = append(cmds, m.prompt.Init())
-		}
-
-	case app.OverlayRequestEvent:
-		// Extension wants to show a modal overlay dialog. Enter overlay state.
-		// If already in overlay or prompt state, immediately cancel the request.
-		if m.state == stateOverlay || m.state == statePrompt {
-			if msg.ResponseCh != nil {
-				msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
-			}
-			return m, tea.Batch(cmds...)
-		}
-		m.preOverlayState = m.state
-		m.state = stateOverlay
-		m.overlayResponseCh = msg.ResponseCh
-
-		m.overlay = newOverlayDialog(
-			msg.Title, msg.Content, msg.Markdown,
-			msg.BorderColor, msg.Background,
-			msg.Width, msg.MaxHeight, msg.Anchor,
-			msg.Actions,
-			m.width, m.height,
-		)
-		if m.overlay != nil {
-			cmds = append(cmds, m.overlay.Init())
-		}
-
-	case extensionCmdResultMsg:
-		// Async extension slash command completed. Render output/error.
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
-		} else if msg.output != "" {
-			m.printSystemMessage(msg.output)
-		}
-
-	case mcpPromptResultMsg:
-		// Async MCP prompt expansion completed. Submit the expanded text
-		// as a user message (same behavior as local prompt templates).
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
-		} else if msg.text != "" || len(msg.fileParts) > 0 {
-			// Process @file references and submit.
-			processedText := msg.text
-			var fileParts []kit.LLMFilePart
-			if m.cwd != "" {
-				result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
-				processedText = result.ProcessedText
-				for _, fp := range result.FileParts {
-					fileParts = append(fileParts, kit.LLMFilePart{
-						Filename:  fp.Filename,
-						Data:      fp.Data,
-						MediaType: fp.MediaType,
-					})
-				}
-			}
-			// Merge file parts from embedded resources (images, audio, blobs)
-			// with any @file/@mcp: file parts extracted from the text.
-			fileParts = append(fileParts, msg.fileParts...)
-
-			// Build display text with attachment badges (matches the
-			// normal submit path so embedded resources look like pasted
-			// images / attached files).
-			displayText := msg.text
-			if len(msg.fileParts) > 0 {
-				var imageCount, fileCount int
-				for _, fp := range msg.fileParts {
-					if strings.HasPrefix(fp.MediaType, "image/") {
-						imageCount++
-					} else {
-						fileCount++
-					}
-				}
-				var badges []string
-				if imageCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
-				}
-				if fileCount > 0 {
-					badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
-				}
-				if len(badges) > 0 {
-					displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
-				}
-			}
-
-			if m.appCtrl != nil {
-				var qLen int
-				if len(fileParts) > 0 {
-					qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
-				} else {
-					qLen = m.appCtrl.Run(processedText)
-				}
-				if qLen > 0 {
-					m.queuedMessages = append(m.queuedMessages, displayText)
-					m.layoutDirty = true
-				} else {
-					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-					m.flushStreamAndPendingUserMessages()
-				}
-				if !m.agentWorking() {
-					m.setAgentState(stateWorking)
-				}
-			}
-		}
-
-	case externalEditorMsg:
-		// User returned from $EDITOR. Replace input textarea content with
-		// whatever they saved in the temp file. On error (e.g. :cq in vim)
-		// the original input is silently preserved.
-		if msg.err == nil {
-			if ic, ok := m.input.(*InputComponent); ok {
-				ic.textarea.SetValue(msg.text)
-				// Move cursor to the end of the inserted text.
-				ic.textarea.CursorEnd()
-			}
-			m.layoutDirty = true
-		}
-
-	case editFileMsg:
-		// User returned from $EDITOR after `/edit <path>`. The file was
-		// edited directly on disk — no textarea changes. Report the result.
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Editor exited with error: %v", msg.err))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("Edited `%s`", msg.path))
-		}
-		m.layoutDirty = true
-
-	case extReloadResultMsg:
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
-		} else {
-			m.refreshExtensionItems()
-			m.printSystemMessage("Extensions reloaded.")
-		}
-
-	case beforeSessionSwitchResultMsg:
-		// Async before-session-switch hook completed. Proceed with the
-		// session reset if the hook did not cancel.
-		if msg.cancelled {
-			m.printSystemMessage(msg.reason)
-			m.signalNewSessionResult(fmt.Errorf("session switch cancelled: %s", msg.reason))
-		} else {
-			cmds = append(cmds, m.performNewSession(msg.initialPrompt))
-		}
-
-	case beforeForkResultMsg:
-		// Async before-fork hook completed. Proceed with the fork if the
-		// hook did not cancel.
-		if msg.cancelled {
-			m.printSystemMessage(msg.reason)
-		} else {
-			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
-		}
-
-	case shareResultMsg:
-		if msg.err != nil {
-			m.printSystemMessage(fmt.Sprintf("Share failed: %v", msg.err))
-		} else {
-			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
-		}
-		return m, nil
-
-	case app.ExtensionPrintEvent:
-		// Extension output — route through styled renderers when a level is set.
-		switch msg.Level {
-		case "info":
-			m.printSystemMessage(msg.Text)
-		case "error":
-			m.printErrorResponse(app.StepErrorEvent{
-				Err: fmt.Errorf("%s", msg.Text),
-			})
-		case "block":
-			m.printExtensionBlock(msg)
-		default:
-			// Plain text from extension — add as system message.
-			m.printSystemMessage(msg.Text)
-		}
-
-	// ── Clipboard image attached / thumbnail rendered ────────────────────────
-	// Both messages change the input region's rendered height (the pill and
-	// the async half-block preview), so forward them to the input and mark the
-	// layout dirty — otherwise distributeHeight keeps a stale, too-short input
-	// height and the preview is clipped off the bottom of the screen.
-	case clipboardImageMsg, thumbnailReadyMsg:
-		if m.input != nil {
-			updated, cmd := m.input.Update(msg)
-			m.input, _ = updated.(inputComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.layoutDirty = true
-
 	default:
-		// The /connect key input owns paste and cursor-blink messages while
-		// it is open; the composer must not receive a pasted API key.
-		if m.state == stateProviderConnect && m.providerConnect != nil {
-			updated, cmd := m.providerConnect.Update(msg)
-			m.providerConnect = updated.(*ProviderConnectComponent)
-			cmds = append(cmds, cmd)
-			if _, isPaste := msg.(tea.PasteMsg); isPaste {
-				return m, tea.Batch(cmds...)
-			}
-		}
-		// Pass unrecognised messages to all children.
-		if m.input != nil {
-			updated, cmd := m.input.Update(msg)
-			m.input, _ = updated.(inputComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
+		return m.handleAppMessage(msg, cmds)
+
 	}
 
 	return m, tea.Batch(cmds...)
@@ -7921,6 +7426,511 @@ func (m *AppModel) handleSubmit(msg uicore.SubmitMsg, cmds []tea.Cmd) (tea.Model
 	}
 	if !m.agentWorking() {
 		m.setAgentState(stateWorking)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// handleAppMessage dispatches app events and forwards other messages to children.
+func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	// ── App layer events ─────────────────────────────────────────────────────
+
+	case app.SpinnerEvent:
+		// SpinnerEvent{Show: true} means a new agent step has started (either
+		// freshly or from the queue after a previous step completed). Flush
+		// any leftover stream content from the previous step to the ScrollList
+		// before starting the new one, followed by any pending user messages
+		// from the queue. Everything goes through the ScrollList to
+		// guarantee chronological ordering.
+		if msg.Show {
+			m.flushStreamAndPendingUserMessages()
+			m.setAgentState(stateWorking)
+			m.layoutDirty = true
+		}
+		cmds = append(cmds, m.applyPaneEvent(msg))
+
+	case app.ReasoningChunkEvent, app.ReasoningCompleteEvent, app.StreamChunkEvent,
+		app.ToolCallStartedEvent, app.ToolExecutionEvent, app.ToolResultEvent, app.ToolOutputEvent:
+		// Transcript and activity-row events. The subagent panes apply the
+		// same events with the same function.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+
+	case app.ToolCallContentEvent:
+		// In streaming mode this text was already delivered via StreamChunkEvents
+		// and will be flushed before the next tool call. Ignore to avoid
+		// double-printing.
+
+	case app.RetryEvent, app.StepStartedEvent, app.StepResumeEvent, app.ResponseCompleteEvent:
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+
+	case app.MessageCreatedEvent:
+		// Informational — no action needed by parent.
+
+	case app.QueueUpdatedEvent:
+		// drainQueue popped item(s) from the queue. Move consumed
+		// messages to pendingUserPrints — they will be printed to
+		// the ScrollList in the next SpinnerEvent{Show: true} after the
+		// previous assistant response is flushed.
+		for len(m.queuedMessages) > msg.Length {
+			text := m.queuedMessages[0]
+			m.queuedMessages[0] = "" // release the string in the backing array for GC
+			m.queuedMessages = m.queuedMessages[1:]
+			m.pendingUserPrints = append(m.pendingUserPrints, text)
+		}
+		m.layoutDirty = true
+
+	case app.SteerConsumedEvent:
+		// Steering messages were consumed — either injected mid-turn via
+		// PrepareStep, or drained into the queue after a text-only turn.
+		//
+		// Two cases:
+		//
+		//  1. Mid-turn (stateWorking, PrepareStep fired): no SpinnerEvent{Show:
+		//     true} will follow within this turn, so we cannot rely on
+		//     flushStreamAndPendingUserMessages() being called. Flush any live
+		//     stream content first (assistant text up to the steer point), then
+		//     render the steering user messages immediately to the ScrollList.
+		//
+		//  2. Post-turn (text-only response, drained after StepComplete): a
+		//     SpinnerEvent{Show: true} for the next turn is already in flight.
+		//     Defer to pendingUserPrints so the previous assistant response is
+		//     flushed first, preserving chronological order.
+		if m.agentWorking() {
+			// Case 1: mid-turn — flush + print immediately.
+			m.flushStreamContent()
+			for _, text := range m.steeringMessages {
+				m.printUserMessage(text)
+			}
+			m.steeringMessages = m.steeringMessages[:0]
+			m.layoutDirty = true
+		} else {
+			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
+			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
+			m.steeringMessages = m.steeringMessages[:0]
+			m.layoutDirty = true
+		}
+
+	case app.StepCompleteEvent, app.StepCancelledEvent, app.StepErrorEvent:
+		// The pane freezes the streamed response and prints the error block
+		// (if any) and the turn receipt; then the composer gets focus again.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
+		m.setAgentState(stateInput)
+		m.canceling = false
+
+	case app.CompactCompleteEvent:
+		// Finalize any streaming compaction content.
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.setAgentState(stateInput)
+
+		// Mark the last streaming message as complete in ScrollList.
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
+		}
+
+		// Refresh content to show the finalized message.
+		m.refreshContent()
+
+		// Reset context token display — the pre-compaction count is stale.
+		// The next API call will set the accurate post-compaction value.
+		if m.usageTracker != nil {
+			m.usageTracker.SetContextTokens(0)
+		}
+
+		// Print stats as a separate system message.
+		saved := msg.OriginalTokens - msg.CompactedTokens
+		statsMsg := fmt.Sprintf(
+			"Compaction complete: %d messages summarised, ~%dk tokens freed (%dk -> %dk)",
+			msg.MessagesRemoved, saved/1000, msg.OriginalTokens/1000, msg.CompactedTokens/1000,
+		)
+		m.printSystemMessage(statsMsg)
+
+	case app.CompactErrorEvent:
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.setAgentState(stateInput)
+		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
+
+	case app.ModelChangedEvent:
+		// Extension changed the model — update display name in status bar
+		// and message attribution.
+		m.providerName = msg.ProviderName
+		m.modelName = msg.ModelName
+
+	case app.UsageUpdatedEvent:
+		// Token usage was updated after a completed LLM step. No state
+		// changes needed — the UsageTracker was already mutated in-place.
+		// Returning from Update() triggers View() which re-renders the
+		// status bar with the latest token counts, cost, and context %.
+
+	case app.ThemeChangedEvent:
+		// The theme was replaced from outside the /theme command (an
+		// extension's ctx.SetTheme). The global theme is already set; this
+		// repaints the components that cache styling derived from it.
+		m.refreshTheme()
+
+	case app.WidgetUpdateEvent:
+		// Extension widget changed — recalculate height distribution so the
+		// stream region accounts for widget space. View() will read the
+		// latest widget state on the next render.
+		m.layoutDirty = true
+
+		// Refresh extension commands (e.g. after hot-reload). The callback
+		// returns the current set from the runner which may have changed.
+		if m.getExtensionCommands != nil {
+			newCmds := m.getExtensionCommands()
+			m.extensionCommands = newCmds
+			if ic, ok := m.input.(*InputComponent); ok {
+				// Remove old extension commands and add fresh ones.
+				var builtins []commands.SlashCommand
+				for _, sc := range ic.commands {
+					if sc.Category != "Extensions" {
+						builtins = append(builtins, sc)
+					}
+				}
+				for _, ec := range newCmds {
+					builtins = append(builtins, commands.SlashCommand{
+						Name:        ec.Name,
+						Description: ec.Description,
+						Category:    "Extensions",
+						Complete:    ec.Complete,
+					})
+				}
+				ic.commands = builtins
+			}
+		}
+
+	case app.ContentReloadEvent:
+		// Prompt templates or skills changed on disk — refresh from providers.
+		m.refreshPromptTemplates()
+		m.refreshSkillItems()
+		m.printSystemMessage("Prompts and skills reloaded.")
+
+	case app.MCPServerLoadedEvent:
+		// An extension that prints its own summary of the servers can hide
+		// the message for each server that loaded, but not a failure.
+		if msg.Error == nil && m.uiVis().HideMCPStartupMessages {
+			break
+		}
+		// A single MCP server finished loading — display a system message.
+		if msg.Error != nil {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
+		} else if msg.ToolCount > 0 {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded with %d tools", msg.ServerName, msg.ToolCount))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded (no tools)", msg.ServerName))
+		}
+
+	case app.EditorTextSetEvent:
+		// Extension wants to pre-fill the input editor with text.
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text)
+			ic.textarea.CursorEnd()
+		}
+
+	case app.NewSessionRequestEvent:
+		// Extension wants to end the current session and start a fresh
+		// one (with an optional initial prompt). Stash the response
+		// channel so performNewSession (or the before-hook cancellation
+		// path) can signal completion, then run the same /new pipeline
+		// the user would trigger.
+		if msg.ResponseCh != nil {
+			// Only one new-session request in flight at a time. If a
+			// previous response channel is still pending, fail it before
+			// replacing it so the prior extension goroutine unblocks.
+			if m.newSessionResultCh != nil {
+				m.newSessionResultCh <- fmt.Errorf("superseded by a newer NewSession request")
+			}
+			m.newSessionResultCh = msg.ResponseCh
+		}
+		if cmd := m.handleNewCommand(msg.InitialPrompt); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case app.PasswordPromptEvent:
+		// Sudo password prompt - show a modal input prompt
+		// If already in prompt state, cancel the new request
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		// Create a custom response channel that converts PasswordPromptResponse
+		passwordResponseCh := make(chan app.PromptResponse, 1)
+		m.promptResponseCh = passwordResponseCh
+
+		// Create password input prompt (masked input)
+		m.prompt = newPasswordPrompt(msg.Prompt, m.width, m.height)
+
+		// Handle the response conversion
+		go func() {
+			resp := <-passwordResponseCh
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{
+					Password:  resp.Value,
+					Cancelled: resp.Cancelled,
+				}
+			}
+		}()
+
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
+	case app.PromptRequestEvent:
+		// Extension wants to show an interactive prompt. Enter prompt state.
+		// If already in prompt state (concurrent prompt from another
+		// extension), immediately cancel the new request.
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		m.promptResponseCh = msg.ResponseCh
+
+		switch msg.PromptType {
+		case "select":
+			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
+		case "multiselect":
+			m.prompt = newMultiSelectPrompt(msg.Message, msg.Options, msg.DefaultSelected, m.width, m.height)
+		case "confirm":
+			defaultVal := msg.Default == "true"
+			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
+		case "input":
+			m.prompt = newInputPrompt(msg.Message, msg.Placeholder, msg.Default, m.width, m.height)
+		default:
+			// Unknown prompt type — cancel immediately.
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			m.state = m.prePromptState
+			m.promptResponseCh = nil
+			return m, tea.Batch(cmds...)
+		}
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
+	case app.OverlayRequestEvent:
+		// Extension wants to show a modal overlay dialog. Enter overlay state.
+		// If already in overlay or prompt state, immediately cancel the request.
+		if m.state == stateOverlay || m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.preOverlayState = m.state
+		m.state = stateOverlay
+		m.overlayResponseCh = msg.ResponseCh
+
+		m.overlay = newOverlayDialog(
+			msg.Title, msg.Content, msg.Markdown,
+			msg.BorderColor, msg.Background,
+			msg.Width, msg.MaxHeight, msg.Anchor,
+			msg.Actions,
+			m.width, m.height,
+		)
+		if m.overlay != nil {
+			cmds = append(cmds, m.overlay.Init())
+		}
+
+	case extensionCmdResultMsg:
+		// Async extension slash command completed. Render output/error.
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
+		} else if msg.output != "" {
+			m.printSystemMessage(msg.output)
+		}
+
+	case mcpPromptResultMsg:
+		// Async MCP prompt expansion completed. Submit the expanded text
+		// as a user message (same behavior as local prompt templates).
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
+		} else if msg.text != "" || len(msg.fileParts) > 0 {
+			// Process @file references and submit.
+			processedText := msg.text
+			var fileParts []kit.LLMFilePart
+			if m.cwd != "" {
+				result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
+				processedText = result.ProcessedText
+				for _, fp := range result.FileParts {
+					fileParts = append(fileParts, kit.LLMFilePart{
+						Filename:  fp.Filename,
+						Data:      fp.Data,
+						MediaType: fp.MediaType,
+					})
+				}
+			}
+			// Merge file parts from embedded resources (images, audio, blobs)
+			// with any @file/@mcp: file parts extracted from the text.
+			fileParts = append(fileParts, msg.fileParts...)
+
+			// Build display text with attachment badges (matches the
+			// normal submit path so embedded resources look like pasted
+			// images / attached files).
+			displayText := msg.text
+			if len(msg.fileParts) > 0 {
+				var imageCount, fileCount int
+				for _, fp := range msg.fileParts {
+					if strings.HasPrefix(fp.MediaType, "image/") {
+						imageCount++
+					} else {
+						fileCount++
+					}
+				}
+				var badges []string
+				if imageCount > 0 {
+					badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
+				}
+				if fileCount > 0 {
+					badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
+				}
+				if len(badges) > 0 {
+					displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
+				}
+			}
+
+			if m.appCtrl != nil {
+				var qLen int
+				if len(fileParts) > 0 {
+					qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+				} else {
+					qLen = m.appCtrl.Run(processedText)
+				}
+				if qLen > 0 {
+					m.queuedMessages = append(m.queuedMessages, displayText)
+					m.layoutDirty = true
+				} else {
+					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+					m.flushStreamAndPendingUserMessages()
+				}
+				if !m.agentWorking() {
+					m.setAgentState(stateWorking)
+				}
+			}
+		}
+
+	case externalEditorMsg:
+		// User returned from $EDITOR. Replace input textarea content with
+		// whatever they saved in the temp file. On error (e.g. :cq in vim)
+		// the original input is silently preserved.
+		if msg.err == nil {
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.textarea.SetValue(msg.text)
+				// Move cursor to the end of the inserted text.
+				ic.textarea.CursorEnd()
+			}
+			m.layoutDirty = true
+		}
+
+	case editFileMsg:
+		// User returned from $EDITOR after `/edit <path>`. The file was
+		// edited directly on disk — no textarea changes. Report the result.
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Editor exited with error: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Edited `%s`", msg.path))
+		}
+		m.layoutDirty = true
+
+	case extReloadResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
+		} else {
+			m.refreshExtensionItems()
+			m.printSystemMessage("Extensions reloaded.")
+		}
+
+	case beforeSessionSwitchResultMsg:
+		// Async before-session-switch hook completed. Proceed with the
+		// session reset if the hook did not cancel.
+		if msg.cancelled {
+			m.printSystemMessage(msg.reason)
+			m.signalNewSessionResult(fmt.Errorf("session switch cancelled: %s", msg.reason))
+		} else {
+			cmds = append(cmds, m.performNewSession(msg.initialPrompt))
+		}
+
+	case beforeForkResultMsg:
+		// Async before-fork hook completed. Proceed with the fork if the
+		// hook did not cancel.
+		if msg.cancelled {
+			m.printSystemMessage(msg.reason)
+		} else {
+			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
+		}
+
+	case shareResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Share failed: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
+		}
+		return m, nil
+
+	case app.ExtensionPrintEvent:
+		// Extension output — route through styled renderers when a level is set.
+		switch msg.Level {
+		case "info":
+			m.printSystemMessage(msg.Text)
+		case "error":
+			m.printErrorResponse(app.StepErrorEvent{
+				Err: fmt.Errorf("%s", msg.Text),
+			})
+		case "block":
+			m.printExtensionBlock(msg)
+		default:
+			// Plain text from extension — add as system message.
+			m.printSystemMessage(msg.Text)
+		}
+
+	// ── Clipboard image attached / thumbnail rendered ────────────────────────
+	// Both messages change the input region's rendered height (the pill and
+	// the async half-block preview), so forward them to the input and mark the
+	// layout dirty — otherwise distributeHeight keeps a stale, too-short input
+	// height and the preview is clipped off the bottom of the screen.
+	case clipboardImageMsg, thumbnailReadyMsg:
+		if m.input != nil {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		m.layoutDirty = true
+
+	default:
+		// The /connect key input owns paste and cursor-blink messages while
+		// it is open; the composer must not receive a pasted API key.
+		if m.state == stateProviderConnect && m.providerConnect != nil {
+			updated, cmd := m.providerConnect.Update(msg)
+			m.providerConnect = updated.(*ProviderConnectComponent)
+			cmds = append(cmds, cmd)
+			if _, isPaste := msg.(tea.PasteMsg); isPaste {
+				return m, tea.Batch(cmds...)
+			}
+		}
+		// Pass unrecognised messages to all children.
+		if m.input != nil {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		if m.stream != nil {
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
