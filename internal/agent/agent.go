@@ -938,48 +938,20 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// all see the args of the last OnToolCall in the step. The mutex guards
 	// against the possibility that the underlying streaming layer dispatches
 	// callbacks from multiple goroutines.
-	toolCallArgs := make(map[string]string)
-	var toolCallArgsMu sync.Mutex
 
 	// Track completed step messages so we can return partial results
 	// on cancellation. The agent's Stream() discards accumulated steps
 	// when it returns an error, but the OnStepFinish callback fires
 	// for every step that completed before the error occurred.
-	var completedStepMessages []fantasy.Message
 	// persistedCount tracks how many new messages (beyond the original
 	// input) were persisted incrementally via cb.OnStepMessages, so the
 	// caller can skip them during post-generation persistence.
-	var persistedCount int
-	var persistenceErr error
-	var unfinished strings.Builder
-	attemptID := rand.Text()
-	var completedUsage fantasy.Usage
 	// completedSteps counts steps that finished in this turn, across all
 	// replays. stepOffset is the value of completedSteps when the current
 	// stream call started, so step numbers stay turn-wide after a replay.
-	var completedSteps, stepOffset int
-	writeStep := func(msgs []fantasy.Message) {
-		if persistenceErr != nil {
-			return
-		}
-		if cb.OnStepMessagesChecked != nil {
-			n, err := cb.OnStepMessagesChecked(msgs)
-			if n < 0 || n > len(msgs) {
-				n = 0
-				err = errors.Join(err, fmt.Errorf("invalid confirmed write count"))
-			}
-			if err == nil && n != len(msgs) {
-				err = fmt.Errorf("only %d of %d step messages were persisted", n, len(msgs))
-			}
-			persistedCount += n
-			persistenceErr = err
-		} else if cb.OnStepMessages != nil {
-			cb.OnStepMessages(msgs)
-			persistedCount += len(msgs)
-		}
-	}
+	t := &streamTurn{a: a, cb: cb, ctx: ctx, messages: messages, toolCallArgs: make(map[string]string), attemptID: rand.Text()}
+
 	// stepCounter tracks the current step number for StepStart/StepFinish events.
-	var stepCounter int
 
 	// pendingMedia holds step messages that are not persisted yet because
 	// they contain a media tool result that the provider has not accepted.
@@ -988,47 +960,21 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// the request carrying the image was accepted). Messages produced after
 	// a held step are held too, to keep the persisted order. See
 	// media_recovery.go.
-	var pendingMedia []fantasy.Message
 	// persistStep persists msgs through cb.OnStepMessages, or holds them in
 	// pendingMedia as described above.
-	persistStep := func(msgs []fantasy.Message) {
-		if len(msgs) == 0 {
-			return
-		}
-		if len(pendingMedia) > 0 || hasMediaToolResult(msgs) {
-			pendingMedia = append(pendingMedia, msgs...)
-			return
-		}
-		writeStep(msgs)
-	}
+
 	// flushPending persists the held messages. Call it only when the
 	// provider has accepted the request that carried them.
-	flushPending := func() {
-		if len(pendingMedia) == 0 {
-			return
-		}
-		held := pendingMedia
-		pendingMedia = nil
-		writeStep(held)
-	}
+
 	// mediaRetries counts replays after a provider rejected a media tool
 	// result. It bounds the recovery loop below.
-	var mediaRetries int
-	var preparationErr error
 	// canRecoverMedia reports whether err can be recovered by replacing the
 	// held media tool results and replaying the turn.
-	canRecoverMedia := func(err error) bool {
-		return preparationErr == nil && mediaRetries < maxMediaRetries &&
-			hasMediaToolResult(pendingMedia) &&
-			isMediaRejection(err)
-	}
 
 	// Step resume: after a transient provider failure, restart the failed
 	// step from the last completed step. The stream library runs tools only
 	// after a step stream ends without error, so the failed step ran no
 	// local tools and completed steps are never repeated. See resume.go.
-	var resumes int
-	var plannedResume *resumePlan
 
 	// Use the streaming agent
 	zeroRetries := 0
@@ -1125,7 +1071,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			unfinished.WriteString(text)
+			t.unfinished.WriteString(text)
 			if cb.OnStreamingResponse != nil {
 				cb.OnStreamingResponse(text)
 			}
@@ -1171,28 +1117,28 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 		// Error callback
 		OnError: func(err error) {
-			if preparationErr != nil {
+			if t.preparationErr != nil {
 				if cb.OnError != nil {
-					cb.OnError(preparationErr)
+					cb.OnError(t.preparationErr)
 				}
 				return
 			}
 			// A rejected media tool result is recovered below and the
 			// model is told about it, so it is not a turn error.
-			if canRecoverMedia(err) {
+			if t.canRecoverMedia(err) {
 				return
 			}
 			// A resumable failure is not a turn error either. The plan is
 			// made here, so the error is reported exactly once: either
 			// as a resume or as an error.
-			plannedResume = a.planResume(ctx, resumeState{
+			t.plannedResume = a.planResume(ctx, resumeState{
 				err:            err,
-				resumes:        resumes,
-				completedSteps: completedSteps,
-				persistenceErr: persistenceErr,
-				lastRole:       lastReplayRole(messages, completedStepMessages),
+				resumes:        t.resumes,
+				completedSteps: t.completedSteps,
+				persistenceErr: t.persistenceErr,
+				lastRole:       lastReplayRole(messages, t.completedStepMessages),
 			})
-			if plannedResume != nil {
+			if t.plannedResume != nil {
 				return
 			}
 			if cb.OnError != nil {
@@ -1205,10 +1151,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			stepCounter = stepOffset + stepNumber
-			attemptID = rand.Text()
+			t.stepCounter = t.stepOffset + stepNumber
+			t.attemptID = rand.Text()
 			if cb.OnStepStart != nil {
-				cb.OnStepStart(stepCounter)
+				cb.OnStepStart(t.stepCounter)
 			}
 			return nil
 		},
@@ -1218,9 +1164,9 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			toolCallArgsMu.Lock()
-			toolCallArgs[tc.ToolCallID] = tc.Input
-			toolCallArgsMu.Unlock()
+			t.toolCallArgsMu.Lock()
+			t.toolCallArgs[tc.ToolCallID] = tc.Input
+			t.toolCallArgsMu.Unlock()
 
 			// Notify about the tool call
 			if cb.OnToolCall != nil {
@@ -1242,10 +1188,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 			// Look up the args recorded for this specific tool call. Delete
 			// the entry so the map doesn't accumulate across steps.
-			toolCallArgsMu.Lock()
-			args := toolCallArgs[tr.ToolCallID]
-			delete(toolCallArgs, tr.ToolCallID)
-			toolCallArgsMu.Unlock()
+			t.toolCallArgsMu.Lock()
+			args := t.toolCallArgs[tr.ToolCallID]
+			delete(t.toolCallArgs, tr.ToolCallID)
+			t.toolCallArgsMu.Unlock()
 
 			// Notify tool execution finished
 			if cb.OnToolExecution != nil {
@@ -1265,20 +1211,20 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		OnStepFinish: func(step fantasy.StepResult) error {
 			// Accumulate messages from completed steps so they can be
 			// persisted even if a later step is cancelled.
-			completedStepMessages = append(completedStepMessages, step.Messages...)
-			unfinished.Reset()
-			completedSteps++
-			completedUsage = addUsage(completedUsage, step.Usage)
+			t.completedStepMessages = append(t.completedStepMessages, step.Messages...)
+			t.unfinished.Reset()
+			t.completedSteps++
+			t.completedUsage = addUsage(t.completedUsage, step.Usage)
 
 			// This step completed, so the provider accepted the request
 			// that carried any held media tool results. Persist them.
-			flushPending()
+			t.flushPending()
 
 			// Persist step messages incrementally so progress is saved
 			// as it happens rather than only at the end of the turn.
-			persistStep(step.Messages)
-			if persistenceErr != nil {
-				return persistenceErr
+			t.persistStep(step.Messages)
+			if t.persistenceErr != nil {
+				return t.persistenceErr
 			}
 
 			if ctx.Err() != nil {
@@ -1297,7 +1243,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 			// Emit unified step finish event
 			if cb.OnStepFinish != nil {
-				cb.OnStepFinish(stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage)
+				cb.OnStepFinish(t.stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage)
 			}
 			return nil
 		},
@@ -1325,7 +1271,6 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// added in PrepareStep apply to one step only. To keep steer messages
 	// in the conversation for all later steps, PrepareStep puts them back
 	// at their recorded positions on every step.
-	var injectedSteer []steerInjection
 
 	a.promptMu.Lock()
 	loop := a.fantasyAgent
@@ -1336,12 +1281,12 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		opts fantasy.PrepareStepFunctionOptions,
 	) (context.Context, fantasy.PrepareStepResult, error) {
 		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
+			t.preparationErr = err
 			return stepCtx, fantasy.PrepareStepResult{}, err
 		}
 		result := fantasy.PrepareStepResult{
 			Model:    opts.Model,
-			Messages: withSteerInjections(opts.Messages, injectedSteer),
+			Messages: withSteerInjections(opts.Messages, t.injectedSteer),
 		}
 
 		// Phase 1: Drain steering channel (if present).
@@ -1361,7 +1306,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				for _, sm := range steered {
 					msg := fantasy.NewUserMessage(sm.Text, sm.Files...)
 					newMessages = append(newMessages, msg)
-					injectedSteer = append(injectedSteer, steerInjection{
+					t.injectedSteer = append(t.injectedSteer, steerInjection{
 						pos: len(opts.Messages),
 						msg: msg,
 					})
@@ -1372,10 +1317,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				// OnStepFinish, so appending here keeps the order of the
 				// conversation. Persist now so the steer message survives
 				// a cancel, an error, and a session reload.
-				completedStepMessages = append(completedStepMessages, newMessages...)
-				persistStep(newMessages)
-				if persistenceErr != nil {
-					return stepCtx, result, persistenceErr
+				t.completedStepMessages = append(t.completedStepMessages, newMessages...)
+				t.persistStep(newMessages)
+				if t.persistenceErr != nil {
+					return stepCtx, result, t.persistenceErr
 				}
 
 				if onConsumed != nil {
@@ -1385,20 +1330,20 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		}
 
 		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
+			t.preparationErr = err
 			return stepCtx, result, err
 		}
 		// Run hooks first, then capture live state. Explicit overrides win.
 		var update *PrepareStepUpdate
 		if hasPrepareStepHook {
-			update = cb.OnPrepareStep(stepCtx, stepOffset+opts.StepNumber, result.Messages)
+			update = cb.OnPrepareStep(stepCtx, t.stepOffset+opts.StepNumber, result.Messages)
 		}
 		if update != nil && update.Error != nil {
-			preparationErr = update.Error
-			return stepCtx, result, preparationErr
+			t.preparationErr = update.Error
+			return stepCtx, result, t.preparationErr
 		}
 		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
+			t.preparationErr = err
 			return stepCtx, result, err
 		}
 		var livePrompt string
@@ -1442,7 +1387,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		}
 
 		if err := stepCtx.Err(); err != nil {
-			preparationErr = err
+			t.preparationErr = err
 			return stepCtx, result, err
 		}
 		return stepCtx, result, nil
@@ -1455,11 +1400,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	// are not injected again. Step numbers and the step limit continue
 	// from the completed steps.
 	replayFromCompleted := func() {
-		injectedSteer = nil
-		stepOffset = completedSteps
-		replay := make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
+		t.injectedSteer = nil
+		t.stepOffset = t.completedSteps
+		replay := make([]fantasy.Message, 0, len(messages)+len(t.completedStepMessages))
 		replay = append(replay, messages...)
-		replay = append(replay, completedStepMessages...)
+		replay = append(replay, t.completedStepMessages...)
 		streamCall.Prompt = ""
 		streamCall.Files = nil
 		if a.messageCachingEnabled() {
@@ -1468,26 +1413,26 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			streamCall.Messages = replay
 		}
 		if a.maxSteps > 0 {
-			streamCall.StopWhen = []fantasy.StopCondition{fantasy.StepCountIs(max(1, a.maxSteps-completedSteps))}
+			streamCall.StopWhen = []fantasy.StopCondition{fantasy.StepCountIs(max(1, a.maxSteps-t.completedSteps))}
 		}
 	}
 
-	if preparationErr != nil {
-		err = preparationErr
+	if t.preparationErr != nil {
+		err = t.preparationErr
 	}
-	for err != nil && ctx.Err() == nil && preparationErr == nil {
+	for err != nil && ctx.Err() == nil && t.preparationErr == nil {
 		// Recover from a provider that rejected a media tool result (for
 		// example an image the model cannot accept, or a request above the
 		// provider size limit). Replace the held media results with error
 		// results that give the reason, persist them, and continue the turn
 		// from there, so the model can take another approach.
-		if canRecoverMedia(err) {
-			mediaRetries++
-			fixed, n := replaceMediaToolResults(pendingMedia, err)
+		if t.canRecoverMedia(err) {
+			t.mediaRetries++
+			fixed, n := replaceMediaToolResults(t.pendingMedia, err)
 			// The held messages are always the tail of completedStepMessages.
-			copy(completedStepMessages[len(completedStepMessages)-len(fixed):], fixed)
-			pendingMedia = nil
-			persistStep(fixed)
+			copy(t.completedStepMessages[len(t.completedStepMessages)-len(fixed):], fixed)
+			t.pendingMedia = nil
+			t.persistStep(fixed)
 			if cb.OnWarnings != nil {
 				cb.OnWarnings([]string{fmt.Sprintf(
 					"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
@@ -1497,16 +1442,16 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			continue
 		}
 
-		plan := plannedResume
-		plannedResume = nil
+		plan := t.plannedResume
+		t.plannedResume = nil
 		if plan == nil {
 			break
 		}
-		resumes++
+		t.resumes++
 		// The failed step's partial output is discarded, not persisted.
-		unfinished.Reset()
+		t.unfinished.Reset()
 		if cb.OnStepResume != nil {
-			cb.OnStepResume(completedSteps, resumes, err, plan.delay)
+			cb.OnStepResume(t.completedSteps, t.resumes, err, plan.delay)
 		}
 		if werr := waitResume(ctx, plan.delay); werr != nil {
 			err = werr
@@ -1515,22 +1460,22 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		replayFromCompleted()
 		result, err = loop.Stream(ctx, streamCall)
 	}
-	if preparationErr != nil {
-		err = preparationErr
+	if t.preparationErr != nil {
+		err = t.preparationErr
 	}
 	// A plan can remain when the turn was cancelled in the same moment.
 	// Report the suppressed error, so it is never lost.
-	if plannedResume != nil && cb.OnError != nil {
+	if t.plannedResume != nil && cb.OnError != nil {
 		cb.OnError(err)
 	}
 
 	if err != nil {
-		partialMessages := append(append([]fantasy.Message(nil), messages...), completedStepMessages...)
+		partialMessages := append(append([]fantasy.Message(nil), messages...), t.completedStepMessages...)
 		return &GenerateWithLoopResult{
-			ConversationMessages: partialMessages, PersistedMessageCount: persistedCount,
-			PartialText: unfinished.String(), AttemptID: attemptID, Incomplete: true,
-			TotalUsage: completedUsage, PersistenceError: persistenceErr,
-		}, errors.Join(preparationFailure(err, preparationErr), persistenceErr)
+			ConversationMessages: partialMessages, PersistedMessageCount: t.persistedCount,
+			PartialText: t.unfinished.String(), AttemptID: t.attemptID, Incomplete: true,
+			TotalUsage: t.completedUsage, PersistenceError: t.persistenceErr,
+		}, errors.Join(preparationFailure(err, t.preparationErr), t.persistenceErr)
 	}
 
 	// Fire the response callback so callers (e.g. the TUI) can reset
@@ -1544,10 +1489,10 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 	// No request follows the last step, so nothing can reject its media
 	// now. Persist what is still held.
-	flushPending()
+	t.flushPending()
 
 	r := convertAgentResult(result, messages)
-	if len(injectedSteer) > 0 || mediaRetries > 0 || resumes > 0 {
+	if len(t.injectedSteer) > 0 || t.mediaRetries > 0 || t.resumes > 0 {
 		// result.Steps does not contain the injected steer messages, and
 		// after a media replay or a step resume it holds only the steps of
 		// the last stream call.
@@ -1555,22 +1500,22 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		// messages in conversation order, so build the result from it.
 		// This keeps PersistedMessageCount aligned with
 		// ConversationMessages.
-		r.ConversationMessages = make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
+		r.ConversationMessages = make([]fantasy.Message, 0, len(messages)+len(t.completedStepMessages))
 		r.ConversationMessages = append(r.ConversationMessages, messages...)
-		r.ConversationMessages = append(r.ConversationMessages, completedStepMessages...)
+		r.ConversationMessages = append(r.ConversationMessages, t.completedStepMessages...)
 		r.Messages = make([]message.Message, 0, len(r.ConversationMessages))
 		for _, fm := range r.ConversationMessages {
 			r.Messages = append(r.Messages, message.FromLLMMessage(fm))
 		}
 	}
-	if mediaRetries > 0 || resumes > 0 {
+	if t.mediaRetries > 0 || t.resumes > 0 {
 		// Usage of all completed steps, not only of the last stream call.
-		r.TotalUsage = completedUsage
+		r.TotalUsage = t.completedUsage
 	}
-	r.PersistedMessageCount = persistedCount
-	r.AttemptID = attemptID
-	r.PersistenceError = persistenceErr
-	return r, persistenceErr
+	r.PersistedMessageCount = t.persistedCount
+	r.AttemptID = t.attemptID
+	r.PersistenceError = t.persistenceErr
+	return r, t.persistenceErr
 }
 
 // steerInjection is a steer message that PrepareStep injected into the
