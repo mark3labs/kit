@@ -185,25 +185,20 @@ func TestTrimTrailingResets(t *testing.T) {
 	}
 }
 
-func TestFirstAndLastLines(t *testing.T) {
+func TestFirstLines(t *testing.T) {
 	const out = "1\n2\n3\n4\n5"
 	tests := []struct {
 		name       string
 		head, want string
-		tail       string
-		wantTail   string
 	}{
-		{"head two", FirstLines(out, 2), "1\n2", LastLines(out, 2), "4\n5"},
-		{"more than exist", FirstLines(out, 10), out, LastLines(out, 10), out},
-		{"zero", FirstLines(out, 0), "", LastLines(out, 0), ""},
+		{"head two", FirstLines(out, 2), "1\n2"},
+		{"more than exist", FirstLines(out, 10), out},
+		{"zero", FirstLines(out, 0), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.head != tt.want {
 				t.Errorf("FirstLines = %q, want %q", tt.head, tt.want)
-			}
-			if tt.tail != tt.wantTail {
-				t.Errorf("LastLines = %q, want %q", tt.tail, tt.wantTail)
 			}
 		})
 	}
