@@ -130,6 +130,10 @@ type App struct {
 	// need to exercise the steer-drain path without standing up a full
 	// *kit.Kit can set this field directly to inject fake items.
 	steerDrainFn func() []queueItem
+
+	// subagentForwardOnce starts the forwarding of subagent run updates to
+	// the program once. See startSubagentForwarding.
+	subagentForwardOnce sync.Once
 }
 
 // New creates a new App with the provided options and pre-loaded messages.
@@ -248,6 +252,9 @@ func (a *App) SetProgram(p *tea.Program) {
 		a.mcpToolsReadyPending = false
 	}
 	a.mu.Unlock()
+	if p != nil {
+		a.startSubagentForwarding()
+	}
 	if replay {
 		// Send blocks until the event loop reads the message, and the loop
 		// starts only when the caller runs the program after SetProgram.
@@ -1250,47 +1257,11 @@ func (a *App) subscribeSDKEvents(sendFn func(Event), stepUsageSeen *atomic.Bool,
 	var unsubs []func()
 
 	unsubs = append(unsubs, k.Subscribe(func(e kit.Event) {
+		if converted, ok := ConvertSDKEvent(e); ok {
+			sendFn(converted)
+			return
+		}
 		switch ev := e.(type) {
-		case kit.ToolCallEvent:
-			sendFn(ToolCallStartedEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
-		case kit.ToolCallStartEvent:
-			sendFn(ToolCallInputStartEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolKind: ev.ToolKind})
-		case kit.ToolCallDeltaEvent:
-			sendFn(ToolCallInputDeltaEvent{ToolCallID: ev.ToolCallID, Delta: ev.Delta})
-		case kit.ToolCallEndEvent:
-			sendFn(ToolCallInputEndEvent{ToolCallID: ev.ToolCallID})
-		case kit.ToolExecutionStartEvent:
-			sendFn(ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true})
-		case kit.ToolExecutionEndEvent:
-			sendFn(ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, IsStarting: false})
-		case kit.ToolResultEvent:
-			sendFn(ToolResultEvent{
-				ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs,
-				Result: ev.Result, IsError: ev.IsError,
-			})
-		case kit.ToolCallContentEvent:
-			sendFn(ToolCallContentEvent{Content: ev.Content})
-		case kit.RetryEvent:
-			sendFn(RetryEvent{Attempt: ev.Attempt, Error: ev.Error, Delay: ev.Delay})
-		case kit.StepStartEvent:
-			sendFn(StepStartedEvent{StepNumber: ev.StepNumber})
-		case kit.StepResumeEvent:
-			sendFn(StepResumeEvent{StepNumber: ev.StepNumber, Resume: ev.Resume, Error: ev.Error, Delay: ev.Delay})
-		case kit.ResponseEvent:
-			sendFn(ResponseCompleteEvent{Content: ev.Content})
-		case kit.MessageUpdateEvent:
-			sendFn(StreamChunkEvent{Content: ev.Chunk})
-		case kit.ReasoningDeltaEvent:
-			sendFn(ReasoningChunkEvent{Delta: ev.Delta})
-		case kit.ReasoningCompleteEvent:
-			sendFn(ReasoningCompleteEvent{})
-		case kit.ToolOutputEvent:
-			sendFn(ToolOutputEvent{
-				ToolCallID: ev.ToolCallID,
-				ToolName:   ev.ToolName,
-				Chunk:      ev.Chunk,
-				IsStderr:   ev.IsStderr,
-			})
 		case kit.SteerConsumedEvent:
 			sendFn(SteerConsumedEvent{})
 		case kit.StepUsageEvent:
@@ -1333,6 +1304,57 @@ func (a *App) subscribeSDKEvents(sendFn func(Event), stepUsageSeen *atomic.Bool,
 			unsub()
 		}
 	}
+}
+
+// ConvertSDKEvent converts an SDK event to the app event that the TUI shows
+// for it. It returns false for an event that has no display form, and for
+// the events that need more than a conversion (steering, usage, password
+// prompts and turn ends). The parent agent and its subagents use the same
+// conversion, so that both render the same way.
+func ConvertSDKEvent(e kit.Event) (Event, bool) {
+	switch ev := e.(type) {
+	case kit.ToolCallEvent:
+		return ToolCallStartedEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs}, true
+	case kit.ToolCallStartEvent:
+		return ToolCallInputStartEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolKind: ev.ToolKind}, true
+	case kit.ToolCallDeltaEvent:
+		return ToolCallInputDeltaEvent{ToolCallID: ev.ToolCallID, Delta: ev.Delta}, true
+	case kit.ToolCallEndEvent:
+		return ToolCallInputEndEvent{ToolCallID: ev.ToolCallID}, true
+	case kit.ToolExecutionStartEvent:
+		return ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true}, true
+	case kit.ToolExecutionEndEvent:
+		return ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, IsStarting: false}, true
+	case kit.ToolResultEvent:
+		return ToolResultEvent{
+			ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs,
+			Result: ev.Result, IsError: ev.IsError,
+		}, true
+	case kit.ToolCallContentEvent:
+		return ToolCallContentEvent{Content: ev.Content}, true
+	case kit.RetryEvent:
+		return RetryEvent{Attempt: ev.Attempt, Error: ev.Error, Delay: ev.Delay}, true
+	case kit.StepStartEvent:
+		return StepStartedEvent{StepNumber: ev.StepNumber}, true
+	case kit.StepResumeEvent:
+		return StepResumeEvent{StepNumber: ev.StepNumber, Resume: ev.Resume, Error: ev.Error, Delay: ev.Delay}, true
+	case kit.ResponseEvent:
+		return ResponseCompleteEvent{Content: ev.Content}, true
+	case kit.MessageUpdateEvent:
+		return StreamChunkEvent{Content: ev.Chunk}, true
+	case kit.ReasoningDeltaEvent:
+		return ReasoningChunkEvent{Delta: ev.Delta}, true
+	case kit.ReasoningCompleteEvent:
+		return ReasoningCompleteEvent{}, true
+	case kit.ToolOutputEvent:
+		return ToolOutputEvent{
+			ToolCallID: ev.ToolCallID,
+			ToolName:   ev.ToolName,
+			Chunk:      ev.Chunk,
+			IsStderr:   ev.IsStderr,
+		}, true
+	}
+	return nil, false
 }
 
 // handleTurnEnd inspects a turn's final StopReason and surfaces actionable

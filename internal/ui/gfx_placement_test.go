@@ -33,7 +33,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 		imageCols = 20
 	)
 
-	m := &AppModel{height: screenH, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, height: screenH, width: 80}
 	ic := NewInputComponent(80, nil)
 	// One pending image whose thumbnail is already rendered, with a placement
 	// sequence, as the direct renderer produces.
@@ -86,7 +86,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 // With no pending images there is nothing to draw, and the placement must be
 // empty so the flush path stays quiet.
 func TestComputeGfxPlacementEmptyWithoutImages(t *testing.T) {
-	m := &AppModel{height: 40, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80}
 	m.input = NewInputComponent(80, nil)
 	if got := m.computeGfxPlacement([]string{"a", "b", "c"}, 1, -1); got != "" {
 		t.Errorf("computeGfxPlacement() = %q, want empty", got)
@@ -98,7 +98,7 @@ func TestComputeGfxPlacementEmptyWithoutImages(t *testing.T) {
 func TestComputeGfxPlacementHidesComposerImageBehindModal(t *testing.T) {
 	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
 	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
-	m := &AppModel{height: 40, width: 80, gfxPlaced: make(map[uint32]struct{})}
+	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80, gfxPlaced: make(map[uint32]struct{})}
 	ic := NewInputComponent(80, nil)
 	ic.pendingImages = make([]uicore.ImageAttachment, 1)
 	ic.imageThumbs = []string{strings.Repeat(" ", 20) + "\n" + strings.Repeat(" ", 20)}
@@ -117,7 +117,7 @@ func TestComputeGfxPlacementHidesComposerImageBehindModal(t *testing.T) {
 }
 
 func TestComputeGfxPlacementIgnoresTextThumbnails(t *testing.T) {
-	m := &AppModel{height: 40, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80}
 	ic := NewInputComponent(80, nil)
 	ic.pendingImages = make([]uicore.ImageAttachment, 1)
 	ic.imageThumbs = []string{"▀▀▀▀"}
@@ -138,7 +138,7 @@ func TestComputeGfxPlacementIgnoresTextThumbnails(t *testing.T) {
 // stays identical. Re-placing only on a changed row therefore leaves the image
 // stranded, which is the bug this guards.
 func TestFlushGfxPlacementRedrawsAfterRepaint(t *testing.T) {
-	m := &AppModel{height: 40, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80}
 	m.gfxPlacement = "\x1b_Ga=p,i=7\x1b\\"
 
 	// A repaint happened.
@@ -172,7 +172,7 @@ func TestFlushGfxPlacementRedrawsAfterRepaint(t *testing.T) {
 // Once the images are gone there is nothing to draw, and the dirty flag must
 // still clear so the nudge loop stops.
 func TestFlushGfxPlacementStopsWhenImagesGo(t *testing.T) {
-	m := &AppModel{height: 40, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80}
 	m.gfxPlacement = ""
 	m.gfxDirty = true
 
@@ -214,7 +214,7 @@ func TestTranscriptPreviewPlacesDirectly(t *testing.T) {
 			termgfx.PreviewMode(), termgfx.ModeDirect)
 	}
 
-	m := &AppModel{width: 100, height: 40}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 100, height: 40}
 	cmd := m.transcriptPreviewCmd([]uicore.ImageAttachment{
 		{Data: testGradientPNG(t), MediaType: "image/png"},
 	}, "anchor-1")
@@ -272,7 +272,7 @@ func TestTranscriptPlacementFollowsTheScrollback(t *testing.T) {
 		UnicodePlaceholders: false,
 	})
 
-	m := &AppModel{width: 80, height: screenH}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 80, height: screenH}
 	m.scrollList = NewScrollList(80, 20)
 
 	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+imageCols)+"\n", imageRows), "\n")
@@ -337,7 +337,7 @@ func TestTranscriptPreviewUsesPlaceholders(t *testing.T) {
 			termgfx.PreviewMode(), termgfx.ModePlaceholder)
 	}
 
-	m := &AppModel{width: 100, height: 40}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 100, height: 40}
 	cmd := m.transcriptPreviewCmd([]uicore.ImageAttachment{
 		{Data: testGradientPNG(t), MediaType: "image/png"},
 	}, "anchor-1")
@@ -458,7 +458,7 @@ func TestTranscriptPlacementClipsToTheViewport(t *testing.T) {
 		UnicodePlaceholders: false,
 	})
 
-	m := &AppModel{width: 80, height: 40}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 80, height: 40}
 	// A viewport shorter than the image, scrolled to the bottom, so the first
 	// imageRows-visible rows of the picture are above the top edge.
 	m.scrollList = NewScrollList(80, visible)
@@ -508,7 +508,7 @@ func TestTranscriptPlacementYieldsToModals(t *testing.T) {
 		UnicodePlaceholders: false,
 	})
 
-	m := &AppModel{width: 80, height: 40}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 80, height: 40}
 	m.scrollList = NewScrollList(80, 20)
 	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+20)+"\n", 4), "\n")
 	m.scrollList.SetItems([]MessageItem{
@@ -539,7 +539,7 @@ func TestTranscriptPlacementYieldsToModals(t *testing.T) {
 }
 
 func TestGfxDeletionSurvivesRepeatedViews(t *testing.T) {
-	m := &AppModel{width: 80, height: 40, gfxPlaced: map[uint32]struct{}{7: {}}}
+	m := &AppModel{conversationPane: &conversationPane{}, width: 80, height: 40, gfxPlaced: map[uint32]struct{}{7: {}}}
 	first := m.computeGfxPlacement(nil, -1, -1)
 	second := m.computeGfxPlacement(nil, -1, -1)
 	if first == "" || second != first {

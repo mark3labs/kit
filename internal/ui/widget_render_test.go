@@ -128,7 +128,7 @@ func TestResolveWidgetContentMarkdown(t *testing.T) {
 }
 
 // newTestModel returns a minimal AppModel usable for widget-resolution tests.
-func newTestModel() *AppModel { return &AppModel{} }
+func newTestModel() *AppModel { return &AppModel{conversationPane: &conversationPane{}} }
 
 // TestWidgetFrameDivisor checks the mapping from a requested rate to a
 // subdivision of the fixed shared clock.
@@ -220,31 +220,37 @@ func TestWidgetCacheInvalidatedByResize(t *testing.T) {
 func TestAnimatedWidgetsDetection(t *testing.T) {
 	render := func(int) string { return "x" }
 
-	static := &AppModel{getWidgets: func(string) []WidgetData {
-		return []WidgetData{{Render: render}}
-	}}
+	static := &AppModel{
+		conversationPane: &conversationPane{}, getWidgets: func(string) []WidgetData {
+			return []WidgetData{{Render: render}}
+		},
+	}
 	if static.animatedWidgets() {
 		t.Error("a widget without RefreshHz must not hold the clock open")
 	}
 
-	animated := &AppModel{getWidgets: func(placement string) []WidgetData {
-		if placement == "above" {
-			return []WidgetData{{Render: render, RefreshHz: 8}}
-		}
-		return nil
-	}}
+	animated := &AppModel{
+		conversationPane: &conversationPane{}, getWidgets: func(placement string) []WidgetData {
+			if placement == "above" {
+				return []WidgetData{{Render: render, RefreshHz: 8}}
+			}
+			return nil
+		},
+	}
 	if !animated.animatedWidgets() {
 		t.Error("a widget with RefreshHz must hold the clock open")
 	}
 
-	footer := &AppModel{getFooter: func() *WidgetData {
-		return &WidgetData{Render: render, RefreshHz: 4}
-	}}
+	footer := &AppModel{
+		conversationPane: &conversationPane{}, getFooter: func() *WidgetData {
+			return &WidgetData{Render: render, RefreshHz: 4}
+		},
+	}
 	if !footer.animatedWidgets() {
 		t.Error("an animated footer must hold the clock open")
 	}
 
-	if (&AppModel{}).animatedWidgets() {
+	if (&AppModel{conversationPane: &conversationPane{}}).animatedWidgets() {
 		t.Error("no providers must not hold the clock open")
 	}
 }

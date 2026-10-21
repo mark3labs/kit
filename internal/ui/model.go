@@ -690,8 +690,27 @@ type AppModelOptions struct {
 // All messages (completed and streaming) are rendered via the ScrollList
 // viewport. The alt screen owns the full terminal.
 type AppModel struct {
-	subagentView                *subagentInspector
-	subagentInspectorGeneration uint64
+	// conversationPane is the transcript pane on screen: parentPane, or the
+	// pane of the subagent run that the user views (see childView). It is
+	// embedded so that the transcript code reads m.messages, m.stream and
+	// the other pane fields of whichever agent is shown.
+	*conversationPane
+
+	// parentPane is the parent agent's pane. It stays the same while a
+	// subagent pane is shown.
+	parentPane *conversationPane
+
+	// childPanes holds one pane per subagent run, keyed by run ID. A pane is
+	// made when the first update of its run arrives, so that it is complete
+	// when the user opens it.
+	childPanes map[string]*conversationPane
+
+	// childView is non-nil while a subagent pane is shown.
+	childView *childView
+
+	// paneRequest is a pane switch that Update applies after the message is
+	// handled, so that the shown pane never changes during a handler.
+	paneRequest *paneRequest
 	// state is the current state machine state.
 	state appState
 
@@ -704,12 +723,6 @@ type AppModel struct {
 	imagePreview           *imagePreviewModal
 	inputYOffset           int
 	imagePreviewGeneration int
-
-	// stream is the child streaming display component (spinner + streaming text).
-	stream streamComponentIface
-
-	// renderer renders completed messages for ScrollList display.
-	renderer Renderer
 
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
@@ -724,37 +737,11 @@ type AppModel struct {
 	// badge above the input. Cleared when the steer is consumed.
 	steeringMessages []string
 
-	// scrollList manages the in-memory message history with viewport scrolling.
-	scrollList *ScrollList
-
-	// messages holds all completed messages in the conversation history.
-	// The scrollList renders from this slice based on its viewport offset.
-	messages []MessageItem
-
 	// pendingUserPrints holds user messages that have been consumed from the
 	// queue but not yet added to the ScrollList. They are deferred until
 	// SpinnerEvent{Show: true} so the previous assistant response can be
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
-
-	// pendingStreamChunks buffers streaming text/reasoning chunks between
-	// coalescing flush ticks. Applying every chunk immediately forces a full
-	// markdown re-render of the accumulated message per chunk (O(n²) over a
-	// long response); instead chunks are batched and applied at most once
-	// per coalescing window (16ms, widened for long messages — see
-	// adaptiveStreamFlushInterval) or before any other event that
-	// depends on the scrollback state. Consecutive same-role chunks are
-	// concatenated in place.
-	pendingStreamChunks []pendingStreamChunk
-
-	// stepMessageMark is len(m.messages) when the current agent step
-	// started. A step resume removes the streaming items that the failed
-	// step added after this index.
-	stepMessageMark int
-
-	// streamFlushPending is true while a coalescing flush tick is scheduled,
-	// preventing duplicate tick commands.
-	streamFlushPending bool
 
 	// lastHeaderHeight is the extension header height measured by the most
 	// recent distributeHeight() pass. Used by currentScrollbackBounds so
@@ -1065,14 +1052,6 @@ type AppModel struct {
 	// in the ambient status bar.
 	gitBranch string
 
-	// turnStartedAt records when the current agent turn began, so the
-	// activity row can show elapsed time. Zero when idle.
-	turnStartedAt time.Time
-
-	// turnToolCount counts tool calls completed during the current turn, for
-	// the turn-completion receipt. Reset when a turn begins.
-	turnToolCount int
-
 	// lastInputHeight is the composer height measured by the last
 	// distributeHeight. The composer grows and shrinks with its content, so
 	// this is compared after every input update to detect a size change that
@@ -1103,18 +1082,6 @@ type AppModel struct {
 	// ctrlCPressedOnce tracks if Ctrl+C was pressed once to clear input.
 	// A second Ctrl+C (or Ctrl+C when input is empty) will quit the app.
 	ctrlCPressedOnce bool
-
-	// streamingBashOutput holds the current streaming bash output lines.
-	// Lines are accumulated as they arrive and displayed in the stream region.
-	streamingBashOutput []string
-	// streamingBashStderr holds stderr lines separately (rendered differently).
-	streamingBashStderr []string
-	// streamingBashMaxLines caps how many lines to accumulate to prevent memory issues.
-	streamingBashMaxLines int
-	// streaming bash fields are only mutated/read from the Bubble Tea event loop
-	// (Update/View), so no mutex is required here.
-	// streamingBashCommand holds the command being executed for display as a header.
-	streamingBashCommand string
 
 	// ---------- Cached layout heights (invalidated by layoutDirty) ----------
 
@@ -1234,21 +1201,21 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	rdr := mr
 
 	m := &AppModel{
-		state:           stateInput,
-		appCtrl:         appCtrl,
-		renderer:        rdr,
-		modelName:       opts.ModelName,
-		providerName:    opts.ProviderName,
-		loadingMessage:  opts.LoadingMessage,
-		serverNames:     opts.ServerNames,
-		toolNames:       opts.ToolNames,
-		getToolNames:    opts.GetToolNames,
-		getMCPToolCount: opts.GetMCPToolCount,
-		usageTracker:    opts.UsageTracker,
-		cwd:             opts.Cwd,
-		shell:           opts.Shell,
-		width:           width,
-		height:          height,
+		conversationPane: &conversationPane{renderer: rdr},
+		state:            stateInput,
+		appCtrl:          appCtrl,
+		modelName:        opts.ModelName,
+		providerName:     opts.ProviderName,
+		loadingMessage:   opts.LoadingMessage,
+		serverNames:      opts.ServerNames,
+		toolNames:        opts.ToolNames,
+		getToolNames:     opts.GetToolNames,
+		getMCPToolCount:  opts.GetMCPToolCount,
+		usageTracker:     opts.UsageTracker,
+		cwd:              opts.Cwd,
+		shell:            opts.Shell,
+		width:            width,
+		height:           height,
 	}
 
 	// Store extension commands for dispatch.
@@ -1309,6 +1276,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Height will be set properly by distributeHeight().
 	m.scrollList = NewScrollList(width, height-10) // Placeholder height
 	m.messages = []MessageItem{}
+	m.parentPane = m.conversationPane
 
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, appCtrl)
@@ -1690,21 +1658,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				strings.TrimSuffix(msg.Err.Error(), "."))
 		}
 	}
-	if m.subagentView != nil {
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			return m, m.handleSubagentInspectorKey(msg.String())
-		case tea.WindowSizeMsg:
-			m.subagentView.width, m.subagentView.height = msg.Width, msg.Height
-			m.refreshSubagentView()
-		case subagentInspectorTick:
-			if msg.generation != m.subagentInspectorGeneration {
-				return m, nil
-			}
-			m.refreshSubagentView()
-			return m, subagentInspectorTickCmd(msg.generation)
-		}
-	}
 	// Handle capabilities before modal sub-loops can consume the message.
 	var capabilityCmd tea.Cmd
 	switch msg := msg.(type) {
@@ -1733,8 +1686,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(gfxFlushMsg); ok {
 		placementCmd = m.completeGfxFlush()
 	}
-	model, cmd := m.update(msg)
-	if m.clipboardNote != "" && m.quietScrollback() {
+	model, cmd := m.routeUpdate(msg)
+	if m.clipboardNote != "" && m.childView == nil && m.quietScrollback() {
 		m.printSystemMessage(m.clipboardNote)
 		m.clipboardNote = ""
 	}
@@ -1869,6 +1822,70 @@ func (m *AppModel) advanceFrame(t frameTickMsg) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	return tea.Batch(append(cmds, m.frames.tick())...)
+}
+
+// routeUpdate sends msg to the pane it belongs to and then applies any
+// pane switch that a handler requested.
+//
+// Subagent run updates and their stream flush ticks go to the child panes,
+// shown or not. While a child pane is shown, the keys, the mouse and the
+// animation frames go to it (see updateChildView). Every other message
+// belongs to the parent agent: it is handled by update with the parent pane
+// shown for the duration of the call, so the parent's transcript keeps up
+// while the user views a child.
+func (m *AppModel) routeUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case app.SubagentRunEvent:
+		cmd = m.applySubagentRunEvent(msg)
+	case streamAppendFlushMsg:
+		if msg.paneID != "" {
+			m.flushChildPane(msg.paneID)
+			break
+		}
+		cmd = m.updateParent(msg)
+	default:
+		if m.childView != nil {
+			if handled, c := m.updateChildView(msg); handled {
+				cmd = c
+				break
+			}
+		}
+		cmd = m.updateParent(msg)
+		if size, ok := msg.(tea.WindowSizeMsg); ok {
+			m.resizeChildPanes(size)
+		}
+	}
+	// A parent dialog (an extension prompt, a password prompt, an overlay)
+	// needs the keyboard, which the child view would keep. Show the parent.
+	if m.childView != nil && m.paneRequest == nil && m.state != stateInput && m.state != stateWorking {
+		m.paneRequest = &paneRequest{}
+	}
+	m.applyPaneRequest()
+	return m, cmd
+}
+
+// updateParent runs update with the parent pane shown.
+func (m *AppModel) updateParent(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	parent := m.parentPane
+	if m.childView == nil || parent == nil {
+		parent = m.conversationPane
+	}
+	m.withPane(parent, func() { _, cmd = m.update(msg) })
+	return cmd
+}
+
+// resizeChildPanes gives a new terminal width to the child panes. The shown
+// pane gets its viewport size from the next layout pass.
+func (m *AppModel) resizeChildPanes(size tea.WindowSizeMsg) {
+	for _, p := range m.childPanes {
+		p.renderer.SetWidth(size.Width)
+		if p.stream != nil {
+			updated, _ := p.stream.Update(size)
+			p.stream, _ = updated.(streamComponentIface)
+		}
+	}
 }
 
 // update is the state machine proper. Callers go through Update, which wraps
@@ -2596,8 +2613,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Ctrl+X t → Toggle thinking block visibility.
 				if m.isReasoningModel {
 					m.thinkingVisible = !m.thinkingVisible
-					if m.stream != nil {
-						m.stream.SetThinkingVisible(m.thinkingVisible)
+					for _, p := range m.allPanes() {
+						if p.stream != nil {
+							p.stream.SetThinkingVisible(m.thinkingVisible)
+						}
 					}
 				}
 			case "m":
@@ -2961,209 +2980,21 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setAgentState(stateWorking)
 			m.layoutDirty = true
 		}
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, m.applyPaneEvent(msg))
 
-	case app.ReasoningChunkEvent:
-		// Forward to stream component for display rendering
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Buffer for the coalesced ScrollList update (live display flushes
-		// on the next streamAppendFlushMsg tick, ~60 fps).
-		if cmd := m.bufferStreamChunk("reasoning", msg.Delta); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ReasoningCompleteEvent:
-		// Forward to stream component to freeze reasoning duration
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Mark the reasoning StreamingMessageItem as complete to freeze its counter
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && streamMsg.role == "reasoning" {
-				streamMsg.MarkComplete()
-			}
-		}
-
-	case app.StreamChunkEvent:
-		// Forward to stream component for display rendering
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-		// Buffer for the coalesced ScrollList update (live display flushes
-		// on the next streamAppendFlushMsg tick, ~60 fps).
-		if cmd := m.bufferStreamChunk("assistant", msg.Content); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolCallStartedEvent:
-		// Flush any accumulated streaming text to the ScrollList first (streaming
-		// always completes before tool calls fire). The tool call itself is
-		// NOT printed here — a unified block (header + result) will be
-		// rendered when the ToolResultEvent arrives.
-		m.flushStreamContent()
-
-		// For shell commands, extract and store the command for the streaming
-		// output header. The earlier tool name is accepted too, so a replayed
-		// session keeps its header.
-		if msg.ToolName == core.ShellToolName || msg.ToolName == core.LegacyShellToolName {
-			var args struct {
-				Command string `json:"command"`
-			}
-			if err := json.Unmarshal([]byte(msg.ToolArgs), &args); err == nil && args.Command != "" {
-				m.streamingBashCommand = args.Command
-			}
-		}
-		// Code mode streams its nested call log through the same item;
-		// give it a header so the log is not anonymous.
-		if msg.ToolName == core.CodeModeToolName {
-			m.streamingBashCommand = "Running script"
-		}
-
-	case app.ToolExecutionEvent:
-		// Pass to stream component for execution spinner display.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(msg)
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolResultEvent:
-		// Remove streaming bash output item (if present) before adding the final tool result.
-		// The tool result will contain the truncated output.
-		if len(m.messages) > 0 {
-			if _, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
-				// Remove the streaming bash item
-				m.messages = m.messages[:len(m.messages)-1]
-			}
-		}
-
-		// Add the final tool result with truncated output.
-		m.printToolResult(msg)
-
-		// Clear legacy bash output state
-		m.streamingBashOutput = nil
-		m.streamingBashStderr = nil
-		m.streamingBashCommand = ""
-
-		// Start spinner again while waiting for the next LLM response.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-
-	case app.ToolOutputEvent:
-		// Append bash output to streaming bash item in ScrollList.
-		// Find or create the streaming bash output item.
-		var bashItem *StreamingBashOutputItem
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
-				bashItem = item
-			}
-		}
-
-		// Create new bash output item if needed
-		if bashItem == nil {
-			bashItem = NewStreamingBashOutputItem(generateMessageID(), m.streamingBashCommand)
-			m.messages = append(m.messages, bashItem)
-		}
-
-		// Append the chunk
-		if msg.IsStderr {
-			bashItem.AppendStderr(msg.Chunk)
-		} else {
-			bashItem.AppendStdout(msg.Chunk)
-		}
-		// Invalidate cached height after mutation.
-		if m.scrollList != nil {
-			m.scrollList.InvalidateItemHeight(bashItem.ID())
-		}
-
-		// Check height and cap if needed - we don't want streaming output to grow forever
-		const maxStreamingBashHeight = 20 // Max lines to show during streaming
-		if bashItem.Height() > maxStreamingBashHeight {
-			// Stop showing new output once we hit the limit
-			// The final tool result will show truncated output
-			return m, nil
-		}
-
-		// Refresh ScrollList (handles autoscroll internally)
-		m.refreshContent()
+	case app.ReasoningChunkEvent, app.ReasoningCompleteEvent, app.StreamChunkEvent,
+		app.ToolCallStartedEvent, app.ToolExecutionEvent, app.ToolResultEvent, app.ToolOutputEvent:
+		// Transcript and activity-row events. The subagent panes apply the
+		// same events with the same function.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
 
 	case app.ToolCallContentEvent:
 		// In streaming mode this text was already delivered via StreamChunkEvents
 		// and will be flushed before the next tool call. Ignore to avoid
 		// double-printing.
 
-	case app.RetryEvent:
-		// Only pre-output retries reach the UI. Keep completed steps and
-		// their messages; reset only the transient stream component.
-		if m.stream != nil {
-			m.stream.Reset()
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.layoutDirty = true
-
-	case app.StepStartedEvent:
-		// Buffered chunks of the previous step were applied before this
-		// handler ran, so items from this index on belong to this step.
-		m.stepMessageMark = len(m.messages)
-
-	case app.StepResumeEvent:
-		// The failed step's output is discarded by the agent and is not
-		// saved. Remove it from the display, so the restarted step does
-		// not show the same text twice. Completed steps stay.
-		m.discardStepStreamingItems()
-		m.pendingStreamChunks = m.pendingStreamChunks[:0]
-		if m.stream != nil {
-			m.stream.Reset()
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.printSystemMessage(stepResumeNotice(msg))
-		m.layoutDirty = true
-
-	case app.ResponseCompleteEvent:
-		// This event fires for both streaming and non-streaming paths.
-		// In streaming mode, mark the StreamingMessageItem as complete.
-		// In non-streaming mode (no stream content accumulated), print the text.
-
-		// Check if we have an active StreamingMessageItem
-		hasStreamingItem := false
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-				hasStreamingItem = true
-			}
-		}
-
-		// Reset stream component
-		if m.stream != nil {
-			m.stream.Reset()
-		}
-
-		// If no streaming item exists and we have content, print it as a regular message
-		if !hasStreamingItem && strings.TrimSpace(msg.Content) != "" {
-			m.printAssistantMessage(msg.Content)
-		}
+	case app.RetryEvent, app.StepStartedEvent, app.StepResumeEvent, app.ResponseCompleteEvent:
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
 
 	case app.MessageCreatedEvent:
 		// Informational — no action needed by parent.
@@ -3212,62 +3043,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.layoutDirty = true
 		}
 
-	case app.StepCompleteEvent:
-		// Stop the spinner and return to input state. The response is already
-		// mirrored in the ScrollList as a StreamingMessageItem, so
-		// finalizeStreamTurn() freezes it and drops the stream component's
-		// redundant copy (see its doc comment).
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		m.finalizeStreamTurn()
-		m.printTurnReceipt(turnDone)
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.StepCancelledEvent:
-		// User cancelled the step (double-ESC). The partial response stays
-		// visible via the ScrollList copy; the stream component's copy is
-		// dropped so the next turn does not re-print it after the receipt.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
-				item.MarkIncomplete()
-			}
-		}
-		m.finalizeStreamTurn()
-		m.printTurnReceipt(turnCancelled)
-		m.setAgentState(stateInput)
-		m.canceling = false
-
-	case app.StepErrorEvent:
-		// The partial response stays visible via the ScrollList copy; the
-		// error block is printed after it, in chronological order.
-		if m.stream != nil {
-			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
-			m.stream, _ = updated.(streamComponentIface)
-			cmds = append(cmds, cmd)
-		}
-		if len(m.messages) > 0 {
-			if item, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && item.streaming {
-				item.MarkIncomplete()
-			}
-		}
-		m.finalizeStreamTurn()
-		if msg.Err != nil {
-			m.printErrorResponse(msg)
-		}
-		// Close the turn with a failure receipt, consistent with the Done and
-		// Interrupted receipts on the other terminal events. The error block
-		// above says what went wrong; the receipt records the turn's shape
-		// (tool count, elapsed) that the error itself omits.
-		m.printTurnReceipt(turnFailed)
+	case app.StepCompleteEvent, app.StepCancelledEvent, app.StepErrorEvent:
+		// The pane freezes the streamed response and prints the error block
+		// (if any) and the turn receipt; then the composer gets focus again.
+		cmds = append(cmds, m.applyPaneEvent(msg.(app.Event)))
 		m.setAgentState(stateInput)
 		m.canceling = false
 
@@ -3696,11 +3475,6 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // layout shifts; the activity row appears only while the agent is working.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
-	if m.subagentView != nil {
-		v := tea.NewView(m.renderSubagentInspector())
-		v.AltScreen = true
-		return v
-	}
 	// When quitting, disable alt screen for clean terminal restoration.
 	// This prevents terminal corruption issues on exit.
 	if m.quitting {
@@ -4207,6 +3981,9 @@ func (m *AppModel) renderSeparator() string {
 // is active and provides a Render function, the default content is passed
 // through it for wrapping/modification.
 func (m *AppModel) renderInput() string {
+	if m.childView != nil && m.child != nil {
+		return m.renderChildBar()
+	}
 	if m.input == nil {
 		return ""
 	}
@@ -4739,7 +4516,7 @@ func (m *AppModel) printUserMessage(text string) {
 func (m *AppModel) printAssistantMessage(text string) {
 	if strings.TrimSpace(text) != "" {
 		now := time.Now()
-		modelName := m.modelName
+		modelName := m.paneModelName()
 
 		// Add to in-memory scrollList. The renderer call is deferred into a
 		// closure so the block repaints itself after a theme change.
@@ -5729,12 +5506,10 @@ func (m *AppModel) finalizeStreamTurn() {
 	m.layoutDirty = true
 }
 
-// flushStreamAndPendingUserMessages moves the previous assistant response and
-// any pending queued user messages into the ScrollList. Called from
-// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
-// have been processed.
-func (m *AppModel) flushStreamAndPendingUserMessages() {
-	// 1. Flush previous stream content (assistant response).
+// flushPreviousStream moves the previous assistant response of the shown
+// pane from the stream component into the ScrollList. Called when a new step
+// starts, where all previous stream chunks have been processed.
+func (m *AppModel) flushPreviousStream() {
 	if m.stream != nil {
 		if content := m.stream.GetRenderedContent(); content != "" {
 			m.stream.Reset()
@@ -5754,7 +5529,7 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 
 			if !alreadyInList {
 				now := time.Now()
-				modelName := m.modelName
+				modelName := m.paneModelName()
 
 				// Add to in-memory scrollList. The renderer call is deferred
 				// into a closure so the block repaints on a theme change.
@@ -5765,6 +5540,16 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 			}
 		}
 	}
+	m.refreshContent()
+}
+
+// flushStreamAndPendingUserMessages moves the previous assistant response and
+// any pending queued user messages into the ScrollList. Called from
+// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
+// have been processed.
+func (m *AppModel) flushStreamAndPendingUserMessages() {
+	// 1. Flush previous stream content (assistant response).
+	m.flushPreviousStream()
 
 	// 2. Render pending user messages from the queue.
 	for _, text := range m.pendingUserPrints {
@@ -5825,14 +5610,18 @@ func (m *AppModel) isComposerTextKey(msg tea.KeyPressMsg) bool {
 }
 
 // streamAppendFlushMsg fires when buffered stream chunks should be applied
-// to the ScrollList. See AppModel.pendingStreamChunks.
-type streamAppendFlushMsg struct{}
+// to the ScrollList. See conversationPane.pendingStreamChunks.
+type streamAppendFlushMsg struct {
+	// paneID names the pane whose chunks are buffered: "" for the parent
+	// agent, a run ID for a subagent pane.
+	paneID string
+}
 
 // streamAppendFlushTickCmd schedules a coalescing flush of buffered stream
 // chunks after delay.
-func streamAppendFlushTickCmd(delay time.Duration) tea.Cmd {
+func streamAppendFlushTickCmd(paneID string, delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(_ time.Time) tea.Msg {
-		return streamAppendFlushMsg{}
+		return streamAppendFlushMsg{paneID: paneID}
 	})
 }
 
@@ -5885,7 +5674,7 @@ func (m *AppModel) bufferStreamChunk(role, content string) tea.Cmd {
 		return nil
 	}
 	m.streamFlushPending = true
-	return streamAppendFlushTickCmd(m.streamFlushDelay())
+	return streamAppendFlushTickCmd(m.paneID, m.streamFlushDelay())
 }
 
 // flushPendingStreamChunks applies all buffered stream chunks to the
@@ -5947,7 +5736,7 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 
 	// Otherwise, create a new StreamingMessageItem
 	id := generateMessageID()
-	newMsg := NewStreamingMessageItem(id, role, m.modelName)
+	newMsg := NewStreamingMessageItem(id, role, m.paneModelName())
 	newMsg.AppendChunk(content)
 	m.messages = append(m.messages, newMsg)
 
@@ -6532,18 +6321,23 @@ func (m *AppModel) handleRefreshCommand() tea.Cmd {
 // the exceptions: components that build styles once and keep them, and caches
 // keyed on something other than the theme.
 func (m *AppModel) refreshTheme() {
-	m.renderer.UpdateTheme()
-	m.stream.UpdateTheme()
+	for _, p := range m.allPanes() {
+		p.renderer.UpdateTheme()
+		if p.stream != nil {
+			p.stream.UpdateTheme()
+		}
+		// Scrollback items repaint themselves lazily on the next draw (see
+		// themeStamp), but their cached heights were measured against the
+		// old rendering and a repainted block can occupy a different number
+		// of lines.
+		if p.scrollList != nil {
+			p.scrollList.InvalidateHeights()
+		}
+	}
 	// The composer paints its own background, so it has to be repainted too
 	// or the bar keeps the previous theme's fill until restart.
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.UpdateTheme()
-	}
-	// Scrollback items repaint themselves lazily on the next draw (see
-	// themeStamp), but their cached heights were measured against the old
-	// rendering and a repainted block can occupy a different number of lines.
-	if m.scrollList != nil {
-		m.scrollList.InvalidateHeights()
 	}
 	m.layoutDirty = true
 }

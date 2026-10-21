@@ -77,7 +77,7 @@ func TestImagePreviewFitsAndCloses(t *testing.T) {
 	}
 	in := NewInputComponent(80, nil)
 	in.pendingImages = []core.ImageAttachment{{Data: data.Bytes(), MediaType: "image/png"}}
-	m := &AppModel{input: in, width: 80, height: 24, state: stateInput}
+	m := &AppModel{conversationPane: &conversationPane{}, input: in, width: 80, height: 24, state: stateInput}
 	m.openImagePreview(0)
 	ready := m.renderImagePreviewCmd()().(attachmentPreviewReadyMsg)
 	if ready.thumb == "" {

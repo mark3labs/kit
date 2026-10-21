@@ -95,28 +95,8 @@ func (m *AppModel) openSubagentRun(index int) tea.Cmd {
 		m.printSystemMessage("This subagent run is no longer retained.")
 		return nil
 	}
-	runs := c.SubagentRuns()
-	selectedIndex := 0
-	for i, candidate := range runs {
-		if candidate.ID == run.ID {
-			selectedIndex = i
-			break
-		}
-	}
-	m.subagentInspectorGeneration++
-	childWidth := max(1, m.width)
-	m.subagentView = &subagentInspector{parentSessionID: run.ParentSessionID, runs: runs, index: selectedIndex, width: childWidth, height: m.height, renderer: newMessageRenderer(childWidth, false), scrollByRun: make(map[string]childScrollPosition)}
-	m.refreshSubagentView()
-	if m.subagentView != nil {
-		for i, r := range m.subagentView.runs {
-			if r.ID == run.ID {
-				m.subagentView.index = i
-				break
-			}
-		}
-		m.refreshSubagentView()
-	}
-	return subagentInspectorTickCmd(m.subagentInspectorGeneration)
+	m.paneRequest = &paneRequest{runID: run.ID, parentSessionID: run.ParentSessionID}
+	return nil
 }
 
 func (m *AppModel) updateSubagentRunPickerEvent(msg tea.Msg) tea.Cmd {

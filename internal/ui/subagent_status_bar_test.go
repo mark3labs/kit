@@ -18,7 +18,7 @@ func TestSubagentStatusBarStatuses(t *testing.T) {
 	} {
 		t.Run(tc.status, func(t *testing.T) {
 			c := &inspectorTestController{runs: []kit.SubagentRun{{Agent: "explore", Status: tc.status, FinishedAt: time.Now()}}}
-			m := &AppModel{appCtrl: c, width: 80}
+			m := &AppModel{conversationPane: &conversationPane{}, appCtrl: c, width: 80}
 			row := m.renderSubagentStatusBar()
 			if !strings.Contains(row, tc.glyph) || !strings.Contains(row, "explore") {
 				t.Fatalf("unexpected row: %q", row)
@@ -35,7 +35,7 @@ func TestSubagentStatusBarStatuses(t *testing.T) {
 
 func TestSubagentStatusBarBlinksWithoutMovingLabels(t *testing.T) {
 	c := &inspectorTestController{runs: []kit.SubagentRun{{Agent: "explore", Status: "running"}}}
-	m := &AppModel{appCtrl: c, width: 80}
+	m := &AppModel{conversationPane: &conversationPane{}, appCtrl: c, width: 80}
 	on := m.renderSubagentStatusBar()
 	m.frames.frame = FrameClockFPS / 2
 	off := m.renderSubagentStatusBar()
