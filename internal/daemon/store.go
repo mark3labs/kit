@@ -69,18 +69,8 @@ func readHostBook() ([]HostEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("daemon: read host book: %w", err)
-	}
-	var book hostBookFile
-	if err := json.Unmarshal(b, &book); err != nil {
-		return nil, fmt.Errorf("daemon: parse host book %s: %w", path, err)
-	}
-	return book.Hosts, nil
+	book, err := readJSONFile[hostBookFile](path, "host book")
+	return book.Hosts, err
 }
 
 func writeHostBook(hosts []HostEntry) error {
@@ -88,15 +78,38 @@ func writeHostBook(hosts []HostEntry) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("daemon: host book dir: %w", err)
-	}
 	sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
-	b, err := json.MarshalIndent(hostBookFile{Hosts: hosts}, "", "  ")
+	return writeJSONFile(path, "host book", ".hosts-*", hostBookFile{Hosts: hosts})
+}
+
+// readJSONFile decodes path into a T. A file that does not exist gives the zero T.
+func readJSONFile[T any](path, what string) (T, error) {
+	var v T
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return v, nil
+	}
+	if err != nil {
+		return v, fmt.Errorf("daemon: read %s: %w", what, err)
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		var zero T
+		return zero, fmt.Errorf("daemon: parse %s %s: %w", what, path, err)
+	}
+	return v, nil
+}
+
+// writeJSONFile creates the parent directory, encodes v with two-space
+// indentation, and writes it atomically with private store permissions.
+func writeJSONFile(path, what, tmpPattern string, v any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("daemon: %s dir: %w", what, err)
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeJSONFileAtomic(path, ".hosts-*", b, 0o600)
+	return writeJSONFileAtomic(path, tmpPattern, b, 0o600)
 }
 
 // writeJSONFileAtomic writes data followed by one newline using a same-directory
@@ -270,18 +283,8 @@ func readAllowlist() ([]ClientEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("daemon: read allowlist: %w", err)
-	}
-	var list allowlistFile
-	if err := json.Unmarshal(b, &list); err != nil {
-		return nil, fmt.Errorf("daemon: parse allowlist %s: %w", path, err)
-	}
-	return list.Clients, nil
+	list, err := readJSONFile[allowlistFile](path, "allowlist")
+	return list.Clients, err
 }
 
 func writeAllowlist(clients []ClientEntry) error {
@@ -289,15 +292,8 @@ func writeAllowlist(clients []ClientEntry) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("daemon: allowlist dir: %w", err)
-	}
 	sort.Slice(clients, func(i, j int) bool { return clients[i].FP < clients[j].FP })
-	b, err := json.MarshalIndent(allowlistFile{Clients: clients}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeJSONFileAtomic(path, ".authorized-*", b, 0o600)
+	return writeJSONFile(path, "allowlist", ".authorized-*", allowlistFile{Clients: clients})
 }
 
 // AuthorizeClient stores a freshly paired client's public key. The
