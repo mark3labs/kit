@@ -138,7 +138,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4326
+      "wordCount": 4373
     },
     {
       "id": "cli/flags",
@@ -273,7 +273,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 627
+      "wordCount": 675
     },
     {
       "id": "extensions/loading",
@@ -415,11 +415,12 @@
       "headings": [
         "Basic usage",
         "Non-interactive mode",
+        "Tool execution and trust",
         "Resuming sessions",
         "ACP server mode"
       ],
       "tags": [],
-      "wordCount": 241
+      "wordCount": 405
     },
     {
       "id": "sdk/callbacks",
@@ -441,7 +442,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 1309
+      "wordCount": 1324
     },
     {
       "id": "sdk/options",

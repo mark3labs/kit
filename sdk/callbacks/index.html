@@ -6,7 +6,7 @@
 <title>Callbacks | Kit</title>
 <meta name="description" content="Monitor tool calls and streaming output with the Kit Go SDK.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CTxZopFr.js"></script>
+<script type="module" src="/assets/index-aCdNJlIs.js"></script>
 <link rel="canonical" href="https://go-kit.dev/sdk/callbacks" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -117,8 +117,10 @@ user or try something else). This is the same as a block from an extension.
 
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
+remain necessary when input is untrusted.
 
 ### AfterToolResult — modify tool output
 

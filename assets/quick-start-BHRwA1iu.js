@@ -18,6 +18,22 @@ var e={frontmatter:{title:`Quick Start`,description:`Get up and running with Kit
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Run tests"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --quiet</span></span></code></pre>
 <p>Ephemeral mode (no session file created):</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Quick question"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-session</span></span></code></pre>
+<h2 id="tool-execution-and-trust"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-execution-and-trust"><span class="icon icon-link"></span></a>Tool execution and trust</h2>
+<p>The standard CLI/TUI and non-interactive runs execute enabled tool calls without
+a built-in per-call approval prompt by default. Shell commands run with the
+process account's permissions. The write and edit tools can change files without
+using the shell. Custom extensions and SDK hooks can block calls. <code>--quiet</code>,
+<code>--json</code>, and <code>--no-session</code> do not add isolation or approval.</p>
+<p>Repository files, fetched content, MCP results, and issue/PR text can influence
+model instructions. With untrusted input, use a dedicated restricted account or
+an isolated runtime. Limit filesystem mounts and network access, and provide only
+the credentials needed for the task. A working directory is not a filesystem
+access boundary. Kit does not automatically provide an OS sandbox.</p>
+<p><a href="/cli/commands#acp-server">ACP server mode</a> is an exception: its default approval
+mode is <code>ask</code>, subject to read-only tool exemptions and remembered session
+decisions. Approval prompts are not an OS sandbox or a complete defense against
+malicious input. This guidance does not add a gate that blocks destructive
+commands.</p>
 <h2 id="resuming-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#resuming-sessions"><span class="icon icon-link"></span></a>Resuming sessions</h2>
 <p>Continue the most recent session for the current directory:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --continue</span></span>
@@ -34,7 +50,7 @@ var e={frontmatter:{title:`Quick Start`,description:`Get up and running with Kit
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># With debug logging to stderr</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span></span></code></pre>
-<p>The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.</p>`,headings:[{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Non-interactive mode`,id:`non-interactive-mode`},{depth:2,text:`Resuming sessions`,id:`resuming-sessions`},{depth:2,text:`ACP server mode`,id:`acp-server-mode`}],raw:`
+<p>The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.</p>`,headings:[{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Non-interactive mode`,id:`non-interactive-mode`},{depth:2,text:`Tool execution and trust`,id:`tool-execution-and-trust`},{depth:2,text:`Resuming sessions`,id:`resuming-sessions`},{depth:2,text:`ACP server mode`,id:`acp-server-mode`}],raw:`
 # Quick Start
 
 ## Basic usage
@@ -90,6 +106,26 @@ Ephemeral mode (no session file created):
 \`\`\`bash
 kit "Quick question" --no-session
 \`\`\`
+
+## Tool execution and trust
+
+The standard CLI/TUI and non-interactive runs execute enabled tool calls without
+a built-in per-call approval prompt by default. Shell commands run with the
+process account's permissions. The write and edit tools can change files without
+using the shell. Custom extensions and SDK hooks can block calls. \`--quiet\`,
+\`--json\`, and \`--no-session\` do not add isolation or approval.
+
+Repository files, fetched content, MCP results, and issue/PR text can influence
+model instructions. With untrusted input, use a dedicated restricted account or
+an isolated runtime. Limit filesystem mounts and network access, and provide only
+the credentials needed for the task. A working directory is not a filesystem
+access boundary. Kit does not automatically provide an OS sandbox.
+
+[ACP server mode](/cli/commands#acp-server) is an exception: its default approval
+mode is \`ask\`, subject to read-only tool exemptions and remembered session
+decisions. Approval prompts are not an OS sandbox or a complete defense against
+malicious input. This guidance does not add a gate that blocks destructive
+commands.
 
 ## Resuming sessions
 

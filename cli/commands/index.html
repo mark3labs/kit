@@ -6,7 +6,7 @@
 <title>Commands | Kit</title>
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CTxZopFr.js"></script>
+<script type="module" src="/assets/index-aCdNJlIs.js"></script>
 <link rel="canonical" href="https://go-kit.dev/cli/commands" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -214,6 +214,11 @@ The generated workflow:
 - Restricts triggers to repository owners, members, and collaborators (via `author_association`).
 - Uses least-privilege `permissions` and `persist-credentials: false`.
 - Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
+
+**CI trust:** Trigger restrictions control who can start a run. They do not make
+all issue/PR content trusted or confine tool calls. Use an isolated, disposable
+runner, minimal token permissions, and only required credentials. Do not expose
+unrelated secrets or host access. See [Tool execution and trust](/quick-start#tool-execution-and-trust).
 
 After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
 

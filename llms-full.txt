@@ -1442,6 +1442,11 @@ The generated workflow:
 - Uses least-privilege `permissions` and `persist-credentials: false`.
 - Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
 
+**CI trust:** Trigger restrictions control who can start a run. They do not make
+all issue/PR content trusted or confine tool calls. Use an isolated, disposable
+runner, minimal token permissions, and only required credentials. Do not expose
+unrelated secrets or host access. See [Tool execution and trust](/quick-start#tool-execution-and-trust).
+
 After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
 
 The generated workflow uses the bundled [`mark3labs/kit`](https://github.com/mark3labs/kit/blob/master/action.yml) composite action, which installs the Kit binary and runs `kit github run`. That command reads the triggering event, enforces permissions, reacts with an emoji, runs the agent against the issue thread or PR, posts the response as a comment, and — if the agent changed files — pushes a `kit-agent[bot]` branch and opens a pull request.
@@ -3384,11 +3389,17 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 |-----------|-------------|
 | [`auto-commit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/auto-commit.go) | Auto-commit changes on shutdown |
 | [`plan-mode.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/plan-mode.go) | Read-only planning mode |
-| [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Permission gating for destructive tools |
-| [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Confirm destructive operations |
+| [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Opt-in confirmation for selected shell command patterns |
+| [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Opt-in confirmation for forks and session switches |
 | [`protected-paths.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/protected-paths.go) | Path protection for sensitive files |
 | [`project-rules.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/project-rules.go) | Project-specific rules injection |
 | [`compact-notify.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/compact-notify.go) | Notification on conversation compaction |
+
+These confirmation examples are not enabled by default or comprehensive.
+Pattern checks are bypassable mistake-prevention aids, not a security boundary.
+The session confirmation example does not approve shell commands. See
+[Tool execution and trust](/quick-start#tool-execution-and-trust) for execution
+environment restrictions when input is untrusted.
 
 ## Interactive features
 
@@ -4788,6 +4799,26 @@ Ephemeral mode (no session file created):
 kit "Quick question" --no-session
 ```
 
+## Tool execution and trust
+
+The standard CLI/TUI and non-interactive runs execute enabled tool calls without
+a built-in per-call approval prompt by default. Shell commands run with the
+process account's permissions. The write and edit tools can change files without
+using the shell. Custom extensions and SDK hooks can block calls. `--quiet`,
+`--json`, and `--no-session` do not add isolation or approval.
+
+Repository files, fetched content, MCP results, and issue/PR text can influence
+model instructions. With untrusted input, use a dedicated restricted account or
+an isolated runtime. Limit filesystem mounts and network access, and provide only
+the credentials needed for the task. A working directory is not a filesystem
+access boundary. Kit does not automatically provide an OS sandbox.
+
+[ACP server mode](/cli/commands#acp-server) is an exception: its default approval
+mode is `ask`, subject to read-only tool exemptions and remembered session
+decisions. Approval prompts are not an OS sandbox or a complete defense against
+malicious input. This guidance does not add a gate that blocks destructive
+commands.
+
 ## Resuming sessions
 
 Continue the most recent session for the current directory:
@@ -4912,8 +4943,10 @@ user or try something else). This is the same as a block from an extension.
 
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
+remain necessary when input is untrusted.
 
 ### AfterToolResult — modify tool output
 

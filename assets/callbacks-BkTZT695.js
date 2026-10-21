@@ -67,8 +67,10 @@ result and the turn continues, so the model can react (for example, ask the
 user or try something else). This is the same as a block from an extension.</p>
 <p><code>h.ToolArgs</code> is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — <code>rm -r -f</code>, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.</p>
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. <a href="/quick-start#tool-execution-and-trust">Execution environment restrictions</a>
+remain necessary when input is untrusted.</p>
 <h3 id="aftertoolresult--modify-tool-output"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#aftertoolresult--modify-tool-output"><span class="icon icon-link"></span></a>AfterToolResult — modify tool output</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnAfterToolResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AfterToolResultHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AfterToolResultResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError</span></span>
@@ -407,8 +409,10 @@ user or try something else). This is the same as a block from an extension.
 
 \`h.ToolArgs\` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — \`rm -r -f\`, a shell expansion, or a
-script file all get past it. Parse the arguments and enforce an allowlist when
-you need a real control.
+script file all get past it. Hooks can restrict exposed tools and arguments, but
+allowing an arbitrary shell, interpreter, or script still permits indirect
+actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
+remain necessary when input is untrusted.
 
 ### AfterToolResult — modify tool output
 

@@ -185,6 +185,11 @@ The generated workflow:
 - Uses least-privilege `permissions` and `persist-credentials: false`.
 - Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
 
+**CI trust:** Trigger restrictions control who can start a run. They do not make
+all issue/PR content trusted or confine tool calls. Use an isolated, disposable
+runner, minimal token permissions, and only required credentials. Do not expose
+unrelated secrets or host access. See [Tool execution and trust](/quick-start#tool-execution-and-trust).
+
 After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
 
 The generated workflow uses the bundled [`mark3labs/kit`](https://github.com/mark3labs/kit/blob/master/action.yml) composite action, which installs the Kit binary and runs `kit github run`. That command reads the triggering event, enforces permissions, reacts with an emoji, runs the agent against the issue thread or PR, posts the response as a comment, and — if the agent changed files — pushes a `kit-agent[bot]` branch and opens a pull request.
