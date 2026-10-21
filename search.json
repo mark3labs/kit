@@ -225,6 +225,7 @@
         "Headers and footers",
         "Terminal size",
         "Status bar",
+        "Built-in chrome",
         "Thinking level",
         "Turn state",
         "MCP tools ready",
@@ -253,7 +254,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4597
+      "wordCount": 4909
     },
     {
       "id": "extensions/examples",
@@ -273,7 +274,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 675
+      "wordCount": 696
     },
     {
       "id": "extensions/loading",

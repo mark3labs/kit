@@ -427,6 +427,41 @@ width, not bytes or runes, when fitting text to <code>width</code>.</p>
 <p>Custom status bar entries:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetStatus</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"mode"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Planning"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveStatus</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"mode"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<h2 id="built-in-chrome"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#built-in-chrome"><span class="icon icon-link"></span></a>Built-in chrome</h2>
+<p><code>ctx.SetUIVisibility</code> hides parts of the TUI that Kit draws itself. The zero
+value shows everything:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Hides</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HideStartupMessage</code></td>
+<td>The startup block: the wordmark, the model line and the list of loaded items</td>
+</tr>
+<tr>
+<td><code>HideLogo</code></td>
+<td>Only the wordmark and its animation; the rest of the startup block stays</td>
+</tr>
+<tr>
+<td><code>HideStatusBar</code></td>
+<td>The status bar below the composer</td>
+</tr>
+<tr>
+<td><code>HideSeparator</code></td>
+<td>The count of queued and steering messages above the composer</td>
+</tr>
+<tr>
+<td><code>HideMCPStartupMessages</code></td>
+<td>The message for each MCP server that has loaded (<a href="#mcp-tools-ready">MCP tools ready</a>)</td>
+</tr>
+</tbody>
+</table>
+<p>Call it in <code>OnSessionStart</code>, so that the startup block is drawn with it. Each
+call sets all fields, so a later call replaces an earlier one.</p>
 <h2 id="thinking-level"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#thinking-level"><span class="icon icon-link"></span></a>Thinking level</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">level </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// exact model-specific effort, including future names</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// off omits effort; none is a literal provider value</span></span>
@@ -582,6 +617,32 @@ every call:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>Set <code>BodyMarkdown: true</code> to pass <code>RenderBody</code>'s output through the markdown
 renderer.</p>
+<p>Set <code>MaxBodyLines</code> to shorten a result that Kit renders itself, with its
+builtin renderer or as plain text. It applies when <code>RenderBody</code> is nil or
+returns an empty string. The message inspector still shows the full result:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterToolRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolRenderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ToolName:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"read"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MaxBodyLines: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">6</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>ToolName</code> can also be a pattern in the syntax of Go's <code>path.Match</code>, so that
+one renderer applies to a group of tools. <code>*</code> matches every tool, <code>github__*</code>
+the tools of the MCP server <code>github</code>, and <code>*__*</code> every MCP tool. The pattern <code>*</code>
+alone also matches a name with a <code>/</code>. In a longer pattern, as in <code>path.Match</code>,
+<code>*</code> and <code>?</code> do not match a <code>/</code>. A renderer that names the tool wins over a
+pattern. When several patterns match, the
+last one registered wins, so register the general pattern first:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterToolRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolRenderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{ToolName: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"*"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, MaxBodyLines: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">6</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterToolRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolRenderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ToolName: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"*__*"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RenderBody: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">result</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">isError</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> isError {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // fall back to Kit's rendering</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "(result hidden)"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Register renderers in <code>Init</code>. A renderer registered later, for example in an
+event handler, has no effect.</p>
 <h2 id="message-renderers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#message-renderers"><span class="icon icon-link"></span></a>Message renderers</h2>
 <p>Named renderers invoked explicitly from extension code via
 <code>ctx.RenderMessage(name, content)</code>:</p>
@@ -1005,7 +1066,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Built-in chrome`,id:`built-in-chrome`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -1295,6 +1356,22 @@ ctx.SetStatus("mode", "Planning")
 ctx.RemoveStatus("mode")
 \`\`\`
 
+## Built-in chrome
+
+\`ctx.SetUIVisibility\` hides parts of the TUI that Kit draws itself. The zero
+value shows everything:
+
+| Field | Hides |
+|-------|-------|
+| \`HideStartupMessage\` | The startup block: the wordmark, the model line and the list of loaded items |
+| \`HideLogo\` | Only the wordmark and its animation; the rest of the startup block stays |
+| \`HideStatusBar\` | The status bar below the composer |
+| \`HideSeparator\` | The count of queued and steering messages above the composer |
+| \`HideMCPStartupMessages\` | The message for each MCP server that has loaded ([MCP tools ready](#mcp-tools-ready)) |
+
+Call it in \`OnSessionStart\`, so that the startup block is drawn with it. Each
+call sets all fields, so a later call replaces an earlier one.
+
 ## Thinking level
 
 \`\`\`go
@@ -1476,6 +1553,41 @@ api.RegisterToolRenderer(ext.ToolRenderConfig{
 
 Set \`BodyMarkdown: true\` to pass \`RenderBody\`'s output through the markdown
 renderer.
+
+Set \`MaxBodyLines\` to shorten a result that Kit renders itself, with its
+builtin renderer or as plain text. It applies when \`RenderBody\` is nil or
+returns an empty string. The message inspector still shows the full result:
+
+\`\`\`go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:     "read",
+    MaxBodyLines: 6,
+})
+\`\`\`
+
+\`ToolName\` can also be a pattern in the syntax of Go's \`path.Match\`, so that
+one renderer applies to a group of tools. \`*\` matches every tool, \`github__*\`
+the tools of the MCP server \`github\`, and \`*__*\` every MCP tool. The pattern \`*\`
+alone also matches a name with a \`/\`. In a longer pattern, as in \`path.Match\`,
+\`*\` and \`?\` do not match a \`/\`. A renderer that names the tool wins over a
+pattern. When several patterns match, the
+last one registered wins, so register the general pattern first:
+
+\`\`\`go
+api.RegisterToolRenderer(ext.ToolRenderConfig{ToolName: "*", MaxBodyLines: 6})
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName: "*__*",
+    RenderBody: func(result string, isError bool, width int) string {
+        if isError {
+            return "" // fall back to Kit's rendering
+        }
+        return "(result hidden)"
+    },
+})
+\`\`\`
+
+Register renderers in \`Init\`. A renderer registered later, for example in an
+event handler, has no effect.
 
 ## Message renderers
 

@@ -6,7 +6,7 @@
 <title>Capabilities | Kit</title>
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-Cp8swrO2.js"></script>
+<script type="module" src="/assets/index-Cw-fVBm8.js"></script>
 <link rel="canonical" href="https://go-kit.dev/extensions/capabilities" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -318,6 +318,22 @@ ctx.SetStatus("mode", "Planning")
 ctx.RemoveStatus("mode")
 ```
 
+## Built-in chrome
+
+`ctx.SetUIVisibility` hides parts of the TUI that Kit draws itself. The zero
+value shows everything:
+
+| Field | Hides |
+|-------|-------|
+| `HideStartupMessage` | The startup block: the wordmark, the model line and the list of loaded items |
+| `HideLogo` | Only the wordmark and its animation; the rest of the startup block stays |
+| `HideStatusBar` | The status bar below the composer |
+| `HideSeparator` | The count of queued and steering messages above the composer |
+| `HideMCPStartupMessages` | The message for each MCP server that has loaded ([MCP tools ready](#mcp-tools-ready)) |
+
+Call it in `OnSessionStart`, so that the startup block is drawn with it. Each
+call sets all fields, so a later call replaces an earlier one.
+
 ## Thinking level
 
 ```go
@@ -499,6 +515,41 @@ api.RegisterToolRenderer(ext.ToolRenderConfig{
 
 Set `BodyMarkdown: true` to pass `RenderBody`'s output through the markdown
 renderer.
+
+Set `MaxBodyLines` to shorten a result that Kit renders itself, with its
+builtin renderer or as plain text. It applies when `RenderBody` is nil or
+returns an empty string. The message inspector still shows the full result:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:     "read",
+    MaxBodyLines: 6,
+})
+```
+
+`ToolName` can also be a pattern in the syntax of Go's `path.Match`, so that
+one renderer applies to a group of tools. `*` matches every tool, `github__*`
+the tools of the MCP server `github`, and `*__*` every MCP tool. The pattern `*`
+alone also matches a name with a `/`. In a longer pattern, as in `path.Match`,
+`*` and `?` do not match a `/`. A renderer that names the tool wins over a
+pattern. When several patterns match, the
+last one registered wins, so register the general pattern first:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{ToolName: "*", MaxBodyLines: 6})
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName: "*__*",
+    RenderBody: func(result string, isError bool, width int) string {
+        if isError {
+            return "" // fall back to Kit's rendering
+        }
+        return "(result hidden)"
+    },
+})
+```
+
+Register renderers in `Init`. A renderer registered later, for example in an
+event handler, has no effect.
 
 ## Message renderers
 
