@@ -264,11 +264,16 @@ func (p *providerAdapter) convertRequest(call fantasy.Call) (ProviderRequest, er
 	request.Parameters.ReasoningLevel = p.parameters.ReasoningLevel
 	request.Parameters.SettingsJSON = p.parameters.SettingsJSON
 	request.Parameters.StopSequences = append([]string(nil), p.parameters.StopSequences...)
+	seenTools := map[string]bool{}
 	for _, tool := range call.Tools {
 		function, ok := tool.(fantasy.FunctionTool)
 		if !ok || !p.capabilities.Tools {
 			return request, errors.New("extension model does not support exposed tools")
 		}
+		if function.Name == "" || seenTools[function.Name] {
+			return request, errors.New("invalid or duplicate exposed tool name")
+		}
+		seenTools[function.Name] = true
 		if function.InputSchema["type"] != "object" {
 			return request, errors.New("tool schema must be an object")
 		}
