@@ -51,6 +51,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `pirate.go` | Transform user input | `OnInput`, `InputResult` |
 | `interactive-shell.go` | Custom command input | Slash commands with prompts |
 | `popup-terminal.go` | Persistent, toggleable shell hosted by tmux/abduco/dtach | `SuspendTUI`, `RegisterOption`, `RegisterShortcut`, `SetStatus` |
+| `file-explorer.go` | Toggleable file tree (Ctrl+Alt+E); opens files in the system default app, terminal apps in place like Ctrl+X e | `SetWidget` (Render), `SetEditor` (HandleKey), `RegisterShortcut`, `SuspendTUI`, `SetEditorText` |
 | `inline-bash.go` | Execute bash inline | Input handling, `exec` |
 
 ### Session & Context
