@@ -1095,6 +1095,11 @@ func (m *Kit) ReloadExtensions() error {
 		return fmt.Errorf("no extensions loaded")
 	}
 
+	for _, owner := range m.extRunner.Extensions() {
+		if err := owner.Owner.CheckReentrant(); err != nil {
+			return err
+		}
+	}
 	// Re-load from disk. Bare mode is preserved across the reload so a hot
 	// reload cannot pull in directory-discovered extensions that startup
 	// deliberately skipped.

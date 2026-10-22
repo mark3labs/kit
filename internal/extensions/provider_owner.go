@@ -95,6 +95,21 @@ func (o *ProviderOwner) untrack(runtime *providerAdapter) {
 	o.mu.Unlock()
 }
 
+// CheckReentrant rejects shutdown or reload from a runtime's active callback.
+func (o *ProviderOwner) CheckReentrant() error {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for runtime := range o.runtimes {
+		if runtime.callbackGID.Load() == goroutineID() {
+			return errors.New("cannot retire provider generation from its own callback")
+		}
+	}
+	return nil
+}
+
 // CloseRuntimes cancels all owned runtimes before waiting for any of them.
 // It must not be called synchronously from a provider callback.
 func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
