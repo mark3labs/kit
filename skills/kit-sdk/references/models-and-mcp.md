@@ -90,6 +90,34 @@ Rules:
 
 ---
 
+### Decision models (`Decide`)
+
+Decision models answer typed questions with probabilities instead of text. They
+are separate from chat models: `SetModel` rejects them
+(`kit.ErrDecisionModelNotChat`) and they do not appear in chat model lists.
+
+```go
+res, err := host.Decide(ctx, kit.DecisionRequest{
+    Model: "openrouter/typesafe/jev-1.14", // see kit.GetDecisionModels()
+    State: kit.DecisionState{Text: ticket, Images: []kit.DecisionImage{{MediaType: "image/png", Data: png}}},
+    Questions: []kit.DecisionQuestion{
+        kit.BooleanQuestion("refund", "Does the customer ask for a refund?"),
+        kit.ChoiceQuestion("team", "Which team?", kit.DecisionOption{Name: "billing"}, kit.DecisionOption{Name: "technical"}),
+        kit.ScoreQuestion("urgency", "How urgent?", "low", "medium", "high"),
+    },
+})
+team, err := res.Choice("team") // also res.Boolean, res.Score; team.Prob("billing")
+```
+
+- The wire protocol comes from the model database: the effective npm package
+  `@ai-sdk/typesafe-ai` → SystemOne, `@ai-sdk/gateway` → Vercel gateway, plus
+  overrides for Cloudflare Workers AI, OpenRouter, TypeSafe and local Ollama.
+- `DecisionAnswer.Distribution` and `Confidence` are nil when the provider
+  returns none; do not read a missing value as 0.
+- Errors: `ErrNotDecisionModel`, `ErrUnknownDecisionWire`,
+  `ErrInvalidDecisionRequest` (nothing sent), `ErrInvalidDecisionResponse`,
+  `ErrDecisionRefused`, `*DecisionAPIError` (HTTP status and message).
+
 ## Dynamic MCP Server Management
 
 Add, remove, and inspect MCP servers at runtime without restarting Kit:
