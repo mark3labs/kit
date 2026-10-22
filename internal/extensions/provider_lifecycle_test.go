@@ -111,3 +111,28 @@ func TestProviderCallbackPanicIsSafe(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestProviderIteratorStopsWithoutFurtherYield(t *testing.T) {
+	def := ProviderDef{ID: "fake", AllowUnknownModels: true, Create: func(ProviderCreateRequest) ProviderCreateResult {
+		return ProviderCreateResult{Runtime: ProviderRuntime{Stream: func(_ ProviderRequest, emit func(ProviderEvent) bool) ProviderResult {
+			emit(ProviderEvent{Type: ProviderTextStart, ID: "text"})
+			return ProviderResult{}
+		}}}
+	}}
+	model, close, err := NewProviderModel(context.Background(), def, ProviderCreateRequest{Model: "echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	}()
+	stream, err := model.Stream(context.Background(), fantasy.Call{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+		break
+	} // A second yield would panic under iter.Seq.
+}

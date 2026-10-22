@@ -168,7 +168,18 @@ func (p *providerAdapter) Stream(ctx context.Context, call fantasy.Call) (fantas
 		}
 		p.callbackGID.Store(goroutineID())
 		defer p.callbackGID.Store(0)
-		if err := runProviderStream(requestCtx, p.runtime, request, yield); err != nil {
+		consumerStopped := false
+		forward := func(part fantasy.StreamPart) bool {
+			if consumerStopped {
+				return false
+			}
+			if !yield(part) {
+				consumerStopped = true
+				return false
+			}
+			return true
+		}
+		if err := runProviderStream(requestCtx, p.runtime, request, forward); err != nil && !consumerStopped {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: err})
 		}
 	}, nil
