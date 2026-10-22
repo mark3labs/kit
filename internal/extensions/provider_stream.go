@@ -125,6 +125,9 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 			if (len(calls) > 0) != (event.FinishReason == ProviderFinishToolCalls) {
 				return protocol()
 			}
+			if (request.ToolChoice.Type == ProviderToolRequired || request.ToolChoice.Type == ProviderToolNamed) && len(calls) == 0 {
+				return protocol()
+			}
 			return true
 		}
 		if event.ID == "" {

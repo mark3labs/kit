@@ -587,7 +587,9 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			// and m.modelName directly after setModel returns. Extension model
 			// changes instead use the deferred NotifyModelChanged notification.
 			// Update usage tracker with new model info for correct token counting.
-			ui.UpdateUsageTrackerForModel(usageTracker, modelString, k.IsOAuth())
+			if info := k.GetModelInfo(); info != nil && usageTracker != nil {
+				usageTracker.UpdateModelInfo(info, kit.GetCurrentProvider(modelString), k.IsOAuth())
+			}
 			return nil
 		},
 		// saveProviderAPIKey backs the /connect command. Keys go to the
