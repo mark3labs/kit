@@ -316,6 +316,7 @@ inline code and lists are formatted and sized to the widget's content column:</p
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h3 id="custom-rendering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-rendering"><span class="icon icon-link"></span></a>Custom rendering</h3>
+<p>Render callbacks follow the shared <a href="#tui-callback-safety">TUI callback safety</a> rules.</p>
 <p><code>Text</code> covers static content. For anything Kit has no vocabulary for — sparklines,
 gauges, box drawing, sprites — supply a <code>Render</code> function instead. It receives the
 width in columns available for content (the gutter and padding are already
@@ -614,6 +615,7 @@ message navigation.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"# Keyboard Shortcuts</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">- **ctrl+t** — Toggle plan mode</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">- **ctrl+s** — Save session"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="tool-renderers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-renderers"><span class="icon icon-link"></span></a>Tool renderers</h2>
+<p>Render callbacks follow the shared <a href="#tui-callback-safety">TUI callback safety</a> rules.</p>
 <p>Customize how specific tool calls are displayed in the TUI. <code>RenderHeader</code>
 replaces the parameter summary on the header line; <code>RenderBody</code> replaces the
 result body. Both receive the width they may draw into, and returning an empty
@@ -668,7 +670,29 @@ last one registered wins, so register the general pattern first:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>Register renderers in <code>Init</code>. A renderer registered later, for example in an
 event handler, has no effect.</p>
+<h2 id="tui-callback-safety"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tui-callback-safety"><span class="icon icon-link"></span></a>TUI callback safety</h2>
+<p>Key and render callbacks must return promptly. <code>Print</code>, <code>PrintInfo</code>, <code>PrintError</code>,
+<code>PrintBlock</code>, <code>SetEditorText</code>, the TUI notification from <code>SetModel</code>, and <code>Exit</code>
+use deferred FIFO delivery. These notifications do not need your own goroutine.
+Delivery is a request, not an acknowledgement that the UI has processed it.
+<code>SetModel</code> still resolves the model and runs hooks synchronously.</p>
+<p><code>NewSession</code>, <code>PromptSelect</code>, <code>PromptMultiSelect</code>, <code>PromptConfirm</code>, <code>PromptInput</code>,
+and <code>ShowOverlay</code> wait for replies. Never call them synchronously from
+<code>HandleKey</code>, editor/widget/message/tool render callbacks, or other TUI-loop
+callbacks. Run them outside the callback and handle errors, for example:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">go</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewSession</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">); err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintError</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">())</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}()</span></span></code></pre>
+<p>Calling <code>SetEditorText</code> from <code>HandleKey</code> requests a later editor update; it does
+not change the callback's <code>currentText</code> argument. Do not print or mutate UI state
+unconditionally on every render: this can cause repeated repaints. FIFO order
+covers these notifications only, not unrelated input or widget events. Pending
+notifications can be discarded at shutdown. A producer that outpaces the UI can
+grow the queue, so avoid unbounded output loops.</p>
 <h2 id="message-renderers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#message-renderers"><span class="icon icon-link"></span></a>Message renderers</h2>
+<p>Render callbacks follow the shared <a href="#tui-callback-safety">TUI callback safety</a> rules.</p>
 <p>Named renderers invoked explicitly from extension code via
 <code>ctx.RenderMessage(name, content)</code>:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterMessageRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MessageRendererConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -688,6 +712,7 @@ inline styling over full-width frames. For output Kit uses as-is, use a
 <a href="#custom-rendering">widget with a <code>Render</code> callback</a>.</p>
 </blockquote>
 <h2 id="editor-interceptors"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#editor-interceptors"><span class="icon icon-link"></span></a>Editor interceptors</h2>
+<p>Key and render callbacks follow the shared <a href="#tui-callback-safety">TUI callback safety</a> rules.</p>
 <p>Handle key events and wrap the editor's rendering:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetEditor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    HandleKey: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">key</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">text</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
@@ -1091,7 +1116,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Fill the transcript height`,id:`fill-the-transcript-height`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Built-in chrome`,id:`built-in-chrome`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Fill the transcript height`,id:`fill-the-transcript-height`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Built-in chrome`,id:`built-in-chrome`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`TUI callback safety`,id:`tui-callback-safety`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -1260,6 +1285,8 @@ ctx.SetWidget(ext.WidgetConfig{
 \`\`\`
 
 ### Custom rendering
+
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
 
 \`Text\` covers static content. For anything Kit has no vocabulary for — sparklines,
 gauges, box drawing, sprites — supply a \`Render\` function instead. It receives the
@@ -1574,6 +1601,8 @@ ctx.ShowOverlay(ext.OverlayConfig{
 
 ## Tool renderers
 
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
+
 Customize how specific tool calls are displayed in the TUI. \`RenderHeader\`
 replaces the parameter summary on the header line; \`RenderBody\` replaces the
 result body. Both receive the width they may draw into, and returning an empty
@@ -1646,7 +1675,37 @@ api.RegisterToolRenderer(ext.ToolRenderConfig{
 Register renderers in \`Init\`. A renderer registered later, for example in an
 event handler, has no effect.
 
+## TUI callback safety
+
+Key and render callbacks must return promptly. \`Print\`, \`PrintInfo\`, \`PrintError\`,
+\`PrintBlock\`, \`SetEditorText\`, the TUI notification from \`SetModel\`, and \`Exit\`
+use deferred FIFO delivery. These notifications do not need your own goroutine.
+Delivery is a request, not an acknowledgement that the UI has processed it.
+\`SetModel\` still resolves the model and runs hooks synchronously.
+
+\`NewSession\`, \`PromptSelect\`, \`PromptMultiSelect\`, \`PromptConfirm\`, \`PromptInput\`,
+and \`ShowOverlay\` wait for replies. Never call them synchronously from
+\`HandleKey\`, editor/widget/message/tool render callbacks, or other TUI-loop
+callbacks. Run them outside the callback and handle errors, for example:
+
+\`\`\`go
+go func() {
+    if err := ctx.NewSession(""); err != nil {
+        ctx.PrintError(err.Error())
+    }
+}()
+\`\`\`
+
+Calling \`SetEditorText\` from \`HandleKey\` requests a later editor update; it does
+not change the callback's \`currentText\` argument. Do not print or mutate UI state
+unconditionally on every render: this can cause repeated repaints. FIFO order
+covers these notifications only, not unrelated input or widget events. Pending
+notifications can be discarded at shutdown. A producer that outpaces the UI can
+grow the queue, so avoid unbounded output loops.
+
 ## Message renderers
+
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
 
 Named renderers invoked explicitly from extension code via
 \`ctx.RenderMessage(name, content)\`:
@@ -1670,6 +1729,8 @@ ctx.RenderMessage("build-status", "all tests passed")
 > [widget with a \`Render\` callback](#custom-rendering).
 
 ## Editor interceptors
+
+Key and render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
 
 Handle key events and wrap the editor's rendering:
 

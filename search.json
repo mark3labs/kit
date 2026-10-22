@@ -235,6 +235,7 @@
         "Reserved and shadowed keys",
         "Overlays",
         "Tool renderers",
+        "TUI callback safety",
         "Message renderers",
         "Editor interceptors",
         "Interactive prompts",
@@ -255,7 +256,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 5133
+      "wordCount": 5344
     },
     {
       "id": "extensions/examples",
