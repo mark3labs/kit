@@ -1,6 +1,10 @@
 package extensions
 
-import "sync"
+import (
+	"context"
+	"errors"
+	"sync"
+)
 
 // ProviderOwner keeps interpreter callbacks alive until all successful runtimes
 // are closed. Retirement stops new creates but never invalidates old runtimes.
@@ -9,6 +13,7 @@ type ProviderOwner struct {
 	active   int
 	retired  bool
 	shutdown func()
+	runtimes map[*providerAdapter]struct{}
 }
 
 func (o *ProviderOwner) acquire() bool {
@@ -60,4 +65,53 @@ func (o *ProviderOwner) Retire(shutdown func()) {
 	}
 	o.shutdown = shutdown
 	o.mu.Unlock()
+}
+
+func (o *ProviderOwner) track(runtime *providerAdapter) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	if o.runtimes == nil {
+		o.runtimes = map[*providerAdapter]struct{}{}
+	}
+	o.runtimes[runtime] = struct{}{}
+	o.mu.Unlock()
+}
+func (o *ProviderOwner) untrack(runtime *providerAdapter) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	delete(o.runtimes, runtime)
+	o.mu.Unlock()
+}
+
+// CloseRuntimes cancels all owned runtimes before waiting for any of them.
+// It must not be called synchronously from a provider callback.
+func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	runtimes := make([]*providerAdapter, 0, len(o.runtimes))
+	for runtime := range o.runtimes {
+		runtimes = append(runtimes, runtime)
+	}
+	o.mu.Unlock()
+	for _, runtime := range runtimes {
+		if runtime.callbackGID.Load() == goroutineID() {
+			return errors.New("cannot shut down provider generation from its own callback")
+		}
+	}
+	for _, runtime := range runtimes {
+		runtime.cancel()
+	}
+	var errs []error
+	for _, runtime := range runtimes {
+		if err := runtime.closeContext(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

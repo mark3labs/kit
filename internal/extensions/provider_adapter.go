@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/fantasy"
@@ -27,6 +28,7 @@ type providerAdapter struct {
 	closeOnce    sync.Once
 	closeDone    chan struct{}
 	closeErr     error
+	callbackGID  atomic.Int64
 }
 
 // NewProviderModel creates a private compiled adapter. Callers validate owned
@@ -97,6 +99,7 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	lifetime, cancel := context.WithCancel(context.Background())
 	transferred = true
 	adapter := &providerAdapter{owner: def.owner, provider: def.ID, model: request.Model, capabilities: capability, parameters: request.Parameters, runtime: result.Runtime, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel, closeDone: make(chan struct{})}
+	def.owner.track(adapter)
 	return adapter, adapter.closeContext, nil
 }
 
@@ -110,11 +113,15 @@ func (p *providerAdapter) StreamObject(context.Context, fantasy.ObjectCall) (fan
 }
 
 func (p *providerAdapter) closeContext(ctx context.Context) error {
+	if p.callbackGID.Load() == goroutineID() {
+		return errors.New("cannot close extension provider from its own callback")
+	}
 	p.closeOnce.Do(func() {
 		p.cancel()
 		go func() {
 			defer close(p.closeDone)
 			defer p.owner.release()
+			defer p.owner.untrack(p)
 			// An active noncooperative callback retains the owner until it returns.
 			p.gate <- struct{}{}
 			defer func() { <-p.gate }()
@@ -159,6 +166,8 @@ func (p *providerAdapter) Stream(ctx context.Context, call fantasy.Call) (fantas
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: err})
 			return
 		}
+		p.callbackGID.Store(goroutineID())
+		defer p.callbackGID.Store(0)
 		if err := runProviderStream(requestCtx, p.runtime, request, yield); err != nil {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: err})
 		}

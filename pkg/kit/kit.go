@@ -87,10 +87,11 @@ type Kit struct {
 	// providers is this instance's snapshot of Options.Providers, keyed by
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
-	providerMu    sync.RWMutex
-	resolver      *models.Resolver
-	providers     map[string]ProviderFactory
-	httpTransport func(http.RoundTripper) http.RoundTripper
+	providerMu            sync.RWMutex
+	retiredProviderOwners []*extensions.ProviderOwner
+	resolver              *models.Resolver
+	providers             map[string]ProviderFactory
+	httpTransport         func(http.RoundTripper) http.RoundTripper
 	// activeModelFromFactory is true when the active model was built by a
 	// ProviderFactory. Set in New and SetModel.
 	activeModelFromFactory bool
@@ -1113,6 +1114,11 @@ func (m *Kit) ReloadExtensions() error {
 	m.providerMu.Lock()
 	m.providers = factories
 	m.resolver = resolver
+	for _, owner := range old {
+		if owner.Owner != nil {
+			m.retiredProviderOwners = append(m.retiredProviderOwners, owner.Owner)
+		}
+	}
 	m.extRunner.Reload(loaded)
 	m.providerMu.Unlock()
 	for _, owner := range old {
@@ -3847,6 +3853,22 @@ func (m *Kit) Close() error {
 // best-effort basis: if it is already done when CloseContext is called, the
 // context error is returned after a best-effort cleanup pass.
 func (m *Kit) CloseContext(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	m.providerMu.RLock()
+	owners := slices.Clone(m.retiredProviderOwners)
+	m.providerMu.RUnlock()
+	if m.extRunner != nil {
+		for _, owner := range m.extRunner.Extensions() {
+			owners = append(owners, owner.Owner)
+		}
+	}
+	var providerErrors []error
+	for _, owner := range owners {
+		if err := owner.CloseRuntimes(ctx); err != nil {
+			providerErrors = append(providerErrors, err)
+		}
+	}
 	// Retire generations first: active runtimes keep their owner until close.
 	if m.extRunner != nil {
 		oldContext := m.extRunner.GetContext()
@@ -3866,7 +3888,7 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
-	err := m.agent.CloseContext(ctx)
+	err := errors.Join(append(providerErrors, m.agent.CloseContext(ctx))...)
 	if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
 		return ctxErr
 	}

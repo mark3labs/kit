@@ -80,6 +80,30 @@ func TestProviderOwnerRetirementWaitsForRuntimes(t *testing.T) {
 	owner.Retire(func() { t.Error("duplicate shutdown") })
 }
 
+func TestProviderReentrantCloseRejected(t *testing.T) {
+	var closeModel func(context.Context) error
+	def := ProviderDef{ID: "fake", AllowUnknownModels: true, Create: func(ProviderCreateRequest) ProviderCreateResult {
+		return ProviderCreateResult{Runtime: ProviderRuntime{Stream: func(_ ProviderRequest, emit func(ProviderEvent) bool) ProviderResult {
+			if err := closeModel(context.Background()); err == nil {
+				t.Error("reentrant close accepted")
+			}
+			emit(ProviderEvent{Type: ProviderFinish, FinishReason: ProviderFinishStop})
+			return ProviderResult{}
+		}}}
+	}}
+	model, close, err := NewProviderModel(context.Background(), def, ProviderCreateRequest{Model: "echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeModel = close
+	if _, err := model.Generate(context.Background(), fantasy.Call{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeModel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProviderCallbackPanicIsSafe(t *testing.T) {
 	runtime := ProviderRuntime{Stream: func(ProviderRequest, func(ProviderEvent) bool) ProviderResult { panic("private credential") }}
 	err := runProviderStream(context.Background(), runtime, ProviderRequest{}, func(fantasy.StreamPart) bool { return true })
