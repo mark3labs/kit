@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -26,7 +28,7 @@ func (m extensionTestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
 	case extensionTrigger:
 		m.action()
-	case ExtensionPrintEvent, EditorTextSetEvent, ModelChangedEvent:
+	case ExtensionPrintEvent, EditorTextSetEvent, ModelChangedEvent, NewSessionRequestEvent:
 		m.seen <- msg
 	}
 	return m, nil
@@ -153,6 +155,22 @@ func TestExtensionNotificationsBeforeRunAndAfterExit(t *testing.T) {
 	a.QuitFromExtension()
 	a.Close()
 	a.Close()
+}
+
+func TestExtensionNewSessionShutdown(t *testing.T) {
+	a := New(Options{}, nil)
+	seen := make(chan tea.Msg, 1)
+	p := extensionProgram(a, extensionTestModel{seen: seen})
+	a.SetProgram(p)
+	startExtensionProgram(t, a, p)
+	done := make(chan error, 1)
+	go func() { done <- a.RequestNewSessionFromExtension("") }()
+	// Receive the request without replying. Cancellation must release the wait.
+	awaitExtension(t, seen)
+	a.Close()
+	if err := awaitExtension(t, done); !errors.Is(err, context.Canceled) {
+		t.Fatalf("shutdown error = %v", err)
+	}
 }
 
 func TestExtensionDispatcherCloseWithoutRun(t *testing.T) {

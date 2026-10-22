@@ -1515,7 +1515,12 @@ func (a *App) RequestNewSessionFromExtension(initialPrompt string) error {
 	}
 	ch := make(chan error, 1)
 	prog.Send(NewSessionRequestEvent{InitialPrompt: initialPrompt, ResponseCh: ch})
-	return <-ch
+	select {
+	case err := <-ch:
+		return err
+	case <-a.rootCtx.Done():
+		return a.rootCtx.Err()
+	}
 }
 
 // NotifyModelChanged sends a ModelChangedEvent to the TUI so it updates
