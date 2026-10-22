@@ -330,7 +330,7 @@ func (p *providerAdapter) convertRequest(call fantasy.Call) (ProviderRequest, er
 			case fantasy.FilePart:
 				allowed := false
 				for _, modality := range p.capabilities.InputModalities {
-					if modality == "file" || (modality == "image" && len(v.MediaType) > 6 && v.MediaType[:6] == "image/") {
+					if modality == "file" || (modality == "image" && strings.HasPrefix(v.MediaType, "image/")) || (modality == "audio" && strings.HasPrefix(v.MediaType, "audio/")) || (modality == "video" && strings.HasPrefix(v.MediaType, "video/")) {
 						allowed = true
 					}
 				}
