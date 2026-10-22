@@ -251,6 +251,8 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 	switch {
 	case ut.isOAuth:
 		costStr = ""
+	case ut.modelInfo != nil && ut.modelInfo.CapabilitiesKnown && !ut.modelInfo.Cost.Published:
+		costStr = baseStyle.Foreground(theme.Muted).Render("cost unknown")
 	case ut.sessionStats.TotalCost <= 0:
 		costStr = baseStyle.Foreground(theme.Muted).Render("$0")
 	case ut.sessionStats.TotalCost < 0.01:
