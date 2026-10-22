@@ -48,7 +48,7 @@ func validateCapabilities(c ProviderCapabilities) error {
 		return fmt.Errorf("reasoning levels require reasoning support")
 	}
 	for _, level := range c.ReasoningLevels {
-		if strings.TrimSpace(level) == "" || level == "off" {
+		if strings.TrimSpace(level) == "" || strings.ContainsFunc(level, unicode.IsControl) || level == "off" {
 			return fmt.Errorf("invalid reasoning level")
 		}
 	}
@@ -60,7 +60,7 @@ func freezeProvider(def ProviderDef) (ProviderDef, error) {
 	if !validProviderName(def.ID) {
 		return def, fmt.Errorf("invalid ASCII provider identifier")
 	}
-	if strings.TrimSpace(def.Name) == "" {
+	if strings.TrimSpace(def.Name) == "" || strings.ContainsFunc(def.Name, unicode.IsControl) {
 		return def, fmt.Errorf("provider name is empty")
 	}
 	if def.Create == nil {
@@ -93,7 +93,7 @@ func freezeProvider(def ProviderDef) (ProviderDef, error) {
 			return def, fmt.Errorf("duplicate model %q", model.ID)
 		}
 		seen[model.ID] = true
-		if strings.TrimSpace(model.Name) == "" {
+		if strings.TrimSpace(model.Name) == "" || strings.ContainsFunc(model.Name, unicode.IsControl) {
 			return def, fmt.Errorf("model %q has an empty name", model.ID)
 		}
 		if model.ContextLimit < 0 || model.OutputLimit < 0 || (model.ContextLimit > 0 && model.OutputLimit > model.ContextLimit) {

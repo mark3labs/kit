@@ -48,6 +48,9 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	for _, item := range def.Models {
 		if item.ID == request.Model {
 			capability = item.Capabilities
+			if item.SettingsJSON != "" {
+				request.Parameters.SettingsJSON = item.SettingsJSON
+			}
 			found = true
 			break
 		}
