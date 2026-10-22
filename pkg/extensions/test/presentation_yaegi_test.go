@@ -27,8 +27,8 @@ func TestPresentationExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	vis := harness.Context().UIVisibility
-	if vis == nil || !vis.HideLogo || !vis.HideStatusBar || !vis.HideSeparator || vis.HideStartupMessage {
-		t.Errorf("visibility = %+v, want the logo, status bar and separator hidden, and the startup block kept", vis)
+	if vis == nil || !vis.HideLogo || !vis.HideStatusBar || !vis.HideSeparator || !vis.HideMCPStartupMessages || vis.HideStartupMessage {
+		t.Errorf("visibility = %+v, want the logo, status bar, separator and MCP startup messages hidden, and the startup block kept", vis)
 	}
 
 	for result, want := range map[string]string{

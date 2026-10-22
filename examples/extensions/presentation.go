@@ -37,10 +37,13 @@ func Init(api ext.API) {
 
 	api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
 		mcpQuiet = ctx.GetOption("presentation-mcp-output") != "full"
+		// SetUIVisibility replaces all flags. Set HideMCPStartupMessages,
+		// as mcp-table.go does, or its table comes with a message per server.
 		ctx.SetUIVisibility(ext.UIVisibility{
-			HideLogo:      true,
-			HideStatusBar: true,
-			HideSeparator: true,
+			HideLogo:               true,
+			HideStatusBar:          true,
+			HideSeparator:          true,
+			HideMCPStartupMessages: true,
 		})
 	})
 
