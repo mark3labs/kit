@@ -27,6 +27,14 @@ func NewResolver(entries map[string]map[string]ModelInfo, unknown map[string]boo
 	return result
 }
 func cloneModelInfo(info ModelInfo) ModelInfo {
+	if info.Cost.CacheRead != nil {
+		value := *info.Cost.CacheRead
+		info.Cost.CacheRead = &value
+	}
+	if info.Cost.CacheWrite != nil {
+		value := *info.Cost.CacheWrite
+		info.Cost.CacheWrite = &value
+	}
 	info.InputModalities = slices.Clone(info.InputModalities)
 	info.ReasoningLevels = slices.Clone(info.ReasoningLevels)
 	return info

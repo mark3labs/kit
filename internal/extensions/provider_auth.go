@@ -33,10 +33,11 @@ func (c *ProviderAuthCache) Status(def ProviderDef, configured bool) ProviderAut
 	if time.Now().Before(c.expires) {
 		return c.status
 	}
-	if !c.pending && def.Auth.Status != nil {
+	if !c.pending && def.Auth.Status != nil && def.owner.acquire() {
 		c.pending = true
 		generation := c.generation
 		go func() {
+			defer def.owner.release()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			result := ProviderAuthResult{Status: ProviderAuthUnknown}
