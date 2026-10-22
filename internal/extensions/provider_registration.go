@@ -80,6 +80,16 @@ func freezeProvider(def ProviderDef) (ProviderDef, error) {
 	if def.Auth.Mode == "" {
 		def.Auth.Mode = ProviderAuthNone
 	}
+	for _, variable := range def.Auth.Environment {
+		if strings.TrimSpace(variable) == "" || strings.ContainsAny(variable, "=\x00\r\n") {
+			return def, fmt.Errorf("invalid credential environment variable")
+		}
+	}
+	if def.ValidateSettings != nil {
+		if err := validateProviderSettings(def.ValidateSettings, def.SettingsJSON); err != nil {
+			return def, err
+		}
+	}
 	def.Auth.Environment = slices.Clone(def.Auth.Environment)
 	def.UnknownModelDefaults = freezeCapabilities(def.UnknownModelDefaults)
 	def.Models = slices.Clone(def.Models)
@@ -102,6 +112,11 @@ func freezeProvider(def ProviderDef) (ProviderDef, error) {
 		for _, price := range []ProviderPrice{model.InputPrice, model.OutputPrice, model.CacheReadPrice, model.CacheWritePrice} {
 			if price.Value < 0 || math.IsNaN(price.Value) || math.IsInf(price.Value, 0) {
 				return def, fmt.Errorf("model %q has invalid pricing", model.ID)
+			}
+		}
+		if def.ValidateSettings != nil && model.SettingsJSON != "" {
+			if err := validateProviderSettings(def.ValidateSettings, model.SettingsJSON); err != nil {
+				return def, fmt.Errorf("model %q: %w", model.ID, err)
 			}
 		}
 		if !providerObject(model.SettingsJSON) {
@@ -137,4 +152,16 @@ func (ext *LoadedExtension) registerProvider(def ProviderDef) {
 	frozen.owner = ext.Owner
 	frozen.authCache = &ProviderAuthCache{}
 	ext.Providers = append(ext.Providers, frozen)
+}
+
+func validateProviderSettings(validate func(string) *ProviderError, settings string) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = fmt.Errorf("panic in provider settings validation")
+		}
+	}()
+	if validate(settings) != nil {
+		return fmt.Errorf("provider settings validation failed")
+	}
+	return nil
 }
