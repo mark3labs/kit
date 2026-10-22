@@ -70,7 +70,7 @@ func runModels(_ *cobra.Command, args []string) error {
 			sort.Strings(providers)
 			for _, provider := range providers {
 				for _, id := range sortedModelIDs(entries[provider]) {
-					fmt.Printf("%s/%s\\n", provider, id)
+					fmt.Printf("%s/%s\n", provider, id)
 				}
 			}
 		}
