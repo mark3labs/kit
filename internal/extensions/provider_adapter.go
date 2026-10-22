@@ -251,6 +251,17 @@ func (p *providerAdapter) convertRequest(call fantasy.Call) (ProviderRequest, er
 	}
 	for _, msg := range call.Prompt {
 		converted := ProviderMessage{Role: string(msg.Role)}
+		if metadata := message.ExtensionOptions(msg.ProviderOptions); metadata != nil {
+			if metadata.Provider != p.provider {
+				return request, errors.New("unsupported extension replay namespace")
+			}
+			for _, replay := range metadata.Replay {
+				if replay.Version != 1 || replay.Provider != p.provider || !json.Valid([]byte(replay.JSON)) {
+					return request, errors.New("unsupported extension message replay metadata")
+				}
+				converted.Replay = append(converted.Replay, ProviderReplayData{Version: replay.Version, Provider: replay.Provider, JSON: replay.JSON})
+			}
+		}
 		for _, part := range msg.Content {
 			var item ProviderPart
 			switch v := part.(type) {

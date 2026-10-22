@@ -141,7 +141,7 @@ func (m *Kit) factoryBacked(modelString string) bool {
 	if err != nil {
 		return false
 	}
-	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.providers}, provider)
+	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.instanceFactories()}, provider)
 }
 
 // withMaxTokens wraps f so that it receives maxTokens in cfg.MaxTokens,
@@ -158,12 +158,12 @@ func withMaxTokens(f ProviderFactory, maxTokens int) ProviderFactory {
 // hasInstanceProvider reports whether modelString names a provider that has
 // an instance factory.
 func (m *Kit) hasInstanceProvider(modelString string) bool {
-	if len(m.providers) == 0 {
+	if len(m.instanceFactories()) == 0 {
 		return false
 	}
 	provider, _, err := models.ParseModelString(modelString)
 	if err != nil {
 		return false
 	}
-	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.providers}, provider)
+	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.instanceFactories()}, provider)
 }

@@ -6,19 +6,23 @@ import (
 	"strings"
 
 	"github.com/mark3labs/kit/internal/auth"
+	"github.com/mark3labs/kit/internal/models"
 )
 
 // LookupModel returns metadata in this Kit's catalog, including its extensions.
 // The package-level LookupModel continues to query only the process catalog.
 func (m *Kit) LookupModel(provider, modelID string) *ModelInfo {
-	return m.resolver.Lookup(provider, modelID)
+	m.providerMu.RLock()
+	resolver := m.resolver
+	m.providerMu.RUnlock()
+	return resolver.Lookup(provider, modelID)
 }
 
 // GetModelsForProvider returns this Kit's declared models. Unknown-model lookup
 // never inserts an undeclared name in this list.
 func (m *Kit) GetModelsForProvider(provider string) (map[string]ModelInfo, error) {
-	if m.resolver.Owns(provider) {
-		return m.resolver.List()[strings.ToLower(provider)], nil
+	if m.instanceResolver().Owns(provider) {
+		return m.instanceResolver().List()[strings.ToLower(provider)], nil
 	}
 	return GetModelsForProvider(provider)
 }
@@ -26,7 +30,7 @@ func (m *Kit) GetModelsForProvider(provider string) (map[string]ModelInfo, error
 // GetLLMProviders lists providers in this Kit's catalog.
 func (m *Kit) GetLLMProviders() []string {
 	result := GetLLMProviders()
-	for provider := range m.resolver.List() {
+	for provider := range m.instanceResolver().List() {
 		result = append(result, provider)
 	}
 	slices.Sort(result)
@@ -55,8 +59,8 @@ func (m *Kit) CheckModelAvailable(model string) bool {
 	if err != nil {
 		return false
 	}
-	if m.resolver.Owns(provider) {
-		if m.resolver.Validate(model) != nil {
+	if m.instanceResolver().Owns(provider) {
+		if m.instanceResolver().Validate(model) != nil {
 			return false
 		}
 		if m.extRunner != nil {
@@ -109,4 +113,19 @@ func (m *Kit) ResolveModelChain(preferences []string) ModelResolutionResult {
 	}
 	result.Error = "no models in chain are available"
 	return result
+}
+
+// providerSnapshot never holds a publication lock while invoking callbacks.
+func (m *Kit) providerSnapshot() (*models.Resolver, map[string]ProviderFactory) {
+	m.providerMu.RLock()
+	defer m.providerMu.RUnlock()
+	return m.resolver, m.providers
+}
+func (m *Kit) instanceResolver() *models.Resolver {
+	resolver, _ := m.providerSnapshot()
+	return resolver
+}
+func (m *Kit) instanceFactories() map[string]ProviderFactory {
+	_, factories := m.providerSnapshot()
+	return factories
 }

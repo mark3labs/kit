@@ -54,7 +54,8 @@ type ContentPart interface {
 
 // TextContent holds plain text content within a message.
 type TextContent struct {
-	Text string `json:"text"`
+	Replay []ReplayData `json:"replay,omitempty"`
+	Text   string       `json:"text"`
 }
 
 func (TextContent) isPart() {}
@@ -73,10 +74,11 @@ func (ReasoningContent) isPart() {}
 // ToolCall represents a tool invocation initiated by the LLM. It is stored
 // as a content part within an assistant message, not as a separate message.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Input    string `json:"input"` // JSON string of arguments
-	Finished bool   `json:"finished"`
+	Replay   []ReplayData `json:"replay,omitempty"`
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+	Input    string       `json:"input"` // JSON string of arguments
+	Finished bool         `json:"finished"`
 }
 
 func (ToolCall) isPart() {}
@@ -84,10 +86,11 @@ func (ToolCall) isPart() {}
 // ToolResult represents the result of executing a tool. It is stored as a
 // content part within a tool-role message, linked to a ToolCall by ID.
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Name       string `json:"name"`
-	Content    string `json:"content"`
-	IsError    bool   `json:"is_error"`
+	Replay     []ReplayData `json:"replay,omitempty"`
+	ToolCallID string       `json:"tool_call_id"`
+	Name       string       `json:"name"`
+	Content    string       `json:"content"`
+	IsError    bool         `json:"is_error"`
 	// MediaData holds the base64 payload of a media tool result, such as an
 	// image returned by the read tool. It is empty for a text result. The
 	// value is base64 so that a resumed session rebuilds the same message
@@ -103,9 +106,10 @@ func (ToolResult) isPart() {}
 // bytes (not base64-encoded); serialization handles encoding. MediaType is a
 // MIME type such as "image/png" or "image/jpeg".
 type ImageContent struct {
-	Filename  string `json:"filename,omitempty"`
-	Data      []byte `json:"data"`
-	MediaType string `json:"media_type"`
+	Replay    []ReplayData `json:"replay,omitempty"`
+	Filename  string       `json:"filename,omitempty"`
+	Data      []byte       `json:"data"`
+	MediaType string       `json:"media_type"`
 }
 
 func (ImageContent) isPart() {}
@@ -443,6 +447,10 @@ func FromLLMMessage(msg fantasy.Message) Message {
 		}
 		switch p := part.(type) {
 		case fantasy.TextPart:
+			if metadata != nil {
+				m.Parts = append(m.Parts, TextContent{Text: p.Text, Replay: metadata.Replay})
+				continue
+			}
 			if p.Text != "" {
 				// Strip  ...  tags that some models wrap reasoning in
 				cleanedText := thinkTagRegex.ReplaceAllString(p.Text, "")
@@ -451,7 +459,12 @@ func FromLLMMessage(msg fantasy.Message) Message {
 				}
 			}
 		case fantasy.ToolCallPart:
+			var replay []ReplayData
+			if metadata != nil {
+				replay = metadata.Replay
+			}
 			m.Parts = append(m.Parts, ToolCall{
+				Replay:   replay,
 				ID:       p.ToolCallID,
 				Name:     p.ToolName,
 				Input:    p.Input,
@@ -460,6 +473,9 @@ func FromLLMMessage(msg fantasy.Message) Message {
 		case fantasy.ToolResultPart:
 			result := ToolResult{
 				ToolCallID: p.ToolCallID,
+			}
+			if metadata != nil {
+				result.Replay = metadata.Replay
 			}
 			switch r := p.Output.(type) {
 			case fantasy.ToolResultOutputContentText:
@@ -483,9 +499,14 @@ func FromLLMMessage(msg fantasy.Message) Message {
 				m.Parts = append(m.Parts, content)
 			}
 		case fantasy.FilePart:
+			var replay []ReplayData
+			if metadata != nil {
+				replay = metadata.Replay
+			}
 			if len(p.Data) > 0 {
 				m.Parts = append(m.Parts, ImageContent{
 					Data:      p.Data,
+					Replay:    replay,
 					Filename:  p.Filename,
 					MediaType: p.MediaType,
 				})

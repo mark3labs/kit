@@ -78,15 +78,19 @@ func orderedExtensionMessages(m *Message) []fantasy.Message {
 		options := fantasy.ProviderOptions{"kit-extension": &ExtensionMetadata{Provider: m.ExtensionProvider}}
 		switch value := part.(type) {
 		case TextContent:
+			options["kit-extension"] = &ExtensionMetadata{Provider: m.ExtensionProvider, Replay: slices.Clone(value.Replay)}
 			content = append(content, fantasy.TextPart{Text: value.Text, ProviderOptions: options})
 		case ReasoningContent:
 			options["kit-extension"] = &ExtensionMetadata{Provider: m.ExtensionProvider, Signature: value.Signature, Replay: slices.Clone(value.Replay)}
 			content = append(content, fantasy.ReasoningPart{Text: value.Thinking, ProviderOptions: options})
 		case ImageContent:
+			options["kit-extension"] = &ExtensionMetadata{Provider: m.ExtensionProvider, Replay: slices.Clone(value.Replay)}
 			content = append(content, fantasy.FilePart{Data: slices.Clone(value.Data), MediaType: value.MediaType, Filename: value.Filename, ProviderOptions: options})
 		case ToolCall:
+			options["kit-extension"] = &ExtensionMetadata{Provider: m.ExtensionProvider, Replay: slices.Clone(value.Replay)}
 			content = append(content, fantasy.ToolCallPart{ToolCallID: value.ID, ToolName: value.Name, Input: value.Input, ProviderOptions: options})
 		case ToolResult:
+			options["kit-extension"] = &ExtensionMetadata{Provider: m.ExtensionProvider, Replay: slices.Clone(value.Replay)}
 			var output fantasy.ToolResultOutputContent = fantasy.ToolResultOutputContentText{Text: value.Content}
 			if value.IsError {
 				output = fantasy.ToolResultOutputContentError{Error: fmt.Errorf("%s", value.Content)}

@@ -87,6 +87,7 @@ type Kit struct {
 	// providers is this instance's snapshot of Options.Providers, keyed by
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
+	providerMu    sync.RWMutex
 	resolver      *models.Resolver
 	providers     map[string]ProviderFactory
 	httpTransport func(http.RoundTripper) http.RoundTripper
@@ -817,6 +818,7 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		return err
 	}
 
+	resolver, factories := m.providerSnapshot()
 	// Build a provider config from current settings, overriding the model.
 	thinkingLevel := models.ParseThinkingLevel(m.v.GetString("thinking-level"))
 
@@ -853,8 +855,8 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		ConfigStore:            m.v,
 		SessionIDFunc:          m.GetSessionID,
 		// Instance provider factories (snapshot of Options.Providers).
-		Resolver:          m.resolver,
-		ProviderFactories: m.providers,
+		Resolver:          resolver,
+		ProviderFactories: factories,
 		HTTPTransport:     m.httpTransport,
 	}
 	m.applyEffectiveProviderSettings(cfg, modelString)
@@ -1093,9 +1095,10 @@ func (m *Kit) ReloadExtensions() error {
 		return fmt.Errorf("reloading extensions: %w", err)
 	}
 
+	priorResolver, priorFactories := m.providerSnapshot()
 	baseFactories := make(map[string]ProviderFactory)
-	for id, factory := range m.providers {
-		if !m.resolver.Owns(id) {
+	for id, factory := range priorFactories {
+		if !priorResolver.Owns(id) {
 			baseFactories[id] = factory
 		}
 	}
@@ -1107,9 +1110,11 @@ func (m *Kit) ReloadExtensions() error {
 	old := m.extRunner.Extensions()
 	oldContext := m.extRunner.GetContext()
 	// Candidate validation is complete. Runtime owners retain old callbacks.
+	m.providerMu.Lock()
 	m.providers = factories
 	m.resolver = resolver
 	m.extRunner.Reload(loaded)
+	m.providerMu.Unlock()
 	for _, owner := range old {
 		retired := owner
 		retired.Owner.Retire(func() {
@@ -1167,6 +1172,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			providerOps = m.agent.ProviderOptions()
 		}
 	} else {
+		resolver, factories := m.providerSnapshot()
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
 			UserAgent:     m.v.GetString("internal-user-agent"),
@@ -1175,8 +1181,8 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			ConfigStore:   m.v,
 			SessionIDFunc: m.GetSessionID,
 			// Instance provider factories (snapshot of Options.Providers).
-			Resolver:          m.resolver,
-			ProviderFactories: m.providers,
+			Resolver:          resolver,
+			ProviderFactories: factories,
 			HTTPTransport:     m.httpTransport,
 		}
 		if req.MaxTokens > 0 {
@@ -2522,7 +2528,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// correcting a typo — instead of waiting for a full Kit.New() cycle
 	// that silently falls back to the parent model.
 	if model != m.modelString && !m.hasInstanceProvider(model) {
-		if err := m.resolver.Validate(model); err != nil {
+		if err := m.instanceResolver().Validate(model); err != nil {
 			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
 		}
 	}
@@ -2620,8 +2626,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	inheritIsolationOptions(childOpts, m.opts)
 	// Propagate instance provider factories so a child can use the same
 	// application-provided backends as the parent.
-	childOpts.Providers = m.providers
-	childOpts.inheritedResolver = m.resolver
+	childOpts.inheritedResolver, childOpts.Providers = m.providerSnapshot()
 
 	// Register the run so that it can be listed and killed.
 	runID, unregister := m.subagents.add(RunningSubagent{
@@ -3745,7 +3750,7 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 		return err
 	}
 	valid := IsThinkingLevelSupported(provider, modelName, level)
-	if m.resolver.Owns(provider) {
+	if m.instanceResolver().Owns(provider) {
 		info := m.LookupModel(provider, modelName)
 		valid = level == "off" || (info != nil && slices.Contains(info.ReasoningLevels, level))
 	}
@@ -3771,7 +3776,7 @@ func (m *Kit) SupportedThinkingLevels() []string {
 	if err != nil {
 		return ThinkingLevels()
 	}
-	if m.resolver.Owns(provider) {
+	if m.instanceResolver().Owns(provider) {
 		levels := []string{"off"}
 		if info := m.LookupModel(provider, modelName); info != nil {
 			levels = append(levels, info.ReasoningLevels...)
