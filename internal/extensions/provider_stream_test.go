@@ -19,6 +19,7 @@ func TestProviderStreamProtocol(t *testing.T) {
 		executable int
 	}{
 		{name: "greeting", events: text, valid: true},
+		{name: "signature only reasoning", events: []ProviderEvent{{Type: ProviderReasoningStart, ID: "r"}, {Type: ProviderReasoningEnd, ID: "r", Signature: "signature"}, {Type: ProviderFinish, FinishReason: ProviderFinishStop}}, valid: true},
 		{name: "empty", events: []ProviderEvent{{Type: ProviderFinish, FinishReason: ProviderFinishStop}}, valid: true},
 		{name: "tools", events: tools, valid: true, executable: 1},
 		{name: "delta before start", events: text[1:]},

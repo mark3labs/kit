@@ -144,6 +144,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 				part.Type = fantasy.StreamPartTypeTextStart
 			case ProviderReasoningStart:
 				part.Type = fantasy.StreamPartTypeReasoningStart
+				exposed = true
 			case ProviderToolStart:
 				found := false
 				for _, tool := range request.Tools {
