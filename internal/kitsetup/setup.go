@@ -6,7 +6,6 @@ package kitsetup
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"charm.land/fantasy"
 
@@ -21,6 +20,9 @@ import (
 
 // AgentSetupOptions configures agent creation.
 type AgentSetupOptions struct {
+	// PreparedExtensions is non-nil when configuration already loaded extensions.
+	// An empty non-nil slice prevents a second discovery/Init pass.
+	PreparedExtensions []extensions.LoadedExtension
 	// MCPConfig is the MCP server configuration. Required.
 	MCPConfig *config.Config
 	// ShowSpinner shows a loading spinner for Ollama models.
@@ -259,11 +261,19 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	var extCreationOpts extensionCreationOpts
 	if !noExtensions {
 		var extErr error
-		extRunner, extCreationOpts, extErr = loadExtensions(v, opts.Bare)
+		if opts.PreparedExtensions != nil {
+			extRunner, extCreationOpts = runnerForExtensions(v, opts.PreparedExtensions)
+		} else {
+			extRunner, extCreationOpts, extErr = loadExtensions(v, opts.Bare)
+			if extErr == nil && extRunner != nil {
+				modelConfig.ProviderFactories, extErr = PrepareProviderFactories(extRunner.Extensions(), modelConfig.ProviderFactories)
+				modelConfig.Resolver = PrepareProviderResolver(extRunner.Extensions())
+			}
+		}
 		if extErr != nil {
 			// stderr: stdout is reserved for the response payload in
 			// --quiet / --json mode.
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load extensions: %v\n", extErr)
+			return nil, fmt.Errorf("loading extension providers: %w", extErr)
 		}
 	}
 
@@ -349,10 +359,14 @@ func loadExtensions(v *viper.Viper, bare bool) (*extensions.Runner, extensionCre
 		return nil, extensionCreationOpts{}, err
 	}
 
-	if len(loaded) == 0 {
-		return nil, extensionCreationOpts{}, nil
-	}
+	runner, creation := runnerForExtensions(v, loaded)
+	return runner, creation, nil
+}
 
+func runnerForExtensions(v *viper.Viper, loaded []extensions.LoadedExtension) (*extensions.Runner, extensionCreationOpts) {
+	if len(loaded) == 0 {
+		return nil, extensionCreationOpts{}
+	}
 	runner := extensions.NewRunner(loaded)
 	runner.SetConfigStore(v)
 
@@ -365,5 +379,5 @@ func loadExtensions(v *viper.Viper, bare bool) (*extensions.Runner, extensionCre
 	return runner, extensionCreationOpts{
 		toolWrapper: wrapper,
 		extraTools:  extTools,
-	}, nil
+	}
 }

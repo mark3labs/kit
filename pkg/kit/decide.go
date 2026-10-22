@@ -176,6 +176,9 @@ func Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
 // and transient provider failures twice. Errors from the provider are
 // classified like other provider errors (see ClassifyProviderError).
 func (m *Kit) Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
+	if provider, _, err := models.ParseModelString(req.Model); err == nil && m.instanceResolver().Owns(provider) {
+		return nil, fmt.Errorf("%w: extension providers do not support decisions", ErrNotDecisionModel)
+	}
 	cfg := &models.ProviderConfig{
 		ModelString:   req.Model,
 		TLSSkipVerify: m.v.GetBool("tls-skip-verify"),

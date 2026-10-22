@@ -13,6 +13,10 @@
 
 # KIT (Knowledge Inference Tool)
 
+## Extension provider guide
+
+See [callback-based model providers](www/pages/extensions/providers.md) for the offline examples and current implementation status.
+
 ## SDK guides
 
 - [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.

@@ -68,6 +68,8 @@ type treeEntry interface{ header() *Entry }
 // content uses the same type-tagged parts format as the existing session
 // persistence layer, enabling reuse of MarshalParts/UnmarshalParts.
 type MessageEntry struct {
+	ExtensionProvider string               `json:"extension_provider,omitempty"`
+	Replay            []message.ReplayData `json:"replay,omitempty"`
 	Entry
 	Role     string          `json:"role"`
 	Parts    json.RawMessage `json:"parts"` // type-tagged parts array
@@ -181,11 +183,13 @@ func NewMessageEntry(parentID string, msg message.Message) (*MessageEntry, error
 		return nil, fmt.Errorf("failed to marshal message parts: %w", err)
 	}
 	return &MessageEntry{
-		Entry:    NewEntry(EntryTypeMessage, parentID),
-		Role:     string(msg.Role),
-		Parts:    parts,
-		Model:    msg.Model,
-		Provider: msg.Provider,
+		Entry:             NewEntry(EntryTypeMessage, parentID),
+		ExtensionProvider: msg.ExtensionProvider,
+		Replay:            msg.Replay,
+		Role:              string(msg.Role),
+		Parts:             parts,
+		Model:             msg.Model,
+		Provider:          msg.Provider,
 	}, nil
 }
 
@@ -395,12 +399,14 @@ func (e *MessageEntry) ToMessage() (message.Message, error) {
 		return message.Message{}, fmt.Errorf("failed to unmarshal parts: %w", err)
 	}
 	return message.Message{
-		ID:        e.ID,
-		Role:      message.MessageRole(e.Role),
-		Parts:     parts,
-		Model:     e.Model,
-		Provider:  e.Provider,
-		CreatedAt: e.Timestamp,
-		UpdatedAt: e.Timestamp,
+		ExtensionProvider: e.ExtensionProvider,
+		Replay:            e.Replay,
+		ID:                e.ID,
+		Role:              message.MessageRole(e.Role),
+		Parts:             parts,
+		Model:             e.Model,
+		Provider:          e.Provider,
+		CreatedAt:         e.Timestamp,
+		UpdatedAt:         e.Timestamp,
 	}, nil
 }

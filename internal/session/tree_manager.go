@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -238,11 +237,13 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 			newEntry = &copy
 		case *MessageEntry:
 			newEntry = &MessageEntry{
-				Entry:    cloneEntry(e.Entry, newID, prevNewID),
-				Role:     e.Role,
-				Parts:    e.Parts,
-				Model:    e.Model,
-				Provider: e.Provider,
+				ExtensionProvider: e.ExtensionProvider,
+				Replay:            slices.Clone(e.Replay),
+				Entry:             cloneEntry(e.Entry, newID, prevNewID),
+				Role:              e.Role,
+				Parts:             e.Parts,
+				Model:             e.Model,
+				Provider:          e.Provider,
 			}
 			// Copy label if present.
 			if label, ok := tm.labels[oldID]; ok {
@@ -1119,10 +1120,10 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 // it: the Content slice, every ProviderOptions map, and FilePart.Data are
 // copied. All other fields are values or immutable strings.
 //
-// The values inside a ProviderOptions map are copied shallowly. The cache
-// never holds any: ToLLMMessages does not set provider options.
+// Extension replay carriers are deep-copied, including their slices. Other
+// provider-specific option values retain the existing shallow-copy behavior.
 func cloneLLMMessage(msg fantasy.Message) fantasy.Message {
-	msg.ProviderOptions = maps.Clone(msg.ProviderOptions)
+	msg.ProviderOptions = message.CloneOptions(msg.ProviderOptions)
 	if msg.Content == nil {
 		return msg
 	}
@@ -1130,20 +1131,20 @@ func cloneLLMMessage(msg fantasy.Message) fantasy.Message {
 	for i, part := range msg.Content {
 		switch p := part.(type) {
 		case fantasy.TextPart:
-			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.ProviderOptions = message.CloneOptions(p.ProviderOptions)
 			part = p
 		case fantasy.ReasoningPart:
-			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.ProviderOptions = message.CloneOptions(p.ProviderOptions)
 			part = p
 		case fantasy.FilePart:
-			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.ProviderOptions = message.CloneOptions(p.ProviderOptions)
 			p.Data = bytes.Clone(p.Data)
 			part = p
 		case fantasy.ToolCallPart:
-			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.ProviderOptions = message.CloneOptions(p.ProviderOptions)
 			part = p
 		case fantasy.ToolResultPart:
-			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.ProviderOptions = message.CloneOptions(p.ProviderOptions)
 			part = p
 		}
 		content[i] = part

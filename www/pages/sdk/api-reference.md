@@ -448,6 +448,12 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`Kit.DrainSteer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.DrainSteer) — DrainSteer removes and returns all unconsumed steer messages.
 - [`Kit.ExecuteCompletion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ExecuteCompletion) — ExecuteCompletion makes a standalone LLM completion call for extensions.
 - [`Kit.FollowUp`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.FollowUp) — FollowUp continues the conversation without explicit new user input.
+- [`Kit.GetModelCapabilities`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetModelCapabilities) — Query this instance's model capabilities.
+- [`Kit.CheckModelAvailable`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CheckModelAvailable) — Validate a model in this instance.
+- [`Kit.ResolveModelChain`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ResolveModelChain) — Resolve fallback preferences in this instance.
+- [`Kit.LookupModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.LookupModel) — Look up metadata in this instance, including extension providers.
+- [`Kit.GetModelsForProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetModelsForProvider) — List this instance's declared models for a provider.
+- [`Kit.GetLLMProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetLLMProviders) — List providers available to this instance.
 - [`Kit.GetAvailableModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetAvailableModels) — GetAvailableModels returns a list of known models from the registry.
 - [`Kit.GetBufferedDebugMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetBufferedDebugMessages) — GetBufferedDebugMessages returns any debug messages that were buffered during initialization, then clears the buffer.
 - [`Kit.GetContextFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetContextFiles) — GetContextFiles returns the context files.

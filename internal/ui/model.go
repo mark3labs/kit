@@ -415,6 +415,9 @@ type UIVisibility struct {
 
 // AppModelOptions holds configuration passed to NewAppModel.
 type AppModelOptions struct {
+	// GetModelEntries supplies instance catalog metadata without extension types.
+	GetModelEntries   func() []ModelEntry
+	GetThinkingLevels func() []string
 	// ModelName is the display name of the model (e.g. "claude-sonnet-4-5").
 	ModelName string
 
@@ -703,6 +706,8 @@ type AppModelOptions struct {
 // All messages (completed and streaming) are rendered via the ScrollList
 // viewport. The alt screen owns the full terminal.
 type AppModel struct {
+	getModelEntries   func() []ModelEntry
+	getThinkingLevels func() []string
 	// conversationPane is the transcript pane on screen: parentPane, or the
 	// pane of the subagent run that the user views (see childView). It is
 	// embedded so that the transcript code reads m.messages, m.stream and
@@ -1240,6 +1245,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.mcpPrompts = opts.MCPPrompts
 	m.getMCPPrompts = opts.GetMCPPrompts
 	m.expandMCPPrompt = opts.ExpandMCPPrompt
+	m.getModelEntries = opts.GetModelEntries
+	m.getThinkingLevels = opts.GetThinkingLevels
 	m.getWidgets = opts.GetWidgets
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
@@ -2812,7 +2819,7 @@ func (m *AppModel) copyNotice(n int) string {
 
 // cycleThinkingLevel advances to the next thinking level and applies it.
 func (m *AppModel) cycleThinkingLevel() {
-	supported := models.SupportedThinkingLevels(m.providerName, m.modelName)
+	supported := m.supportedThinkingLevels()
 	levels := make([]string, len(supported))
 	for i, level := range supported {
 		levels[i] = string(level)
@@ -5023,7 +5030,7 @@ func (m *AppModel) openModelSelectorForProviderError() {
 		return
 	}
 	currentModel := m.providerName + "/" + m.modelName
-	m.modelSelector = NewModelSelector(currentModel, m.width, m.height)
+	m.modelSelector = m.newModelSelector(currentModel)
 	m.state = stateModelSelector
 }
 
@@ -5040,7 +5047,7 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	if args == "" {
 		// Open the interactive model selector.
 		currentModel := m.providerName + "/" + m.modelName
-		m.modelSelector = NewModelSelector(currentModel, m.width, m.height)
+		m.modelSelector = m.newModelSelector(currentModel)
 		m.state = stateModelSelector
 		return nil
 	}
@@ -5417,8 +5424,7 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 
 	if args == "" {
 		// Match /model behaviour: open a modal picker directly, no space required.
-		m.thinkingLevelSelector = NewThinkingLevelSelector(
-			m.providerName, m.modelName, m.thinkingLevel, m.width, m.height)
+		m.thinkingLevelSelector = NewThinkingLevelSelectorWithLevels(m.thinkingLevel, m.width, m.height, m.supportedThinkingLevels())
 		m.state = stateThinkingLevelSelector
 		return nil
 	}

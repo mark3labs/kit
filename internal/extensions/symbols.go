@@ -3,7 +3,7 @@ package extensions
 import (
 	"reflect"
 
-	"github.com/traefik/yaegi/interp"
+	"github.com/mark3labs/kit/internal/yaegi/interp"
 )
 
 // Symbols returns the Yaegi export table that makes KIT's extension API
@@ -31,6 +31,64 @@ import (
 func Symbols() interp.Exports {
 	return interp.Exports{
 		"kit/ext/ext": map[string]reflect.Value{
+			// Concrete provider protocol types and typed constants.
+			"ProviderDef":              reflect.ValueOf((*ProviderDef)(nil)),
+			"ProviderCapabilities":     reflect.ValueOf((*ProviderCapabilities)(nil)),
+			"ProviderModel":            reflect.ValueOf((*ProviderModel)(nil)),
+			"ProviderPrice":            reflect.ValueOf((*ProviderPrice)(nil)),
+			"ProviderAuth":             reflect.ValueOf((*ProviderAuth)(nil)),
+			"ProviderAuthMode":         reflect.ValueOf((*ProviderAuthMode)(nil)),
+			"ProviderAuthRequest":      reflect.ValueOf((*ProviderAuthRequest)(nil)),
+			"ProviderAuthResult":       reflect.ValueOf((*ProviderAuthResult)(nil)),
+			"ProviderAuthStatus":       reflect.ValueOf((*ProviderAuthStatus)(nil)),
+			"ProviderCreateRequest":    reflect.ValueOf((*ProviderCreateRequest)(nil)),
+			"ProviderCreateResult":     reflect.ValueOf((*ProviderCreateResult)(nil)),
+			"ProviderRuntime":          reflect.ValueOf((*ProviderRuntime)(nil)),
+			"ProviderResult":           reflect.ValueOf((*ProviderResult)(nil)),
+			"ProviderError":            reflect.ValueOf((*ProviderError)(nil)),
+			"ProviderParameters":       reflect.ValueOf((*ProviderParameters)(nil)),
+			"ProviderRequest":          reflect.ValueOf((*ProviderRequest)(nil)),
+			"ProviderTool":             reflect.ValueOf((*ProviderTool)(nil)),
+			"ProviderToolChoice":       reflect.ValueOf((*ProviderToolChoice)(nil)),
+			"ProviderToolChoiceType":   reflect.ValueOf((*ProviderToolChoiceType)(nil)),
+			"ProviderReplayData":       reflect.ValueOf((*ProviderReplayData)(nil)),
+			"ProviderMessage":          reflect.ValueOf((*ProviderMessage)(nil)),
+			"ProviderPart":             reflect.ValueOf((*ProviderPart)(nil)),
+			"ProviderPartType":         reflect.ValueOf((*ProviderPartType)(nil)),
+			"ProviderEvent":            reflect.ValueOf((*ProviderEvent)(nil)),
+			"ProviderEventType":        reflect.ValueOf((*ProviderEventType)(nil)),
+			"ProviderFinishReason":     reflect.ValueOf((*ProviderFinishReason)(nil)),
+			"ProviderUsage":            reflect.ValueOf((*ProviderUsage)(nil)),
+			"ProviderAuthNone":         reflect.ValueOf(ProviderAuthNone),
+			"ProviderAuthAPIKey":       reflect.ValueOf(ProviderAuthAPIKey),
+			"ProviderAuthExternal":     reflect.ValueOf(ProviderAuthExternal),
+			"ProviderAuthConfigured":   reflect.ValueOf(ProviderAuthConfigured),
+			"ProviderAuthUnconfigured": reflect.ValueOf(ProviderAuthUnconfigured),
+			"ProviderAuthUnknown":      reflect.ValueOf(ProviderAuthUnknown),
+			"ProviderToolAuto":         reflect.ValueOf(ProviderToolAuto),
+			"ProviderToolNone":         reflect.ValueOf(ProviderToolNone),
+			"ProviderToolRequired":     reflect.ValueOf(ProviderToolRequired),
+			"ProviderToolNamed":        reflect.ValueOf(ProviderToolNamed),
+			"ProviderPartText":         reflect.ValueOf(ProviderPartText),
+			"ProviderPartReasoning":    reflect.ValueOf(ProviderPartReasoning),
+			"ProviderPartFile":         reflect.ValueOf(ProviderPartFile),
+			"ProviderPartToolCall":     reflect.ValueOf(ProviderPartToolCall),
+			"ProviderPartToolResult":   reflect.ValueOf(ProviderPartToolResult),
+			"ProviderTextStart":        reflect.ValueOf(ProviderTextStart),
+			"ProviderTextDelta":        reflect.ValueOf(ProviderTextDelta),
+			"ProviderTextEnd":          reflect.ValueOf(ProviderTextEnd),
+			"ProviderReasoningStart":   reflect.ValueOf(ProviderReasoningStart),
+			"ProviderReasoningDelta":   reflect.ValueOf(ProviderReasoningDelta),
+			"ProviderReasoningEnd":     reflect.ValueOf(ProviderReasoningEnd),
+			"ProviderToolStart":        reflect.ValueOf(ProviderToolStart),
+			"ProviderToolDelta":        reflect.ValueOf(ProviderToolDelta),
+			"ProviderToolEnd":          reflect.ValueOf(ProviderToolEnd),
+			"ProviderUsageEvent":       reflect.ValueOf(ProviderUsageEvent),
+			"ProviderFinish":           reflect.ValueOf(ProviderFinish),
+			"ProviderFinishStop":       reflect.ValueOf(ProviderFinishStop),
+			"ProviderFinishLength":     reflect.ValueOf(ProviderFinishLength),
+			"ProviderFinishToolCalls":  reflect.ValueOf(ProviderFinishToolCalls),
+
 			// Struct types (nil pointer trick for type registration)
 			"API":            reflect.ValueOf((*API)(nil)),
 			"Context":        reflect.ValueOf((*Context)(nil)),

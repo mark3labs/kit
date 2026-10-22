@@ -8,6 +8,13 @@ ogImage: /og-image.png
 
 Kit ships with a rich set of example extensions in the `examples/extensions/` directory. These serve as both documentation and starting points for your own extensions.
 
+## Model providers
+
+- `fake-provider.go`: deterministic `Hello from a fake provider.` with no credentials.
+- `fake-tool-provider.go`: history-driven `add({a:2,b:3})`, matching host result, then `5`; no global request counter.
+
+See the [provider guide](/extensions/providers) for commands and current implementation status.
+
 ## UI and display
 
 | Extension | Description |

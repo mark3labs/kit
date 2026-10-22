@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -391,6 +392,52 @@ func (t *streamTurn) onToolResult(tr fantasy.ToolResultContent) error {
 }
 
 func (t *streamTurn) onStepFinish(step fantasy.StepResult) error {
+	// Host-executed tool results do not inherit model metadata in the model
+	// library. Carry the matching extension origin so persistence keeps IDs.
+	if metadata := message.ExtensionOptions(fantasy.ProviderOptions(step.ProviderMetadata)); metadata != nil {
+		for i := range step.Messages {
+			positions := map[string]int{}
+			for index, id := range metadata.Order {
+				positions[id] = index
+			}
+			slices.SortStableFunc(step.Messages[i].Content, func(a, b fantasy.MessagePart) int {
+				left, right := message.ExtensionOptions(a.Options()), message.ExtensionOptions(b.Options())
+				if left == nil || right == nil {
+					return 0
+				}
+				return positions[left.BlockID] - positions[right.BlockID]
+			})
+			step.Messages[i].ProviderOptions = message.CloneOptions(step.Messages[i].ProviderOptions)
+			if step.Messages[i].ProviderOptions == nil {
+				step.Messages[i].ProviderOptions = fantasy.ProviderOptions{}
+			}
+			step.Messages[i].ProviderOptions["kit-extension"] = metadata
+		}
+	}
+	origins := map[string]*message.ExtensionMetadata{}
+	for _, msg := range step.Messages {
+		for _, part := range msg.Content {
+			if call, ok := part.(fantasy.ToolCallPart); ok {
+				if metadata := message.ExtensionOptions(call.ProviderOptions); metadata != nil {
+					origins[call.ToolCallID] = metadata
+				}
+			}
+		}
+	}
+	for i, msg := range step.Messages {
+		for j, part := range msg.Content {
+			if result, ok := part.(fantasy.ToolResultPart); ok {
+				if metadata := origins[result.ToolCallID]; metadata != nil {
+					result.ProviderOptions = message.CloneOptions(result.ProviderOptions)
+					if result.ProviderOptions == nil {
+						result.ProviderOptions = fantasy.ProviderOptions{}
+					}
+					result.ProviderOptions["kit-extension"] = &message.ExtensionMetadata{Provider: metadata.Provider}
+					step.Messages[i].Content[j] = result
+				}
+			}
+		}
+	}
 	// Accumulate messages from completed steps so they can be
 	// persisted even if a later step is cancelled.
 	t.completedStepMessages = append(t.completedStepMessages, step.Messages...)

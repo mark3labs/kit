@@ -609,7 +609,7 @@ func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float6
 		return "", "", 0
 	}
 	provider, modelID = p, id
-	info := models.GetGlobalRegistry().LookupModel(provider, modelID)
+	info := m.LookupModel(provider, modelID)
 	if info == nil {
 		return provider, modelID, 0
 	}

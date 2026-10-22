@@ -50,8 +50,8 @@ import (
 	"testing"
 
 	internalext "github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/yaegi/interp"
 	"github.com/mark3labs/kit/pkg/extensions"
-	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 	"github.com/traefik/yaegi/stdlib/unrestricted"
 )
@@ -147,6 +147,9 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 
 	// Call Init to register handlers
 	initFn(api)
+	if len(ext.RegistrationErrors) > 0 {
+		h.t.Fatalf("provider registration failed: %v", ext.RegistrationErrors)
+	}
 
 	// Create runner with the loaded extension
 	h.runner = internalext.NewRunner([]extensions.LoadedExtension{*ext})

@@ -1,6 +1,12 @@
 version: "2"
 
 linters:
+  exclusions:
+    rules:
+      # Keep the third-party interpreter diff limited to the concurrency fix.
+      # Kit-owned integration and regression tests remain fully linted.
+      - path: internal/yaegi/
+        linters: [errcheck, govet, modernize, staticcheck, unused]
   enable:
     - modernize
     # staticcheck and unused catch bugs and dead code that went undetected

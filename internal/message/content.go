@@ -54,7 +54,8 @@ type ContentPart interface {
 
 // TextContent holds plain text content within a message.
 type TextContent struct {
-	Text string `json:"text"`
+	Replay []ReplayData `json:"replay,omitempty"`
+	Text   string       `json:"text"`
 }
 
 func (TextContent) isPart() {}
@@ -63,8 +64,9 @@ func (TextContent) isPart() {}
 // Provider-specific metadata (signatures, etc.) is preserved for round-trip
 // fidelity when the conversation is sent back to the provider.
 type ReasoningContent struct {
-	Thinking  string `json:"thinking"`
-	Signature string `json:"signature,omitempty"` // Anthropic
+	Thinking  string       `json:"thinking"`
+	Signature string       `json:"signature,omitempty"` // Anthropic
+	Replay    []ReplayData `json:"replay,omitempty"`
 }
 
 func (ReasoningContent) isPart() {}
@@ -72,10 +74,11 @@ func (ReasoningContent) isPart() {}
 // ToolCall represents a tool invocation initiated by the LLM. It is stored
 // as a content part within an assistant message, not as a separate message.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Input    string `json:"input"` // JSON string of arguments
-	Finished bool   `json:"finished"`
+	Replay   []ReplayData `json:"replay,omitempty"`
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+	Input    string       `json:"input"` // JSON string of arguments
+	Finished bool         `json:"finished"`
 }
 
 func (ToolCall) isPart() {}
@@ -83,10 +86,11 @@ func (ToolCall) isPart() {}
 // ToolResult represents the result of executing a tool. It is stored as a
 // content part within a tool-role message, linked to a ToolCall by ID.
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Name       string `json:"name"`
-	Content    string `json:"content"`
-	IsError    bool   `json:"is_error"`
+	Replay     []ReplayData `json:"replay,omitempty"`
+	ToolCallID string       `json:"tool_call_id"`
+	Name       string       `json:"name"`
+	Content    string       `json:"content"`
+	IsError    bool         `json:"is_error"`
 	// MediaData holds the base64 payload of a media tool result, such as an
 	// image returned by the read tool. It is empty for a text result. The
 	// value is base64 so that a resumed session rebuilds the same message
@@ -102,8 +106,10 @@ func (ToolResult) isPart() {}
 // bytes (not base64-encoded); serialization handles encoding. MediaType is a
 // MIME type such as "image/png" or "image/jpeg".
 type ImageContent struct {
-	Data      []byte `json:"data"`
-	MediaType string `json:"media_type"`
+	Replay    []ReplayData `json:"replay,omitempty"`
+	Filename  string       `json:"filename,omitempty"`
+	Data      []byte       `json:"data"`
+	MediaType string       `json:"media_type"`
 }
 
 func (ImageContent) isPart() {}
@@ -132,13 +138,15 @@ const (
 // carry text, reasoning, and multiple tool calls as discrete, typed blocks
 // rather than flattening everything into strings.
 type Message struct {
-	ID        string        `json:"id"`
-	Role      MessageRole   `json:"role"`
-	Parts     []ContentPart `json:"parts"`
-	Model     string        `json:"model,omitempty"`
-	Provider  string        `json:"provider,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ExtensionProvider string        `json:"extension_provider,omitempty"`
+	Replay            []ReplayData  `json:"replay,omitempty"`
+	ID                string        `json:"id"`
+	Role              MessageRole   `json:"role"`
+	Parts             []ContentPart `json:"parts"`
+	Model             string        `json:"model,omitempty"`
+	Provider          string        `json:"provider,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 // --- Typed accessors ---
@@ -311,6 +319,9 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 // mixed TextPart and ToolCallPart content. Tool-role messages produce
 // ToolResultPart entries.
 func (m *Message) ToLLMMessages() []fantasy.Message {
+	if m.ExtensionProvider != "" {
+		return orderedExtensionMessages(m)
+	}
 	switch m.Role {
 	case RoleAssistant:
 		var parts []fantasy.MessagePart
@@ -425,9 +436,21 @@ func FromLLMMessage(msg fantasy.Message) Message {
 		UpdatedAt: time.Now(),
 	}
 
+	if metadata := ExtensionOptions(msg.ProviderOptions); metadata != nil {
+		m.ExtensionProvider = metadata.Provider
+		m.Replay = metadata.Replay
+	}
 	for _, part := range msg.Content {
+		metadata := ExtensionOptions(part.Options())
+		if metadata != nil {
+			m.ExtensionProvider = metadata.Provider
+		}
 		switch p := part.(type) {
 		case fantasy.TextPart:
+			if metadata != nil {
+				m.Parts = append(m.Parts, TextContent{Text: p.Text, Replay: metadata.Replay})
+				continue
+			}
 			if p.Text != "" {
 				// Strip  ...  tags that some models wrap reasoning in
 				cleanedText := thinkTagRegex.ReplaceAllString(p.Text, "")
@@ -436,7 +459,12 @@ func FromLLMMessage(msg fantasy.Message) Message {
 				}
 			}
 		case fantasy.ToolCallPart:
+			var replay []ReplayData
+			if metadata != nil {
+				replay = metadata.Replay
+			}
 			m.Parts = append(m.Parts, ToolCall{
+				Replay:   replay,
 				ID:       p.ToolCallID,
 				Name:     p.ToolName,
 				Input:    p.Input,
@@ -445,6 +473,9 @@ func FromLLMMessage(msg fantasy.Message) Message {
 		case fantasy.ToolResultPart:
 			result := ToolResult{
 				ToolCallID: p.ToolCallID,
+			}
+			if metadata != nil {
+				result.Replay = metadata.Replay
 			}
 			switch r := p.Output.(type) {
 			case fantasy.ToolResultOutputContentText:
@@ -459,15 +490,24 @@ func FromLLMMessage(msg fantasy.Message) Message {
 			}
 			m.Parts = append(m.Parts, result)
 		case fantasy.ReasoningPart:
-			if p.Text != "" {
-				m.Parts = append(m.Parts, ReasoningContent{
-					Thinking: p.Text,
-				})
+			if p.Text != "" || metadata != nil {
+				content := ReasoningContent{Thinking: p.Text}
+				if metadata != nil {
+					content.Signature = metadata.Signature
+					content.Replay = metadata.Replay
+				}
+				m.Parts = append(m.Parts, content)
 			}
 		case fantasy.FilePart:
+			var replay []ReplayData
+			if metadata != nil {
+				replay = metadata.Replay
+			}
 			if len(p.Data) > 0 {
 				m.Parts = append(m.Parts, ImageContent{
 					Data:      p.Data,
+					Replay:    replay,
+					Filename:  p.Filename,
 					MediaType: p.MediaType,
 				})
 			}

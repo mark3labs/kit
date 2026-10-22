@@ -219,7 +219,7 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		// Model Resolution API
 		// -------------------------------------------------------------------
 		ResolveModelChain: func(preferences []string) extensions.ModelResolutionResult {
-			return kit.ResolveModelChain(preferences)
+			return kitInstance.ResolveModelChain(preferences)
 		},
 		GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
 			// An empty model means "the one in use", matching the convention
@@ -234,10 +234,10 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 			if model == "" {
 				model = kitInstance.GetCurrentModel()
 			}
-			return kit.GetModelCapabilities(model)
+			return kitInstance.GetModelCapabilities(model)
 		},
 		CheckModelAvailable: func(model string) bool {
-			return kit.CheckModelAvailable(model)
+			return kitInstance.CheckModelAvailable(model)
 		},
 		GetCurrentProvider: func() string {
 			return kit.GetCurrentProvider(kitInstance.Extensions().GetContext().Model)

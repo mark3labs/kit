@@ -12,12 +12,13 @@ import (
 
 // ModelEntry holds display metadata for a single model in the selector.
 type ModelEntry struct {
-	Provider     string
-	ModelID      string
-	Name         string // human-friendly name (e.g. "Claude Haiku 4.5")
-	ContextLimit int
-	Reasoning    bool
-	Available    bool // provider has credentials configured
+	Provider            string
+	ModelID             string
+	Name                string // human-friendly name (e.g. "Claude Haiku 4.5")
+	ContextLimit        int
+	Reasoning           bool
+	Available           bool // provider has credentials configured
+	AvailabilityUnknown bool // checking or externally managed status
 }
 
 // ModelSelectedMsg is sent when the user selects a model from the selector.
@@ -45,6 +46,11 @@ type ModelSelectorComponent struct {
 // registry. Every known model is listed; models whose provider has no
 // credentials are dimmed and cannot be selected.
 func NewModelSelector(currentModel string, width, height int) *ModelSelectorComponent {
+	return NewModelSelectorWithEntries(currentModel, width, height, nil)
+}
+
+// NewModelSelectorWithEntries uses host-owned instance metadata when supplied.
+func NewModelSelectorWithEntries(currentModel string, width, height int, entries []ModelEntry) *ModelSelectorComponent {
 	registry := models.GetGlobalRegistry()
 	var allModels []ModelEntry
 
@@ -84,6 +90,9 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 		}
 	}
 
+	if entries != nil {
+		allModels = append([]ModelEntry(nil), entries...)
+	}
 	// Sort: usable models first, then alphabetically by model ID, grouped
 	// by provider. Unavailable models sink to the bottom so the list still
 	// opens on something the user can actually pick.
@@ -103,6 +112,9 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 		desc := fmt.Sprintf("[%s]", m.Provider)
 		if !m.Available {
 			desc = fmt.Sprintf("[%s] no credentials", m.Provider)
+			if m.AvailabilityUnknown {
+				desc = fmt.Sprintf("[%s] checking authentication", m.Provider)
+			}
 		}
 		items[i] = PopupItem{
 			Label:       m.ModelID,
@@ -293,4 +305,12 @@ func fuzzyScoreModelEntry(query string, entry ModelEntry) int {
 	}
 
 	return 0
+}
+
+func (m *AppModel) newModelSelector(currentModel string) *ModelSelectorComponent {
+	var entries []ModelEntry
+	if m.getModelEntries != nil {
+		entries = m.getModelEntries()
+	}
+	return NewModelSelectorWithEntries(currentModel, m.width, m.height, entries)
 }

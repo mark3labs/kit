@@ -1,6 +1,7 @@
 package extensions
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/log"
-	"github.com/traefik/yaegi/interp"
+	"github.com/mark3labs/kit/internal/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 	"github.com/traefik/yaegi/stdlib/unrestricted"
 )
@@ -38,9 +39,33 @@ func LoadExtensions(extraPaths []string) ([]LoadedExtension, error) {
 // are all skipped — and only extraPaths load. Use it so that running Kit
 // inside a directory does not silently execute that directory's extensions.
 func LoadExtensionsScoped(extraPaths []string, bare bool) ([]LoadedExtension, error) {
+	result := LoadExtensionsWithDiagnostics(extraPaths, bare)
+	return result.Extensions, errors.Join(result.RegistrationErrors...)
+}
+
+// ExtensionLoadResult retains ordered per-path failures without changing the
+// historical tolerance for unrelated broken extensions at ordinary startup.
+type ExtensionLoadResult struct {
+	Extensions         []LoadedExtension
+	Diagnostics        []error
+	RegistrationErrors []error
+}
+
+// LoadExtensionsStrict validates a complete reload candidate before publication.
+func LoadExtensionsStrict(extraPaths []string, bare bool) ([]LoadedExtension, error) {
+	result := LoadExtensionsWithDiagnostics(extraPaths, bare)
+	if err := errors.Join(result.Diagnostics...); err != nil {
+		return nil, err
+	}
+	return result.Extensions, nil
+}
+
+// LoadExtensionsWithDiagnostics loads once and preserves every discovered error.
+func LoadExtensionsWithDiagnostics(extraPaths []string, bare bool) ExtensionLoadResult {
+	var result ExtensionLoadResult
 	paths := discoverExtensionPaths(extraPaths, bare)
 	if len(paths) == 0 {
-		return nil, nil
+		return result
 	}
 
 	// Compile every extension in parallel, then run the Init functions one
@@ -71,16 +96,22 @@ func LoadExtensionsScoped(extraPaths []string, bare bool) ([]LoadedExtension, er
 	var loaded []LoadedExtension
 	for i, p := range paths {
 		if errs[i] != nil {
+			result.Diagnostics = append(result.Diagnostics, fmt.Errorf("extension %s: %w", p, errs[i]))
 			continue
 		}
 		ext, err := initExtension(p, initFns[i])
 		if err != nil {
+			result.Diagnostics = append(result.Diagnostics, fmt.Errorf("extension %s: %w", p, err))
+			if ext != nil && len(ext.RegistrationErrors) > 0 {
+				result.RegistrationErrors = append(result.RegistrationErrors, ext.RegistrationErrors...)
+			}
 			continue
 		}
 		loaded = append(loaded, *ext)
 		log.Debug("loaded extension", "path", p, "handlers", countHandlers(ext), "tools", len(ext.Tools), "commands", len(ext.Commands), "tool_renderers", len(ext.ToolRenderers))
 	}
-	return loaded, nil
+	result.Extensions = loaded
+	return result
 }
 
 // pathSet is a thread-safe helper for deduplicating and ordering file paths.
@@ -498,6 +529,7 @@ func initExtension(path string, initFn func(API)) (*LoadedExtension, error) {
 	}
 
 	api := API{
+		registerProviderFn:    ext.registerProvider,
 		onToolCall:            resultReg[ToolCallEvent, ToolCallResult](reg, ToolCall),
 		onToolCallInputStart:  notifyReg[ToolCallInputStartEvent](reg, ToolCallInputStart),
 		onToolCallInputDelta:  notifyReg[ToolCallInputDeltaEvent](reg, ToolCallInputDelta),
@@ -572,6 +604,9 @@ func initExtension(path string, initFn func(API)) (*LoadedExtension, error) {
 		return nil, err
 	}
 
+	if len(ext.RegistrationErrors) > 0 {
+		return ext, errors.Join(ext.RegistrationErrors...)
+	}
 	return ext, nil
 }
 

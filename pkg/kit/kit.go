@@ -87,8 +87,12 @@ type Kit struct {
 	// providers is this instance's snapshot of Options.Providers, keyed by
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
-	providers     map[string]ProviderFactory
-	httpTransport func(http.RoundTripper) http.RoundTripper
+	providerMu            sync.RWMutex
+	retiredProviderOwners []*extensions.ProviderOwner
+	providerClosing       bool
+	resolver              *models.Resolver
+	providers             map[string]ProviderFactory
+	httpTransport         func(http.RoundTripper) http.RoundTripper
 	// activeModelFromFactory is true when the active model was built by a
 	// ProviderFactory. Set in New and SetModel.
 	activeModelFromFactory bool
@@ -816,6 +820,7 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		return err
 	}
 
+	resolver, factories := m.providerSnapshot()
 	// Build a provider config from current settings, overriding the model.
 	thinkingLevel := models.ParseThinkingLevel(m.v.GetString("thinking-level"))
 
@@ -835,6 +840,12 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		}
 	}
 
+	if provider, id, err := ParseModelString(modelString); err == nil && resolver.Owns(provider) && thinkingLevel != models.ThinkingOff && modelString != m.modelString {
+		info := resolver.Lookup(provider, id)
+		if info == nil || !slices.Contains(info.ReasoningLevels, string(thinkingLevel)) {
+			thinkingLevel = models.ThinkingOff
+		}
+	}
 	// With message-level caching, thinking and caching can work together.
 	// No need to disable caching when thinking is enabled.
 	mode := m.modelMode
@@ -852,7 +863,8 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		ConfigStore:            m.v,
 		SessionIDFunc:          m.GetSessionID,
 		// Instance provider factories (snapshot of Options.Providers).
-		ProviderFactories: m.providers,
+		Resolver:          resolver,
+		ProviderFactories: factories,
 		HTTPTransport:     m.httpTransport,
 	}
 	m.applyEffectiveProviderSettings(cfg, modelString)
@@ -1053,15 +1065,15 @@ func (m *Kit) GetCurrentModel() string {
 // not in the registry can still be used by specifying their provider/model
 // string.
 func (m *Kit) GetAvailableModels() []ModelInfoEntry {
-	registry := models.GetGlobalRegistry()
 	var result []ModelInfoEntry
-	for _, providerID := range registry.GetLLMProviders() {
-		modelsMap, err := registry.GetModelsForProvider(providerID)
+	for _, providerID := range m.GetLLMProviders() {
+		modelsMap, err := m.GetModelsForProvider(providerID)
 		if err != nil {
 			continue
 		}
 		for modelID, info := range modelsMap {
 			result = append(result, extensions.ModelInfoEntry{
+				InputModalities: slices.Clone(info.InputModalities), Tools: info.Tools, Streaming: info.Streaming, CapabilitiesKnown: info.CapabilitiesKnown, ContextLimitKnown: info.Limit.Context > 0, OutputLimitKnown: info.Limit.Output > 0,
 				Provider:     providerID,
 				ModelID:      modelID,
 				Name:         info.Name,
@@ -1083,22 +1095,57 @@ func (m *Kit) ReloadExtensions() error {
 		return fmt.Errorf("no extensions loaded")
 	}
 
-	// Emit shutdown to old extensions.
-	if m.extRunner.HasHandlers(extensions.SessionShutdown) {
-		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
+	for _, owner := range m.extRunner.Extensions() {
+		if err := owner.Owner.CheckReentrant(); err != nil {
+			return err
+		}
 	}
-
 	// Re-load from disk. Bare mode is preserved across the reload so a hot
 	// reload cannot pull in directory-discovered extensions that startup
 	// deliberately skipped.
 	extraPaths := m.v.GetStringSlice("extension")
-	loaded, err := extensions.LoadExtensionsScoped(extraPaths, m.opts != nil && m.opts.Bare)
+	loaded, err := extensions.LoadExtensionsStrict(extraPaths, m.opts != nil && m.opts.Bare)
 	if err != nil {
 		return fmt.Errorf("reloading extensions: %w", err)
 	}
 
-	// Swap extensions on the runner (clears dynamic state).
+	priorResolver, priorFactories := m.providerSnapshot()
+	baseFactories := make(map[string]ProviderFactory)
+	for id, factory := range priorFactories {
+		if !priorResolver.Owns(id) {
+			baseFactories[id] = factory
+		}
+	}
+	factories, err := kitsetup.PrepareProviderFactories(loaded, baseFactories)
+	if err != nil {
+		return fmt.Errorf("reloading extension providers: %w", err)
+	}
+	resolver := kitsetup.PrepareProviderResolver(loaded)
+	old := m.extRunner.Extensions()
+	oldContext := m.extRunner.GetContext()
+	// Candidate validation is complete. Runtime owners retain old callbacks.
+	m.providerMu.Lock()
+	if m.providerClosing || m.resolver != priorResolver {
+		m.providerMu.Unlock()
+		return errors.New("extension provider generation changed during reload; retry reload")
+	}
+	m.providers = factories
+	m.resolver = resolver
+	for _, owner := range old {
+		if owner.Owner != nil {
+			m.retiredProviderOwners = append(m.retiredProviderOwners, owner.Owner)
+		}
+	}
 	m.extRunner.Reload(loaded)
+	m.providerMu.Unlock()
+	for _, owner := range old {
+		retired := owner
+		retired.Owner.Retire(func() {
+			runner := extensions.NewRunner([]extensions.LoadedExtension{retired})
+			runner.SetContext(oldContext)
+			_, _ = runner.Emit(extensions.SessionShutdownEvent{})
+		})
+	}
 	m.extRunner.SetConfigStore(m.v)
 
 	// Update extension tools on the agent so the LLM sees changes.
@@ -1148,6 +1195,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			providerOps = m.agent.ProviderOptions()
 		}
 	} else {
+		resolver, factories := m.providerSnapshot()
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
 			UserAgent:     m.v.GetString("internal-user-agent"),
@@ -1156,7 +1204,8 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			ConfigStore:   m.v,
 			SessionIDFunc: m.GetSessionID,
 			// Instance provider factories (snapshot of Options.Providers).
-			ProviderFactories: m.providers,
+			Resolver:          resolver,
+			ProviderFactories: factories,
 			HTTPTransport:     m.httpTransport,
 		}
 		if req.MaxTokens > 0 {
@@ -1270,6 +1319,8 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 // through to the precedence chain (env → .kit.yml → per-model defaults)
 // resolved within the instance's own store.
 type Options struct {
+	// inheritedResolver retains parent provider metadata without discovery.
+	inheritedResolver *models.Resolver
 	// UserAgent identifies Kit-controlled HTTP requests. Empty means "KIT".
 	// Codex and Copilot inference retain their fixed compatibility identities.
 	UserAgent string
@@ -1784,10 +1835,14 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
+	if providers == nil {
+		providers = make(map[string]ProviderFactory)
+	}
 	v, rc, err := resolveConfig(opts, providers)
 	if err != nil {
 		return nil, err
 	}
+	providers = rc.providerConfig.ProviderFactories
 	// ---- config snapshot complete — heavy I/O below ----
 
 	mcpConfig, err := resolveMCPConfig(v, opts)
@@ -1837,6 +1892,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
+		resolver:              rc.providerConfig.Resolver,
 		providers:             providers,
 		httpTransport:         opts.HTTPTransport,
 		mcpConfig:             mcpConfig,
@@ -2495,7 +2551,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// correcting a typo — instead of waiting for a full Kit.New() cycle
 	// that silently falls back to the parent model.
 	if model != m.modelString && !m.hasInstanceProvider(model) {
-		if err := models.GetGlobalRegistry().ValidateModelString(model); err != nil {
+		if err := m.instanceResolver().Validate(model); err != nil {
 			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
 		}
 	}
@@ -2593,7 +2649,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	inheritIsolationOptions(childOpts, m.opts)
 	// Propagate instance provider factories so a child can use the same
 	// application-provided backends as the parent.
-	childOpts.Providers = m.providers
+	childOpts.inheritedResolver, childOpts.Providers = m.providerSnapshot()
 
 	// Register the run so that it can be listed and killed.
 	runID, unregister := m.subagents.add(RunningSubagent{
@@ -3686,7 +3742,7 @@ func (m *Kit) GetModelInfo() *ModelInfo {
 	if err != nil {
 		return nil
 	}
-	return LookupModel(provider, modelID)
+	return m.LookupModel(provider, modelID)
 }
 
 // IsReasoningModel returns true if the current model supports extended thinking / reasoning.
@@ -3716,7 +3772,12 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 	if err != nil {
 		return err
 	}
-	if !IsThinkingLevelSupported(provider, modelName, level) {
+	valid := IsThinkingLevelSupported(provider, modelName, level)
+	if m.instanceResolver().Owns(provider) {
+		info := m.LookupModel(provider, modelName)
+		valid = level == "off" || (info != nil && slices.Contains(info.ReasoningLevels, level))
+	}
+	if !valid {
 		return fmt.Errorf("model %s does not support thinking level %q; supported: %v", m.modelString, level, m.SupportedThinkingLevels())
 	}
 	previous := m.v.GetString("thinking-level")
@@ -3737,6 +3798,13 @@ func (m *Kit) SupportedThinkingLevels() []string {
 	provider, modelName, err := ParseModelString(m.modelString)
 	if err != nil {
 		return ThinkingLevels()
+	}
+	if m.instanceResolver().Owns(provider) {
+		levels := []string{"off"}
+		if info := m.LookupModel(provider, modelName); info != nil {
+			levels = append(levels, info.ReasoningLevels...)
+		}
+		return levels
 	}
 	return SupportedThinkingLevels(provider, modelName)
 }
@@ -3802,9 +3870,52 @@ func (m *Kit) Close() error {
 // best-effort basis: if it is already done when CloseContext is called, the
 // context error is returned after a best-effort cleanup pass.
 func (m *Kit) CloseContext(ctx context.Context) error {
-	// Emit SessionShutdown for extensions.
-	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
-		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	m.providerMu.Lock()
+	m.providerClosing = true
+	owners := slices.Clone(m.retiredProviderOwners)
+	m.providerMu.Unlock()
+	if m.extRunner != nil {
+		for _, owner := range m.extRunner.Extensions() {
+			owners = append(owners, owner.Owner)
+		}
+	}
+	var providerErrors []error
+	if m.opts == nil || m.opts.inheritedResolver == nil {
+		for _, owner := range owners {
+			if err := owner.CheckReentrant(); err != nil {
+				return err
+			}
+		}
+		for _, owner := range owners {
+			if err := owner.CancelOwnedWork(); err != nil {
+				return err
+			}
+		}
+	}
+	for _, owner := range owners {
+		if m.opts != nil && m.opts.inheritedResolver != nil {
+			break
+		} // Child agent closes only its own runtime.
+		if err := owner.CloseRuntimes(ctx); err != nil {
+			if strings.Contains(err.Error(), "own callback") {
+				return err
+			}
+			providerErrors = append(providerErrors, err)
+		}
+	}
+	// Retire generations first: active runtimes keep their owner until close.
+	if m.extRunner != nil {
+		oldContext := m.extRunner.GetContext()
+		for _, owner := range m.extRunner.Extensions() {
+			retired := owner
+			retired.Owner.Retire(func() {
+				runner := extensions.NewRunner([]extensions.LoadedExtension{retired})
+				runner.SetContext(oldContext)
+				_, _ = runner.Emit(extensions.SessionShutdownEvent{})
+			})
+		}
 	}
 	if m.session != nil {
 		_ = m.session.Close()
@@ -3813,7 +3924,7 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
-	err := m.agent.Close()
+	err := errors.Join(append(providerErrors, m.agent.CloseContext(ctx))...)
 	if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
 		return ctxErr
 	}

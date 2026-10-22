@@ -23,23 +23,25 @@ import (
 // step of the original monolithic constructor, extracted without changing
 // order or behaviour:
 //
-//  1. resolveConfig — config snapshot, no heavy I/O:
+//  1. resolveConfig — config/resources and trusted extension discovery:
 //     a. newConfigStore       — pick the per-instance or process-global store
 //     b. loadConfigStore      — defaults, config file, env vars
 //     c. applyOptionOverrides — push Options fields into the store
 //     d. loadProjectResources — cwd, AGENTS.md, skills, named agents
 //     e. buildSystemPrompt    — base prompt + context + skills + environment
-//     f. resolveModelConfig   — provider config and scalar snapshots
+//     f. load extensions and validate instance provider definitions
+//     g. resolveModelConfig   — provider config and scalar snapshots
 //  2. resolveMCPConfig        — MCP servers, including in-process ones
 //  3. withSkillTool, buildAgentSetupOptions, then kitsetup.SetupAgent
 //  4. initSessionManager
 //  5. (*Kit).initExtensions
 
 // resolvedConfig is the snapshot of instance-derived values that [New]
-// computes from the configuration store before any heavy I/O happens.
+// computes before model/agent and MCP construction.
 type resolvedConfig struct {
-	providerConfig *models.ProviderConfig
-	modelString    string
+	preparedExtensions []extensions.LoadedExtension
+	providerConfig     *models.ProviderConfig
+	modelString        string
 
 	cwd          string
 	contextFiles []*ContextFile
@@ -327,8 +329,8 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 }
 
 // resolveConfig builds the instance configuration store and snapshots every
-// instance-derived value New needs. It performs no network or subprocess
-// I/O; MCP and agent setup happen afterwards.
+// instance-derived value New needs. It executes trusted extension top-level
+// code and Init; MCP and model/agent setup happen afterwards.
 func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.Viper, *resolvedConfig, error) {
 	userAgent, err := httpclient.ResolveUserAgent(opts.UserAgent)
 	if err != nil {
@@ -346,6 +348,32 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 		return nil, nil, err
 	}
 	buildSystemPrompt(v, opts, rc)
+	rc.preparedExtensions = []extensions.LoadedExtension{}
+	if !opts.NoExtensions && !v.GetBool("no-extensions") {
+		loaded, err := extensions.LoadExtensionsScoped(v.GetStringSlice("extension"), opts.Bare)
+		if err != nil {
+			return nil, nil, fmt.Errorf("extension registration: %w", err)
+		}
+		rc.preparedExtensions = append(rc.preparedExtensions, loaded...)
+		providerLoads := loaded
+		if opts.inheritedResolver != nil {
+			providerLoads = make([]extensions.LoadedExtension, len(loaded))
+			copy(providerLoads, loaded)
+			for i := range providerLoads {
+				for _, def := range providerLoads[i].Providers {
+					if !opts.inheritedResolver.Owns(def.ID) || opts.inheritedResolver.Owner(def.ID) != providerLoads[i].Path {
+						return nil, nil, fmt.Errorf("child extension %s introduces a different provider owner for %s", providerLoads[i].Path, def.ID)
+					}
+				}
+				providerLoads[i].Providers = nil
+			}
+		}
+		factories, err := kitsetup.PrepareProviderFactories(providerLoads, providers)
+		if err != nil {
+			return nil, nil, err
+		}
+		providers = factories
+	}
 	if err := resolveModelConfig(v, opts, providers, rc); err != nil {
 		return nil, nil, err
 	}
@@ -407,6 +435,10 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 	// and per-model modelSettings[...].maxTokens can still win.
 	if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 		providerConfig.MaxTokens = sdkDefaultMaxTokens
+	}
+	providerConfig.Resolver = kitsetup.PrepareProviderResolver(rc.preparedExtensions)
+	if opts.inheritedResolver != nil {
+		providerConfig.Resolver = opts.inheritedResolver
 	}
 	providerConfig.ProviderFactories = providers
 	providerConfig.HTTPTransport = opts.HTTPTransport
@@ -545,6 +577,7 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		WorkDir:                 opts.WorkDir,
 		CoreToolOptions:         coreToolOpts,
 		ToolWrapper:             hookToolWrapper(hooks.beforeToolCall, hooks.afterToolResult),
+		PreparedExtensions:      rc.preparedExtensions,
 		ProviderConfig:          rc.providerConfig,
 		Debug:                   rc.debug,
 		DebugLogger:             opts.DebugLogger,

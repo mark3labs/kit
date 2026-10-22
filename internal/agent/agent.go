@@ -1474,6 +1474,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.modelConfig = config
 	a.providerErr = nil
 	if a.currentModel != nil {
+		a.currentModel.resolver.Store(config.Resolver)
 		a.currentModel.set(config.ModelString)
 	}
 
@@ -1577,7 +1578,10 @@ func (a *Agent) GetMaxTokens() int {
 // If MCP tools are still loading in the background, Close waits for them
 // to finish before closing connections to avoid resource leaks. The wait
 // is bounded so a hung MCP transport can never block shutdown forever.
-func (a *Agent) Close() error {
+func (a *Agent) Close() error { return a.CloseContext(context.Background()) }
+
+// CloseContext bounds cooperative provider cleanup by the caller's deadline.
+func (a *Agent) CloseContext(ctx context.Context) error {
 	// Wait for background MCP loading to finish before closing connections.
 	if a.mcpReady != nil {
 		select {
@@ -1591,7 +1595,13 @@ func (a *Agent) Close() error {
 		toolErr = a.toolManager.Close()
 	}
 	if a.providerCloser != nil {
-		if err := a.providerCloser.Close(); err != nil && toolErr == nil {
+		var err error
+		if closer, ok := a.providerCloser.(interface{ CloseContext(context.Context) error }); ok {
+			err = closer.CloseContext(ctx)
+		} else {
+			err = a.providerCloser.Close()
+		}
+		if err != nil && toolErr == nil {
 			toolErr = err
 		}
 	}

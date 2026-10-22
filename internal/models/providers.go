@@ -179,6 +179,8 @@ func ParseThinkingLevel(s string) ThinkingLevel {
 
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
+	// Resolver is the instance catalog snapshot, when extensions are loaded.
+	Resolver *Resolver
 	// UserAgent is the effective per-instance HTTP identity. Factories own enforcement.
 	UserAgent string
 	// HTTPTransport wraps the base transport for built-in provider requests.
@@ -367,7 +369,7 @@ func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// suggestions on likely typos; when unknown we let the provider
 	// API be the authority except for Copilot, whose non-GPT catalog entries
 	// require unsupported wire protocols.
-	modelInfo := registry.LookupModel(lookupProvider, modelName)
+	modelInfo := config.Resolver.Lookup(lookupProvider, modelName)
 	switch {
 	case hasFactory:
 		// The factory is the authority on which models it serves. Database

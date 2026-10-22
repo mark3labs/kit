@@ -8,6 +8,10 @@ ogImage: /og-image.png
 
 Kit provides a testing package (`github.com/mark3labs/kit/pkg/extensions/test`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
 
+## Provider tests
+
+Provider examples must load through the real interpreter. Use offline deterministic fixtures and `go test -race`; compiled fakes alone do not test callback/channel behavior. The [provider guide](/extensions/providers) describes the protocol. Kit's regression tests include simultaneous runtime entry, cancellation barriers, consumer backpressure, invalid tool calls, and a history-driven host-tool round trip.
+
 ## Overview
 
 Extension tests allow you to:
