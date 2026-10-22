@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/kaptinlin/jsonschema"
 	"github.com/mark3labs/kit/internal/message"
 )
 
@@ -300,6 +301,11 @@ func (p *providerAdapter) convertRequest(call fantasy.Call) (ProviderRequest, er
 		schema, err := json.Marshal(function.InputSchema)
 		if err != nil {
 			return request, fmt.Errorf("invalid tool schema: %w", err)
+		}
+		compiler := jsonschema.NewCompiler()
+		clear(compiler.Loaders) // Schema preflight must never perform outbound I/O.
+		if _, err := compiler.Compile(schema); err != nil {
+			return request, errors.New("invalid exposed tool schema")
 		}
 		request.Tools = append(request.Tools, ProviderTool{Name: function.Name, Description: function.Description, SchemaJSON: string(schema)})
 	}
