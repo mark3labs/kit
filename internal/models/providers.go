@@ -383,6 +383,9 @@ func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			}
 			return nil, fmt.Errorf("model %q not found for provider %s", modelName, copilotProviderID)
 		}
+	case modelInfo == nil && config.ProviderURL == "" && registry.LookupDecisionModel(lookupProvider, modelName) != nil:
+		// A decision model answers typed questions; it cannot chat.
+		return nil, fmt.Errorf("%w: %s (use Decide instead)", ErrDecisionModelNotChat, config.ModelString)
 	case modelInfo == nil && provider != "ollama" && config.ProviderURL == "":
 		// Model not in database — warn with suggestions but don't block.
 		if suggestions := registry.SuggestModels(lookupProvider, modelName); len(suggestions) > 0 {

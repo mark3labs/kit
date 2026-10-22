@@ -19,8 +19,11 @@ type modelsDBProvider struct {
 
 // modelsDBModel represents a model entry from models.dev/api.json.
 type modelsDBModel struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Type is the model kind published by the catalog: "decision",
+	// "embedding", "image" and so on. Empty for chat models.
+	Type        string                 `json:"type,omitempty"`
 	Family      string                 `json:"family,omitempty"`
 	Attachment  bool                   `json:"attachment"`
 	Reasoning   bool                   `json:"reasoning"`
@@ -105,6 +108,9 @@ type modelsDBReasoningOption struct {
 // modelsDBModelProvider represents a provider reference within a model.
 type modelsDBModelProvider struct {
 	NPM string `json:"npm"`
+	// API is a per-model base URL override (e.g. Cloudflare's decision
+	// models use /ai/run instead of the provider's chat URL).
+	API string `json:"api,omitempty"`
 }
 
 // modelsDBCost represents model pricing from models.dev.
