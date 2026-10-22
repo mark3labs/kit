@@ -719,4 +719,3 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`WithShellTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellTimeout) — WithShellTimeout sets the default per-call timeout for the shell tool.
 - [`WithShell`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShell) — WithShell sets the shell the shell tool runs command strings through: the shell plus its own leading arguments, e.g.
 - [`WithWorkDir`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithWorkDir) — WithWorkDir sets the working directory for file-based tools.
-
