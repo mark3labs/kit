@@ -121,6 +121,16 @@ type BeforeCompactResult struct {
 	Summary string
 }
 
+// StepContextHook is the input to an OnStepContext hook.
+type StepContextHook struct {
+	// Context is the context for this step. Derive the result from it.
+	Context context.Context
+	// StepNumber is the turn-wide step number, matching StepStartEvent.
+	StepNumber int
+	// Model is the "provider/model" string that serves this step.
+	Model string
+}
+
 // PrepareStepHook is the input for hooks that fire between steps within a
 // multi-step agent turn, with full message replacement capability. This is
 // the most powerful interception point — it fires after the existing steering
@@ -239,6 +249,37 @@ func (hr *hookRegistry[In, Out]) run(input In) *Out {
 		}
 	}
 	return nil
+}
+
+// chain runs every hook against the input updated by each non-nil result.
+// As with run, callbacks execute outside the registry lock.
+func (hr *hookRegistry[In, Out]) chain(input In, apply func(In, Out) In) In {
+	hr.mu.RLock()
+	snapshot := append([]hookEntry[In, Out](nil), hr.hooks...)
+	hr.mu.RUnlock()
+	for _, entry := range snapshot {
+		if result := entry.handler(input); result != nil {
+			input = apply(input, *result)
+		}
+	}
+	return input
+}
+
+// OnStepContext registers a context decorator before each StepStartEvent.
+// The context reaches the provider request and tool calls for that step.
+// All hooks run in priority order; each receives the previous result. A nil
+// return keeps the context unchanged. Results must derive from the input
+// Context to preserve turn cancellation. Each step starts from the turn's
+// context, not the previous step's result. A resumed step calls the hook again
+// with the same StepNumber. Returns an unregister function.
+func (m *Kit) OnStepContext(p HookPriority, h func(StepContextHook) context.Context) func() {
+	return m.stepContext.register(p, func(input StepContextHook) *context.Context {
+		ctx := h(input)
+		if ctx == nil {
+			return nil
+		}
+		return &ctx
+	})
 }
 
 // hasHooks returns true if any hooks are registered.

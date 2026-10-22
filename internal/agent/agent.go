@@ -197,10 +197,13 @@ type StepMessagesHandler func(stepMessages []fantasy.Message)
 type StepUsageHandler func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64)
 
 // StepStartHandler is called when a new LLM step begins within a turn.
-type StepStartHandler func(stepNumber int)
+type StepStartHandler func(stepNumber int, model string)
 
 // StepFinishHandler is called when a step completes with full context.
-type StepFinishHandler func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage)
+type StepFinishHandler func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage, model string)
+
+// StepContextHandler decorates the turn context for each model step.
+type StepContextHandler func(ctx context.Context, step int, model string) context.Context
 
 // TextStartHandler is called when the LLM begins generating text content.
 type TextStartHandler func(id string)
@@ -296,6 +299,7 @@ type GenerateCallbacks struct {
 	// OnStepResume reports a step resume. See StepResumeHandler.
 	OnStepResume  StepResumeHandler
 	OnPrepareStep PrepareStepHandler
+	OnStepContext StepContextHandler
 	// RequestSnapshot captures managed prompt and tools after preparation side effects.
 	RequestSnapshot func() (string, []fantasy.AgentTool)
 }
@@ -336,7 +340,7 @@ func (cb GenerateCallbacks) HasAnyCallback() bool {
 		cb.OnRetry != nil ||
 		cb.OnRetryScheduled != nil ||
 		cb.OnStepResume != nil ||
-		cb.OnPrepareStep != nil || cb.RequestSnapshot != nil
+		cb.OnPrepareStep != nil || cb.OnStepContext != nil || cb.RequestSnapshot != nil
 }
 
 // ErrNoMCPServers is returned by the per-server MCP accessors (prompts,

@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"charm.land/fantasy/providers/google"
-
-	"github.com/mark3labs/kit/internal/httpclient"
 )
 
 // templatePlaceholderRe matches "${NAME}" placeholders in URL templates from
@@ -155,7 +153,7 @@ func createGoogleVertexProvider(ctx context.Context, config *ProviderConfig, mod
 	opts := []google.Option{
 		google.WithVertex(projectID, region),
 		google.WithUserAgent(config.UserAgent),
-		google.WithHTTPClient(httpclient.WithUserAgent(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config.UserAgent)),
+		google.WithHTTPClient(providerHTTPClient(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config)),
 		google.WithName("google-vertex"),
 	}
 

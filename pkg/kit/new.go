@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -68,6 +69,7 @@ type resolvedConfig struct {
 // can reference them before the Kit exists. Hooks registered after New
 // returns are still invoked because the wrapper captures them by pointer.
 type hookSet struct {
+	stepContext     *hookRegistry[StepContextHook, context.Context]
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
 	beforeTurn      *hookRegistry[BeforeTurnHook, BeforeTurnResult]
@@ -79,6 +81,7 @@ type hookSet struct {
 
 func newHookSet() hookSet {
 	return hookSet{
+		stepContext:     newHookRegistry[StepContextHook, context.Context](),
 		beforeToolCall:  newHookRegistry[BeforeToolCallHook, BeforeToolCallResult](),
 		afterToolResult: newHookRegistry[AfterToolResultHook, AfterToolResultResult](),
 		beforeTurn:      newHookRegistry[BeforeTurnHook, BeforeTurnResult](),
@@ -406,6 +409,7 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 		providerConfig.MaxTokens = sdkDefaultMaxTokens
 	}
 	providerConfig.ProviderFactories = providers
+	providerConfig.HTTPTransport = opts.HTTPTransport
 	if providerConfig.ModelMode != "" {
 		info := models.LookupModelForSettings(providerConfig.ModelString)
 		if reason := models.ModeUnsupportedReason(providerConfig.ModelString, providerConfig.ModelMode, info); reason != "" {

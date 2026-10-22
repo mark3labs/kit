@@ -96,7 +96,7 @@ func TestStepResumeAfterPartialOutput(t *testing.T) {
 	var persisted []fantasy.Message
 	var text string
 	res, err := a.GenerateWithCallbacks(context.Background(), []fantasy.Message{fantasy.NewUserMessage("go")}, GenerateCallbacks{
-		OnStepStart: func(n int) { starts = append(starts, n) },
+		OnStepStart: func(n int, _ string) { starts = append(starts, n) },
 		OnStepResume: func(step, resume int, err error, delay time.Duration) {
 			resumes = append(resumes, fmt.Sprintf("%d/%d", step, resume))
 			if err == nil || delay <= 0 {
