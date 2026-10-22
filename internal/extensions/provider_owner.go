@@ -12,6 +12,7 @@ type ProviderOwner struct {
 	mu                sync.Mutex
 	active            int
 	retired           bool
+	shuttingDown      bool
 	shutdownScheduled bool
 	shutdown          func()
 	runtimes          map[*providerAdapter]struct{}
@@ -69,16 +70,21 @@ func (o *ProviderOwner) Retire(shutdown func()) {
 	o.mu.Unlock()
 }
 
-func (o *ProviderOwner) track(runtime *providerAdapter) {
+func (o *ProviderOwner) track(runtime *providerAdapter) bool {
 	if o == nil {
-		return
+		return true
 	}
 	o.mu.Lock()
+	if o.shuttingDown {
+		o.mu.Unlock()
+		return false
+	}
 	if o.runtimes == nil {
 		o.runtimes = map[*providerAdapter]struct{}{}
 	}
 	o.runtimes[runtime] = struct{}{}
 	o.mu.Unlock()
+	return true
 }
 func (o *ProviderOwner) untrack(runtime *providerAdapter) {
 	if o == nil {
@@ -103,6 +109,7 @@ func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
 		}
 	}
 	o.retired = true
+	o.shuttingDown = true
 	runtimes := make([]*providerAdapter, 0, len(o.runtimes))
 	for runtime := range o.runtimes {
 		runtimes = append(runtimes, runtime)

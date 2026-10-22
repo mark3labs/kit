@@ -108,7 +108,10 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	lifetime, cancel := context.WithCancel(context.Background())
 	transferred = true
 	adapter := &providerAdapter{credential: request.APIKey, owner: def.owner, provider: def.ID, model: request.Model, capabilities: capability, parameters: request.Parameters, runtime: result.Runtime, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel, closeDone: make(chan struct{})}
-	def.owner.track(adapter)
+	if !def.owner.track(adapter) {
+		_ = adapter.closeContext(ctx)
+		return nil, nil, errors.New("extension provider generation is shutting down")
+	}
 	return adapter, adapter.closeContext, nil
 }
 
