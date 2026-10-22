@@ -86,6 +86,18 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 			return nil, nil, errors.New("unsupported extension reasoning level")
 		}
 	}
+	if def.Auth.Mode == ProviderAuthExternal && def.Auth.Status != nil {
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		status := def.Auth.Status(ProviderAuthRequest{Done: checkCtx.Done()})
+		checkErr := checkCtx.Err()
+		cancel()
+		if checkErr != nil {
+			return nil, nil, checkErr
+		}
+		if status.Error != nil || status.Status == ProviderAuthUnconfigured {
+			return nil, nil, errors.New("extension provider authentication is not configured")
+		}
+	}
 	if def.ValidateSettings != nil {
 		if failure := def.ValidateSettings(request.Parameters.SettingsJSON); failure != nil {
 			return nil, nil, errors.New("extension provider settings validation failed")
