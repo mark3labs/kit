@@ -12,12 +12,13 @@ import (
 
 // ModelEntry holds display metadata for a single model in the selector.
 type ModelEntry struct {
-	Provider     string
-	ModelID      string
-	Name         string // human-friendly name (e.g. "Claude Haiku 4.5")
-	ContextLimit int
-	Reasoning    bool
-	Available    bool // provider has credentials configured
+	Provider            string
+	ModelID             string
+	Name                string // human-friendly name (e.g. "Claude Haiku 4.5")
+	ContextLimit        int
+	Reasoning           bool
+	Available           bool // provider has credentials configured
+	AvailabilityUnknown bool // checking or externally managed status
 }
 
 // ModelSelectedMsg is sent when the user selects a model from the selector.
@@ -111,6 +112,9 @@ func NewModelSelectorWithEntries(currentModel string, width, height int, entries
 		desc := fmt.Sprintf("[%s]", m.Provider)
 		if !m.Available {
 			desc = fmt.Sprintf("[%s] no credentials", m.Provider)
+			if m.AvailabilityUnknown {
+				desc = fmt.Sprintf("[%s] checking authentication", m.Provider)
+			}
 		}
 		items[i] = PopupItem{
 			Label:       m.ModelID,

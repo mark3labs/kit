@@ -510,7 +510,7 @@ func buildUIProviders(k *kit.Kit) uiProviders {
 		getModelEntries: func() []ui.ModelEntry {
 			entries := []ui.ModelEntry{}
 			for _, item := range k.GetAvailableModels() {
-				entries = append(entries, ui.ModelEntry{Provider: item.Provider, ModelID: item.ModelID, Name: item.Name, ContextLimit: item.ContextLimit, Reasoning: item.Reasoning, Available: modelEntryAvailable(k, item.Provider, item.ModelID)})
+				entries = append(entries, ui.ModelEntry{Provider: item.Provider, ModelID: item.ModelID, Name: item.Name, ContextLimit: item.ContextLimit, Reasoning: item.Reasoning, Available: modelEntryAvailable(k, item.Provider, item.ModelID), AvailabilityUnknown: kit.GetProviderInfo(item.Provider) == nil})
 			}
 			return entries
 		},
