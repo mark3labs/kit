@@ -10,7 +10,7 @@ This index lists declarations owned by `pkg/kit`. Follow each Go reference for s
 
 Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/decisions), [authentication](/sdk/authentication), [callbacks](/sdk/callbacks), [sessions](/sdk/sessions), [code mode](/advanced/code-mode), [subagents](/advanced/subagents).
 
-`CLIOptions` is for CLI integration. `ResetForTesting` is a test helper, not a normal embedding operation.
+`CLIOptions` is for CLI integration. `ResetForTesting` is a test helper available **only with the `testing` build tag**, not a production embedding operation. Its [source contract](https://github.com/mark3labs/kit/blob/master/pkg/kit/testing.go) is authoritative when the default Go reference omits tagged declarations.
 
 ## Authentication
 

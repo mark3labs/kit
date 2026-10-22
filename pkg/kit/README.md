@@ -22,7 +22,7 @@ Zero option fields fall back to the `codemode` config section, then defaults:
 | --- | --- |
 | `Timeout` | 30 seconds (`time.Duration` in Go, seconds in YAML) |
 | `MaxToolCalls` | 50 tool calls per script |
-| `MaxOutputBytes` | 100000 bytes; larger output is saved to a temporary file |
+| `MaxOutputBytes` | 100000 bytes; larger captured output may be saved to a temporary file, but combined script output and logs are capped at 4 MiB and excess is truncated |
 | `MaxConcurrency` | 8 parallel tool calls per script |
 | `MemoryLimitMB` | 256 MiB approximate heap growth (value shifted by 20 bits); negative disables check |
 | `CatalogBudget` | 12000 bytes in the tool catalog description |
@@ -1005,8 +1005,9 @@ wait. Cancellation can stop the wait, so an event does not guarantee that the
 next request will start. Extension retry events also include the delay.
 
 For safety, streaming retries are permitted only before content is delivered.
-Warnings, keepalives and start parts (text, reasoning, tool input) are held
-until content arrives, so they do not prevent a retry. A failure after content
+Warnings and start parts (text, reasoning, tool input) are held until content
+arrives, so they do not prevent a retry. Keepalive parts are forwarded
+immediately and can reach consumers from an attempt that later fails. A failure after content
 was delivered is handled by step resume (below). The TUI resets transient
 stream state on a retry event and keeps completed messages. Retries do not
 repeat completed steps or tool execution. The underlying agent library's

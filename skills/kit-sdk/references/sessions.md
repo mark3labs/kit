@@ -140,8 +140,9 @@ wait. Cancellation can stop the wait, so an event does not guarantee that the
 next request will start. Extension retry events also include the delay.
 
 For safety, streaming retries are permitted only before content is delivered.
-Warnings, keepalives and start parts (text, reasoning, tool input) are held
-until content arrives, so they do not prevent a retry. A failure after content
+Warnings and start parts (text, reasoning, tool input) are held until content
+arrives, so they do not prevent a retry. Keepalive parts are forwarded
+immediately and can reach consumers from an attempt that later fails. A failure after content
 was delivered is handled by step resume (below). The TUI resets transient
 stream state on a retry event and keeps completed messages. Retries do not
 repeat completed steps or tool execution. The underlying agent library's

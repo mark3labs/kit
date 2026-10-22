@@ -13,6 +13,8 @@ import (
 
 // sdkDeclarations reads only production declarations owned by the public package.
 // Alias members are documented through their owning type's Go reference.
+// Include tagged helpers such as ResetForTesting in the index, but label them
+// test-only; do not make the inventory depend on the current build tags or OS.
 func sdkDeclarations(t *testing.T) (map[string]string, []string, []string) {
 	t.Helper()
 	files, err := filepath.Glob("*.go")

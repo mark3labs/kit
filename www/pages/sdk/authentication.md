@@ -8,7 +8,7 @@ ogImage: /og-image.png
 
 ## Stored credentials
 
-`SetProviderAPIKey(providerID, apiKey)` stores a key in `$XDG_CONFIG_HOME/.kit/credentials.json` (0600), or `~/.config/.kit/credentials.json`. Handle its error. Stored keys take precedence over provider environment variables. Explicit `Options.ProviderAPIKey` / `WithProviderAPIKey` overrides resolved credentials; configuration can also supply provider settings. Do not log keys, tokens or the credential store.
+`SetProviderAPIKey(providerID, apiKey)` stores a key in `$XDG_CONFIG_HOME/.kit/credentials.json` (0600 for a newly created file; existing permissions are preserved), or `~/.config/.kit/credentials.json`. Handle its error. Stored keys take precedence over provider environment variables. Explicit `Options.ProviderAPIKey` / `WithProviderAPIKey` overrides stored API keys and provider environment variables. Exception: stored OpenAI OAuth credentials take precedence at the default OpenAI destination or a trusted Codex endpoint (https://chatgpt.com/backend-api/codex); configuration can also supply provider settings. Do not log keys, tokens or the credential store.
 
 `GetProviderAPIKey` reads only the stored key (empty when absent), not environment fallback. `HasProviderCredentials` reports stored API-key or OAuth presence, not remote validity. `RemoveProviderCredentials` deletes all stored credentials for that provider. Anthropic and OpenAI use dedicated slots; Copilot is OAuth-only and rejects API-key storage. `NewCredentialManager` exposes the store for advanced use; see its [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CredentialManager) for provider-specific helpers.
 

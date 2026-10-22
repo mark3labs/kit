@@ -161,7 +161,7 @@ host, err := kit.New(ctx, &kit.Options{
 |-------|------|---------|-------------|
 | `Model` | `string` | config default | Model string (provider/model format) |
 | `SystemPrompt` | `string` | — | System prompt text or file path |
-| `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |
+| `ConfigFile` | `string` | empty | Explicit path; when unset, discover project config before home config |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = use the configured default) |
 | `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
 | `Quiet` | `bool` | `false` | Suppress output |
@@ -730,7 +730,7 @@ Zero option fields fall back to the `codemode` config section, then defaults:
 | --- | --- |
 | `Timeout` | 30 seconds (`time.Duration` in Go, seconds in YAML) |
 | `MaxToolCalls` | 50 tool calls per script |
-| `MaxOutputBytes` | 100000 bytes; larger output is saved to a temporary file |
+| `MaxOutputBytes` | 100000 bytes; larger captured output may be saved to a temporary file, but combined script output and logs are capped at 4 MiB and excess is truncated |
 | `MaxConcurrency` | 8 parallel tool calls per script |
 | `MemoryLimitMB` | 256 MiB approximate heap growth (value shifted by 20 bits); negative disables check |
 | `CatalogBudget` | 12000 bytes in the tool catalog description |
