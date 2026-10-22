@@ -66,6 +66,7 @@ func TestExtensionProviderGreetingThroughKit(t *testing.T) {
 
 func TestExtensionProviderToolRoundTrip(t *testing.T) {
 	var executions atomic.Int32
+	var beforeCalls, afterCalls atomic.Int32
 	type input struct {
 		A int `json:"a"`
 		B int `json:"b"`
@@ -75,11 +76,16 @@ func TestExtensionProviderToolRoundTrip(t *testing.T) {
 		return ToolOutput{Content: fmt.Sprint(args.A + args.B)}, nil
 	})
 	k := extensionProviderKit(t, "fake-tool-provider.go", "fake-tool/add", []Tool{tool})
+	k.OnBeforeToolCall(HookPriorityNormal, func(BeforeToolCallHook) *BeforeToolCallResult { beforeCalls.Add(1); return nil })
+	k.OnAfterToolResult(HookPriorityNormal, func(AfterToolResultHook) *AfterToolResultResult { afterCalls.Add(1); return nil })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	got, err := k.Prompt(ctx, "add 2 and 3")
 	if err != nil || got != "5" {
 		t.Fatalf("got=%q err=%v", got, err)
+	}
+	if beforeCalls.Load() != 1 || afterCalls.Load() != 1 {
+		t.Fatalf("hook calls before=%d after=%d", beforeCalls.Load(), afterCalls.Load())
 	}
 	if executions.Load() != 1 {
 		t.Fatalf("executions=%d", executions.Load())
