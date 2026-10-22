@@ -393,6 +393,15 @@ func (t *streamTurn) onToolResult(tr fantasy.ToolResultContent) error {
 func (t *streamTurn) onStepFinish(step fantasy.StepResult) error {
 	// Host-executed tool results do not inherit model metadata in the model
 	// library. Carry the matching extension origin so persistence keeps IDs.
+	if metadata := message.ExtensionOptions(fantasy.ProviderOptions(step.ProviderMetadata)); metadata != nil {
+		for i := range step.Messages {
+			step.Messages[i].ProviderOptions = message.CloneOptions(step.Messages[i].ProviderOptions)
+			if step.Messages[i].ProviderOptions == nil {
+				step.Messages[i].ProviderOptions = fantasy.ProviderOptions{}
+			}
+			step.Messages[i].ProviderOptions["kit-extension"] = metadata
+		}
+	}
 	origins := map[string]*message.ExtensionMetadata{}
 	for _, msg := range step.Messages {
 		for _, part := range msg.Content {

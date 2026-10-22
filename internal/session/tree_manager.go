@@ -1120,8 +1120,8 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 // it: the Content slice, every ProviderOptions map, and FilePart.Data are
 // copied. All other fields are values or immutable strings.
 //
-// The values inside a ProviderOptions map are copied shallowly. The cache
-// never holds any: ToLLMMessages does not set provider options.
+// Extension replay carriers are deep-copied, including their slices. Other
+// provider-specific option values retain the existing shallow-copy behavior.
 func cloneLLMMessage(msg fantasy.Message) fantasy.Message {
 	msg.ProviderOptions = message.CloneOptions(msg.ProviderOptions)
 	if msg.Content == nil {
