@@ -93,7 +93,11 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	}
 	result := def.Create(request)
 	if result.Error != nil {
-		return nil, nil, fmt.Errorf("extension provider %s Create failed (%s)", def.ID, result.Error.Code)
+		code := result.Error.Code
+		if request.APIKey != "" {
+			code = strings.ReplaceAll(code, request.APIKey, "[redacted]")
+		}
+		return nil, nil, fmt.Errorf("extension provider %s Create failed (%s)", def.ID, code)
 	}
 	if result.Runtime.Stream == nil {
 		if result.Runtime.Close != nil {
