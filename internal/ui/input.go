@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/kit/internal/clipboard"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/emoji"
 	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/style"
 	"github.com/mark3labs/kit/internal/ui/termgfx"
@@ -72,6 +73,14 @@ type InputComponent struct {
 	// (running $EDITOR on it); selecting a directory drills further like @
 	// does. MCP resources are excluded in this mode.
 	fileEditMode bool
+
+	// Emoji completion state. When the user types : followed by a partial
+	// shortcode, the popup shows matching emojis. Selecting one replaces
+	// the :prefix with the emoji glyph.
+	emojiMode        bool                    // true when showing :emoji completions
+	emojiStartIdx    int                     // byte offset of : in the last line
+	emojiSuggestions []emoji.Match           // backing storage for emoji entries
+	emojiSynthCmds   []commands.SlashCommand // synthetic commands.SlashCommands wrapping emoji entries
 
 	// cwd is the working directory used for @file path resolution and
 	// autocomplete suggestions. Set by the parent via SetCwd.
@@ -828,9 +837,54 @@ func (s *InputComponent) Clear() bool {
 	s.argMode = false
 	s.fileMode = false
 	s.fileEditMode = false
+	s.emojiMode = false
 	s.browsingHistory = false
 	s.savedInput = ""
 	return hadContent
+}
+
+// applyEmojiCompletion replaces the :prefix at the end of the textarea with
+// the selected emoji glyph and a trailing space, then closes the popup.
+func (s *InputComponent) applyEmojiCompletion(idx int) {
+	if idx >= len(s.emojiSuggestions) {
+		return
+	}
+
+	value := s.textarea.Value()
+	lines := strings.Split(value, "\n")
+	lastLine := lines[len(lines)-1]
+	if s.emojiStartIdx > len(lastLine) {
+		return
+	}
+	lines[len(lines)-1] = lastLine[:s.emojiStartIdx] + s.emojiSuggestions[idx].Glyph + " "
+
+	s.textarea.SetValue(strings.Join(lines, "\n"))
+	s.textarea.CursorEnd()
+	s.showPopup = false
+	s.emojiMode = false
+	s.selected = 0
+}
+
+// updateEmojiPopup fills the popup state with emoji matches for prefix.
+// It returns false (and fills nothing) when no emoji matches.
+func (s *InputComponent) updateEmojiPopup(prefix string, colonIdx int) bool {
+	suggestions := GetEmojiSuggestions(prefix)
+	if len(suggestions) == 0 {
+		return false
+	}
+
+	s.showPopup = true
+	s.emojiMode = true
+	s.emojiStartIdx = colonIdx
+	s.emojiSuggestions = suggestions
+	s.emojiSynthCmds = make([]commands.SlashCommand, len(suggestions))
+	s.filtered = make([]FuzzyMatch, len(suggestions))
+	for i, m := range suggestions {
+		s.emojiSynthCmds[i] = commands.SlashCommand{Name: emojiPopupLabel(m)}
+		s.filtered[i] = FuzzyMatch{Command: &s.emojiSynthCmds[i], Score: m.Score}
+	}
+	s.selected = 0
+	return true
 }
 
 // applyFileCompletion replaces the @prefix in the textarea with the selected
@@ -1092,7 +1146,9 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			if s.selected < len(s.filtered) {
-				if s.fileMode {
+				if s.emojiMode {
+					s.applyEmojiCompletion(s.selected)
+				} else if s.fileMode {
 					s.applyFileCompletion(s.selected)
 				} else if s.argMode {
 					s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
@@ -1109,6 +1165,11 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			if s.selected < len(s.filtered) {
+				if s.emojiMode {
+					// Insert the emoji but don't submit.
+					s.applyEmojiCompletion(s.selected)
+					return s, nil
+				}
 				if s.fileMode {
 					// Apply file completion but don't submit.
 					s.applyFileCompletion(s.selected)
@@ -1140,6 +1201,7 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			s.showPopup = false
+			s.emojiMode = false
 			s.selected = 0
 			return s, nil
 		}
@@ -1159,6 +1221,7 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		lines := strings.Split(value, "\n")
 		line := lines[len(lines)-1] // current line (last line for multi-line)
+		s.emojiMode = false         // set again below when a :shortcode matches
 
 		// Check for @file trigger first.
 		cursorCol := len(line) // approximate: cursor is at end after typing
@@ -1251,6 +1314,11 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				s.showPopup = false
 				s.argMode = false
 			}
+		} else if hasColon, prefix, colonIdx := ExtractColonPrefix(line); hasColon && s.updateEmojiPopup(prefix, colonIdx) {
+			// :shortcode emoji completion. updateEmojiPopup set the popup state.
+			s.argMode = false
+			s.fileMode = false
+			s.fileEditMode = false
 		} else {
 			s.showPopup = false
 			s.argMode = false
