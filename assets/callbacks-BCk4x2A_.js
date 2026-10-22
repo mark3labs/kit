@@ -96,7 +96,7 @@ remain necessary when input is untrusted.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnPrepareStep</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrepareStepHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrepareStepResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.StepNumber — zero-based step index within the turn</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.Messages   — current context window (includes any steering)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    </span></span>
+<span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Example: transform tool results with images into user messages</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    modified </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> transformImageToolResults</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(h.Messages)</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrepareStepResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Messages: modified}</span></span>
@@ -119,7 +119,7 @@ provide a transaction over external storage.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityHigh   </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 0</span><span style="color:#6A737D;--shiki-dark:#6A737D">   // runs first</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityNormal </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 50</span><span style="color:#6A737D;--shiki-dark:#6A737D">  // default</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityLow    </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 100</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // runs last</span></span></code></pre>
-<p>Lower values run first. First non-nil result wins.</p>
+<p>Lower values run first. Interceptor hooks use the first non-nil result. <code>OnStepContext</code> is different: all decorators run and each receives the previous context.</p>
 <h2 id="all-event-types"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#all-event-types"><span class="icon icon-link"></span></a>All event types</h2>
 <table>
 <thead>
@@ -266,6 +266,11 @@ provide a transaction over external storage.</p>
 <td>Agent-level error during streaming</td>
 </tr>
 <tr>
+<td><code>StepResumeEvent</code></td>
+<td><code>OnStepResume</code></td>
+<td>Failed streaming step will restart; discard failed-step deltas</td>
+</tr>
+<tr>
 <td><code>RetryEvent</code></td>
 <td><code>OnRetry</code></td>
 <td>LLM request retried after transient error</td>
@@ -282,7 +287,7 @@ provide a transaction over external storage.</p>
 </tr>
 <tr>
 <td><code>PasswordPromptEvent</code></td>
-<td>—</td>
+<td><code>Subscribe</code> (generic only)</td>
 <td>Sudo command needs password (respond via <code>ResponseCh</code>)</td>
 </tr>
 </tbody>
@@ -316,249 +321,24 @@ start/end lifecycle telemetry without hand-rolling the failure path:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>For retained history rather than live callbacks, use <code>SubagentRuns</code> or <code>GetSubagentRun</code>. To follow every run of the host as it changes, use <code>SubscribeSubagentRuns</code>. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See <a href="/advanced/subagents#retained-run-snapshots">Retained run snapshots</a> for limits and an API comparison. Existing live listeners are unchanged.</p>
-<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:`Event-based monitoring`,id:`event-based-monitoring`},{depth:2,text:`Tool call argument streaming`,id:`tool-call-argument-streaming`},{depth:2,text:`Hook system`,id:`hook-system`},{depth:3,text:`BeforeToolCall — block tool execution`,id:`beforetoolcall--block-tool-execution`},{depth:3,text:`AfterToolResult — modify tool output`,id:`aftertoolresult--modify-tool-output`},{depth:3,text:`BeforeTurn — modify prompt, inject messages`,id:`beforeturn--modify-prompt-inject-messages`},{depth:3,text:`AfterTurn — observation only`,id:`afterturn--observation-only`},{depth:3,text:`PrepareStep — intercept messages between steps`,id:`preparestep--intercept-messages-between-steps`},{depth:3,text:`Hook priorities`,id:`hook-priorities`},{depth:2,text:`All event types`,id:`all-event-types`},{depth:3,text:`Compaction telemetry`,id:`compaction-telemetry`},{depth:2,text:`Subagent event monitoring`,id:`subagent-event-monitoring`}],raw:`
-# Callbacks
-
-## Event-based monitoring
-
-Subscribe to events for real-time monitoring. Each method returns an unsubscribe function:
-
-\`\`\`go
-unsub := host.OnToolCall(func(event kit.ToolCallEvent) {
-    fmt.Printf("Tool: %s, Args: %s\\n", event.ToolName, event.ToolArgs)
-})
-defer unsub()
-
-unsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {
-    fmt.Printf("Result: %s (error: %v)\\n", event.ToolName, event.IsError)
-})
-defer unsub2()
-
-unsub3 := host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
-    fmt.Print(event.Chunk)
-})
-defer unsub3()
-
-unsub4 := host.OnResponse(func(event kit.ResponseEvent) {
-    fmt.Println("Final response received")
-})
-defer unsub4()
-
-unsub5 := host.OnTurnStart(func(event kit.TurnStartEvent) {
-    fmt.Println("Turn started")
-})
-defer unsub5()
-
-unsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {
-    fmt.Println("Turn ended")
-})
-defer unsub6()
-\`\`\`
-
-## Tool call argument streaming
-
-For tools with large arguments (e.g., \`write\` with a full file body), the \`ToolCallEvent\` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:
-
-\`\`\`go
-host.OnToolCallStart(func(event kit.ToolCallStartEvent) {
-    // Fires as soon as the LLM begins generating tool arguments.
-    // event.ToolCallID, event.ToolName, event.ToolKind
-    fmt.Printf("⏳ %s generating arguments...\\n", event.ToolName)
-})
-
-host.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {
-    // Each streamed JSON fragment of the tool arguments.
-    // event.ToolCallID, event.Delta
-    // Useful for live-previewing content or showing byte progress.
-})
-
-host.OnToolCallEnd(func(event kit.ToolCallEndEvent) {
-    // Tool argument streaming complete — execution about to begin.
-    // event.ToolCallID
-    fmt.Printf("✓ Arguments ready, executing...\\n")
-})
-\`\`\`
-
-**Full tool lifecycle**: \`ToolCallStartEvent\` → \`ToolCallDeltaEvent\` (repeated) → \`ToolCallEndEvent\` → \`ToolCallEvent\` → \`ToolExecutionStartEvent\` → \`ToolOutputEvent\` (optional) → \`ToolExecutionEndEvent\` → \`ToolResultEvent\`
-
-## Hook system
-
-Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.
-
-### BeforeToolCall — block tool execution
-
-\`\`\`go
-host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
-    // h.ToolCallID, h.ToolName, h.ToolArgs
-    // The command-execution tool from kit.NewShellTool reports itself as "shell".
-    if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
-        return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
-    }
-    return nil // allow
-})
-\`\`\`
-
-A blocked tool does not run. The model receives \`Error: <Reason>\` as the tool
-result and the turn continues, so the model can react (for example, ask the
-user or try something else). This is the same as a block from an extension.
-
-\`h.ToolArgs\` is the raw JSON the model produced. A substring match over it is a
-convenience guard, not a security boundary — \`rm -r -f\`, a shell expansion, or a
-script file all get past it. Hooks can restrict exposed tools and arguments, but
-allowing an arbitrary shell, interpreter, or script still permits indirect
-actions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)
-remain necessary when input is untrusted.
-
-### AfterToolResult — modify tool output
-
-\`\`\`go
-host.OnAfterToolResult(kit.HookPriorityNormal, func(h kit.AfterToolResultHook) *kit.AfterToolResultResult {
-    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError
-    if h.ToolName == "read" {
-        filtered := redactSecrets(h.Result)
-        return &kit.AfterToolResultResult{Result: &filtered}
-    }
-    return nil
-})
-\`\`\`
-
-### BeforeTurn — modify prompt, inject messages
-
-\`\`\`go
-host.OnBeforeTurn(kit.HookPriorityNormal, func(h kit.BeforeTurnHook) *kit.BeforeTurnResult {
-    // h.Prompt
-    newPrompt := h.Prompt + "\\nAlways respond in JSON."
-    return &kit.BeforeTurnResult{Prompt: &newPrompt}
-    // Also available: SystemPrompt *string, InjectText *string
-})
-\`\`\`
-
-### AfterTurn — observation only
-
-\`\`\`go
-host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
-    // h.Response, h.Error
-    log.Printf("Turn completed: %d chars", len(h.Response))
-})
-\`\`\`
-
-### PrepareStep — intercept messages between steps
-
-The most powerful hook — fires between steps within a multi-step agent turn, after any steering messages are injected and before messages are sent to the LLM. Can replace the entire context window.
-
-\`\`\`go
-host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
-    // h.StepNumber — zero-based step index within the turn
-    // h.Messages   — current context window (includes any steering)
-    
-    // Example: transform tool results with images into user messages
-    modified := transformImageToolResults(h.Messages)
-    return &kit.PrepareStepResult{Messages: modified}
-    // Return nil to pass through unchanged
-})
-\`\`\`
-
-Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
-
-Hooks run synchronously. Use \`h.Context\` to bound preparation I/O. A non-nil
-\`PrepareStepResult.Error\` aborts before the provider request and takes precedence
-over Messages, Tools, and ToolChoice. \`Prompt\` and \`PromptResult\` preserve
-\`errors.Is\` identity without automatic retry, resume, or media recovery.
-Completed tool/result pairs remain in partial results and persistence. Kit
-checks cancellation before and after hooks, but does not start a worker to
-interrupt an uncooperative hook.
-
-Skill changes completed inside preparation affect this request's managed
-prompt and activation schema. Explicit overrides still win. Nil Tools uses the
-live set; an empty non-nil Tools slice offers no tools. The override lasts one
-step. Hosts must finish any durable write before returning: Kit does not
-provide a transaction over external storage.
-
-### Hook priorities
-
-\`\`\`go
-kit.HookPriorityHigh   = 0   // runs first
-kit.HookPriorityNormal = 50  // default
-kit.HookPriorityLow    = 100 // runs last
-\`\`\`
-
-Lower values run first. First non-nil result wins.
-
-## All event types
-
-| Event | Typed Subscriber | Description |
-|-------|-----------------|-------------|
-| \`TurnStartEvent\` | \`OnTurnStart\` | Agent turn started |
-| \`TurnEndEvent\` | \`OnTurnEnd\` | Agent turn completed |
-| \`MessageStartEvent\` | \`OnMessageStart\` | New assistant message begins |
-| \`MessageUpdateEvent\` | \`OnMessageUpdate\` | Streaming text chunk from LLM |
-| \`MessageEndEvent\` | \`OnMessageEnd\` | Assistant message complete |
-| \`ToolCallStartEvent\` | \`OnToolCallStart\` | LLM began generating tool call arguments |
-| \`ToolCallDeltaEvent\` | \`OnToolCallDelta\` | Streamed JSON fragment of tool call arguments |
-| \`ToolCallEndEvent\` | \`OnToolCallEnd\` | Tool argument streaming complete |
-| \`ToolCallEvent\` | \`OnToolCall\` | Tool call fully parsed, about to execute |
-| \`ToolExecutionStartEvent\` | \`OnToolExecutionStart\` | Tool begins executing |
-| \`ToolExecutionEndEvent\` | \`OnToolExecutionEnd\` | Tool finishes executing |
-| \`ToolResultEvent\` | \`OnToolResult\` | Tool execution completed with result |
-| \`ToolCallContentEvent\` | \`OnToolCallContent\` | Text content alongside tool calls |
-| \`ToolOutputEvent\` | \`OnToolOutput\` | Streaming output chunk from tool (e.g., bash) |
-| \`ResponseEvent\` | \`OnResponse\` | Final response received |
-| \`ReasoningStartEvent\` | \`OnReasoningStart\` | LLM begins reasoning/thinking |
-| \`ReasoningDeltaEvent\` | \`OnReasoningDelta\` | Streaming reasoning/thinking chunk |
-| \`ReasoningCompleteEvent\` | \`OnReasoningComplete\` | Reasoning/thinking finished |
-| \`StepStartEvent\` | \`OnStepStart\` | New LLM call begins within a turn |
-| \`StepFinishEvent\` | \`OnStepFinish\` | Step completes (with usage, finish reason, tool call info) |
-| \`StepUsageEvent\` | \`OnStepUsage\` | Per-step token usage |
-| \`StreamFinishEvent\` | \`OnStreamFinish\` | Per-step stream completes (with usage + finish reason) |
-| \`TextStartEvent\` | \`OnTextStart\` | LLM begins text content generation |
-| \`TextEndEvent\` | \`OnTextEnd\` | LLM finishes text content generation |
-| \`WarningsEvent\` | \`OnWarnings\` | LLM provider returned warnings |
-| \`SourceEvent\` | \`OnSource\` | LLM referenced a source (e.g., web search) |
-| \`ErrorEvent\` | \`OnError\` | Agent-level error during streaming |
-| \`RetryEvent\` | \`OnRetry\` | LLM request retried after transient error |
-| \`CompactionEvent\` | \`OnCompaction\` | Conversation compacted (fires on success **and** failure — check \`Err\`) |
-| \`SteerConsumedEvent\` | \`OnSteerConsumed\` | Steering messages injected into turn |
-| \`PasswordPromptEvent\` | — | Sudo command needs password (respond via \`ResponseCh\`) |
-
-### Compaction telemetry
-
-\`CompactionEvent\` fires after every compaction attempt. On success \`Err\` is
-\`nil\` and the summary/token/file fields are populated; on failure \`Err\` is
-non-nil and the rest are zero-valued. This lets you wire symmetric
-start/end lifecycle telemetry without hand-rolling the failure path:
-
-\`\`\`go
-host.OnCompaction(func(e kit.CompactionEvent) {
-    if e.Err != nil {
-        log.Printf("compaction failed: %v", e.Err)
-        return
-    }
-    log.Printf("compacted %d → %d tokens (%d messages removed)",
-        e.OriginalTokens, e.CompactedTokens, e.MessagesRemoved)
-})
-\`\`\`
-
-## Subagent event monitoring
-
-Monitor real-time events from LLM-initiated subagents (when the model uses the \`subagent\` tool):
-
-\`\`\`go
-host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "subagent" {
-        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
-            // Receives the same event types as Subscribe(), scoped to the child agent
-            switch ev := event.(type) {
-            case kit.MessageUpdateEvent:
-                fmt.Print(ev.Chunk)
-            case kit.ToolCallEvent:
-                fmt.Printf("Subagent calling: %s\\n", ev.ToolName)
-            }
-        })
-    }
-})
-\`\`\`
-
-For retained history rather than live callbacks, use \`SubagentRuns\` or \`GetSubagentRun\`. To follow every run of the host as it changes, use \`SubscribeSubagentRuns\`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
-
-\`SubscribeSubagent\` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.
-`};export{e as default};
+<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>
+<h2 id="provider-request-tracing"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-request-tracing"><span class="icon icon-link"></span></a>Provider request tracing</h2>
+<p>Use <code>WithHTTPTransport</code> (or <code>Options.HTTPTransport</code>) to wrap the base transport
+of built-in providers. The wrapper receives requests after Kit applies its
+headers. It must return a non-nil <code>http.RoundTripper</code>. It passes to model changes,
+temporary completions, and subagents. Custom provider factories own their HTTP
+clients; this option does not wrap them, MCP, OAuth, or credential requests.</p>
+<p>Use <code>OnStepContext</code> to pass a step span or other context value to the provider
+request and that step's tools:</p>
+<p>The fragment assumes <code>host</code> and an application-owned comparable <code>stepKey</code>.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnStepContext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">StepContextHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> context.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithValue</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(h.Context, stepKey, h.StepNumber)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Every context hook runs in priority order. A nil result keeps the current
+context. Derive results from <code>h.Context</code> so turn cancellation still applies.
+Each step starts from the turn context, not the previous step context. A resumed
+step runs the hooks again with the same step number. <code>OnPrepareStep</code> keeps its
+existing first-non-nil-result behavior. Context hooks run after preparation and
+before <code>StepStartEvent</code>. Both <code>StepStartEvent.Model</code> and <code>StepFinishEvent.Model</code>
+report the <code>provider/model</code> that served the step, even if the configured model
+changes during the turn. Kit does not create spans or depend on a tracing SDK.</p>`,headings:[{depth:2,text:`Event-based monitoring`,id:`event-based-monitoring`},{depth:2,text:`Tool call argument streaming`,id:`tool-call-argument-streaming`},{depth:2,text:`Hook system`,id:`hook-system`},{depth:3,text:`BeforeToolCall — block tool execution`,id:`beforetoolcall--block-tool-execution`},{depth:3,text:`AfterToolResult — modify tool output`,id:`aftertoolresult--modify-tool-output`},{depth:3,text:`BeforeTurn — modify prompt, inject messages`,id:`beforeturn--modify-prompt-inject-messages`},{depth:3,text:`AfterTurn — observation only`,id:`afterturn--observation-only`},{depth:3,text:`PrepareStep — intercept messages between steps`,id:`preparestep--intercept-messages-between-steps`},{depth:3,text:`Hook priorities`,id:`hook-priorities`},{depth:2,text:`All event types`,id:`all-event-types`},{depth:3,text:`Compaction telemetry`,id:`compaction-telemetry`},{depth:2,text:`Subagent event monitoring`,id:`subagent-event-monitoring`},{depth:2,text:`Provider request tracing`,id:`provider-request-tracing`}],raw:'\n# Callbacks\n\n## Event-based monitoring\n\nSubscribe to events for real-time monitoring. Each method returns an unsubscribe function:\n\n```go\nunsub := host.OnToolCall(func(event kit.ToolCallEvent) {\n    fmt.Printf("Tool: %s, Args: %s\\n", event.ToolName, event.ToolArgs)\n})\ndefer unsub()\n\nunsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {\n    fmt.Printf("Result: %s (error: %v)\\n", event.ToolName, event.IsError)\n})\ndefer unsub2()\n\nunsub3 := host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {\n    fmt.Print(event.Chunk)\n})\ndefer unsub3()\n\nunsub4 := host.OnResponse(func(event kit.ResponseEvent) {\n    fmt.Println("Final response received")\n})\ndefer unsub4()\n\nunsub5 := host.OnTurnStart(func(event kit.TurnStartEvent) {\n    fmt.Println("Turn started")\n})\ndefer unsub5()\n\nunsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {\n    fmt.Println("Turn ended")\n})\ndefer unsub6()\n```\n\n## Tool call argument streaming\n\nFor tools with large arguments (e.g., `write` with a full file body), the `ToolCallEvent` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:\n\n```go\nhost.OnToolCallStart(func(event kit.ToolCallStartEvent) {\n    // Fires as soon as the LLM begins generating tool arguments.\n    // event.ToolCallID, event.ToolName, event.ToolKind\n    fmt.Printf("⏳ %s generating arguments...\\n", event.ToolName)\n})\n\nhost.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {\n    // Each streamed JSON fragment of the tool arguments.\n    // event.ToolCallID, event.Delta\n    // Useful for live-previewing content or showing byte progress.\n})\n\nhost.OnToolCallEnd(func(event kit.ToolCallEndEvent) {\n    // Tool argument streaming complete — execution about to begin.\n    // event.ToolCallID\n    fmt.Printf("✓ Arguments ready, executing...\\n")\n})\n```\n\n**Full tool lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional) → `ToolExecutionEndEvent` → `ToolResultEvent`\n\n## Hook system\n\nHooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.\n\n### BeforeToolCall — block tool execution\n\n```go\nhost.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {\n    // h.ToolCallID, h.ToolName, h.ToolArgs\n    // The command-execution tool from kit.NewShellTool reports itself as "shell".\n    if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {\n        return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}\n    }\n    return nil // allow\n})\n```\n\nA blocked tool does not run. The model receives `Error: <Reason>` as the tool\nresult and the turn continues, so the model can react (for example, ask the\nuser or try something else). This is the same as a block from an extension.\n\n`h.ToolArgs` is the raw JSON the model produced. A substring match over it is a\nconvenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a\nscript file all get past it. Hooks can restrict exposed tools and arguments, but\nallowing an arbitrary shell, interpreter, or script still permits indirect\nactions. [Execution environment restrictions](/quick-start#tool-execution-and-trust)\nremain necessary when input is untrusted.\n\n### AfterToolResult — modify tool output\n\n```go\nhost.OnAfterToolResult(kit.HookPriorityNormal, func(h kit.AfterToolResultHook) *kit.AfterToolResultResult {\n    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError\n    if h.ToolName == "read" {\n        filtered := redactSecrets(h.Result)\n        return &kit.AfterToolResultResult{Result: &filtered}\n    }\n    return nil\n})\n```\n\n### BeforeTurn — modify prompt, inject messages\n\n```go\nhost.OnBeforeTurn(kit.HookPriorityNormal, func(h kit.BeforeTurnHook) *kit.BeforeTurnResult {\n    // h.Prompt\n    newPrompt := h.Prompt + "\\nAlways respond in JSON."\n    return &kit.BeforeTurnResult{Prompt: &newPrompt}\n    // Also available: SystemPrompt *string, InjectText *string\n})\n```\n\n### AfterTurn — observation only\n\n```go\nhost.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {\n    // h.Response, h.Error\n    log.Printf("Turn completed: %d chars", len(h.Response))\n})\n```\n\n### PrepareStep — intercept messages between steps\n\nThe most powerful hook — fires between steps within a multi-step agent turn, after any steering messages are injected and before messages are sent to the LLM. Can replace the entire context window.\n\n```go\nhost.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {\n    // h.StepNumber — zero-based step index within the turn\n    // h.Messages   — current context window (includes any steering)\n\n    // Example: transform tool results with images into user messages\n    modified := transformImageToolResults(h.Messages)\n    return &kit.PrepareStepResult{Messages: modified}\n    // Return nil to pass through unchanged\n})\n```\n\nUse cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.\n\nHooks run synchronously. Use `h.Context` to bound preparation I/O. A non-nil\n`PrepareStepResult.Error` aborts before the provider request and takes precedence\nover Messages, Tools, and ToolChoice. `Prompt` and `PromptResult` preserve\n`errors.Is` identity without automatic retry, resume, or media recovery.\nCompleted tool/result pairs remain in partial results and persistence. Kit\nchecks cancellation before and after hooks, but does not start a worker to\ninterrupt an uncooperative hook.\n\nSkill changes completed inside preparation affect this request\'s managed\nprompt and activation schema. Explicit overrides still win. Nil Tools uses the\nlive set; an empty non-nil Tools slice offers no tools. The override lasts one\nstep. Hosts must finish any durable write before returning: Kit does not\nprovide a transaction over external storage.\n\n### Hook priorities\n\n```go\nkit.HookPriorityHigh   = 0   // runs first\nkit.HookPriorityNormal = 50  // default\nkit.HookPriorityLow    = 100 // runs last\n```\n\nLower values run first. Interceptor hooks use the first non-nil result. `OnStepContext` is different: all decorators run and each receives the previous context.\n\n## All event types\n\n| Event | Typed Subscriber | Description |\n|-------|-----------------|-------------|\n| `TurnStartEvent` | `OnTurnStart` | Agent turn started |\n| `TurnEndEvent` | `OnTurnEnd` | Agent turn completed |\n| `MessageStartEvent` | `OnMessageStart` | New assistant message begins |\n| `MessageUpdateEvent` | `OnMessageUpdate` | Streaming text chunk from LLM |\n| `MessageEndEvent` | `OnMessageEnd` | Assistant message complete |\n| `ToolCallStartEvent` | `OnToolCallStart` | LLM began generating tool call arguments |\n| `ToolCallDeltaEvent` | `OnToolCallDelta` | Streamed JSON fragment of tool call arguments |\n| `ToolCallEndEvent` | `OnToolCallEnd` | Tool argument streaming complete |\n| `ToolCallEvent` | `OnToolCall` | Tool call fully parsed, about to execute |\n| `ToolExecutionStartEvent` | `OnToolExecutionStart` | Tool begins executing |\n| `ToolExecutionEndEvent` | `OnToolExecutionEnd` | Tool finishes executing |\n| `ToolResultEvent` | `OnToolResult` | Tool execution completed with result |\n| `ToolCallContentEvent` | `OnToolCallContent` | Text content alongside tool calls |\n| `ToolOutputEvent` | `OnToolOutput` | Streaming output chunk from tool (e.g., bash) |\n| `ResponseEvent` | `OnResponse` | Final response received |\n| `ReasoningStartEvent` | `OnReasoningStart` | LLM begins reasoning/thinking |\n| `ReasoningDeltaEvent` | `OnReasoningDelta` | Streaming reasoning/thinking chunk |\n| `ReasoningCompleteEvent` | `OnReasoningComplete` | Reasoning/thinking finished |\n| `StepStartEvent` | `OnStepStart` | New LLM call begins within a turn |\n| `StepFinishEvent` | `OnStepFinish` | Step completes (with usage, finish reason, tool call info) |\n| `StepUsageEvent` | `OnStepUsage` | Per-step token usage |\n| `StreamFinishEvent` | `OnStreamFinish` | Per-step stream completes (with usage + finish reason) |\n| `TextStartEvent` | `OnTextStart` | LLM begins text content generation |\n| `TextEndEvent` | `OnTextEnd` | LLM finishes text content generation |\n| `WarningsEvent` | `OnWarnings` | LLM provider returned warnings |\n| `SourceEvent` | `OnSource` | LLM referenced a source (e.g., web search) |\n| `ErrorEvent` | `OnError` | Agent-level error during streaming |\n| `StepResumeEvent` | `OnStepResume` | Failed streaming step will restart; discard failed-step deltas |\n| `RetryEvent` | `OnRetry` | LLM request retried after transient error |\n| `CompactionEvent` | `OnCompaction` | Conversation compacted (fires on success **and** failure — check `Err`) |\n| `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |\n| `PasswordPromptEvent` | `Subscribe` (generic only) | Sudo command needs password (respond via `ResponseCh`) |\n\n### Compaction telemetry\n\n`CompactionEvent` fires after every compaction attempt. On success `Err` is\n`nil` and the summary/token/file fields are populated; on failure `Err` is\nnon-nil and the rest are zero-valued. This lets you wire symmetric\nstart/end lifecycle telemetry without hand-rolling the failure path:\n\n```go\nhost.OnCompaction(func(e kit.CompactionEvent) {\n    if e.Err != nil {\n        log.Printf("compaction failed: %v", e.Err)\n        return\n    }\n    log.Printf("compacted %d → %d tokens (%d messages removed)",\n        e.OriginalTokens, e.CompactedTokens, e.MessagesRemoved)\n})\n```\n\n## Subagent event monitoring\n\nMonitor real-time events from LLM-initiated subagents (when the model uses the `subagent` tool):\n\n```go\nhost.OnToolCall(func(e kit.ToolCallEvent) {\n    if e.ToolName == "subagent" {\n        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {\n            // Receives the same event types as Subscribe(), scoped to the child agent\n            switch ev := event.(type) {\n            case kit.MessageUpdateEvent:\n                fmt.Print(ev.Chunk)\n            case kit.ToolCallEvent:\n                fmt.Printf("Subagent calling: %s\\n", ev.ToolName)\n            }\n        })\n    }\n})\n```\n\nFor retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. To follow every run of the host as it changes, use `SubscribeSubagentRuns`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.\n\n`SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.\n\n## Provider request tracing\n\nUse `WithHTTPTransport` (or `Options.HTTPTransport`) to wrap the base transport\nof built-in providers. The wrapper receives requests after Kit applies its\nheaders. It must return a non-nil `http.RoundTripper`. It passes to model changes,\ntemporary completions, and subagents. Custom provider factories own their HTTP\nclients; this option does not wrap them, MCP, OAuth, or credential requests.\n\nUse `OnStepContext` to pass a step span or other context value to the provider\nrequest and that step\'s tools:\n\nThe fragment assumes `host` and an application-owned comparable `stepKey`.\n\n```go\nhost.OnStepContext(kit.HookPriorityNormal, func(h kit.StepContextHook) context.Context {\n    return context.WithValue(h.Context, stepKey, h.StepNumber)\n})\n```\n\nEvery context hook runs in priority order. A nil result keeps the current\ncontext. Derive results from `h.Context` so turn cancellation still applies.\nEach step starts from the turn context, not the previous step context. A resumed\nstep runs the hooks again with the same step number. `OnPrepareStep` keeps its\nexisting first-non-nil-result behavior. Context hooks run after preparation and\nbefore `StepStartEvent`. Both `StepStartEvent.Model` and `StepFinishEvent.Model`\nreport the `provider/model` that served the step, even if the configured model\nchanges during the turn. Kit does not create spans or depend on a tracing SDK.\n'};export{e as default};

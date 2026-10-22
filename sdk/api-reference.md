@@ -1,0 +1,716 @@
+
+# SDK API reference
+
+This index lists declarations owned by `pkg/kit`. Follow each Go reference for signatures, fields and interface methods. Aliases link to their owning type; use its reference for dependency members instead of importing internal packages.
+
+Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/decisions), [authentication](/sdk/authentication), [callbacks](/sdk/callbacks), [sessions](/sdk/sessions), [code mode](/advanced/code-mode), [subagents](/advanced/subagents).
+
+`CLIOptions` is for CLI integration. `ResetForTesting` is a test helper available **only with the `testing` build tag**, not a production embedding operation. Its [source contract](https://github.com/mark3labs/kit/blob/master/pkg/kit/testing.go) is authoritative when the default Go reference omits tagged declarations.
+
+## Authentication
+
+- [`AnthropicCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AnthropicCredentials) — AnthropicCredentials holds Anthropic API credentials supporting both OAuth and API key authentication methods.
+- [`CLIMCPAuthHandler.Close`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CLIMCPAuthHandler.Close) — Close releases the inner handler's resources.
+- [`CLIMCPAuthHandler.HandleAuth`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CLIMCPAuthHandler.HandleAuth) — HandleAuth delegates to the inner handler (which invokes OnAuthURL, runs the callback server, and returns the full callback URL) and emits a final success or failure notification.
+- [`CLIMCPAuthHandler.RedirectURI`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CLIMCPAuthHandler.RedirectURI) — RedirectURI returns the OAuth redirect URI from the inner handler.
+- [`CLIMCPAuthHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CLIMCPAuthHandler) — CLIMCPAuthHandler is the MCP OAuth handler for CLI/TUI consumers.
+- [`CopilotCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CopilotCredentials) — CopilotCredentials holds GitHub OAuth and Copilot API credentials.
+- [`CredentialManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CredentialManager) — CredentialManager manages API keys and OAuth credentials.
+- [`CredentialStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CredentialStore) — CredentialStore holds all stored credentials for various providers.
+- [`DefaultMCPAuthHandler.Close`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultMCPAuthHandler.Close) — Close releases the reserved port and shuts down the handler.
+- [`DefaultMCPAuthHandler.HandleAuth`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultMCPAuthHandler.HandleAuth) — HandleAuth invokes [OnAuthURL] with the authorization URL (if configured) and waits for the OAuth callback on the local server.
+- [`DefaultMCPAuthHandler.Port`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultMCPAuthHandler.Port) — Port returns the TCP port the callback server is bound to.
+- [`DefaultMCPAuthHandler.RedirectURI`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultMCPAuthHandler.RedirectURI) — RedirectURI returns the OAuth redirect URI pointing to the local callback server.
+- [`DefaultMCPAuthHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultMCPAuthHandler) — DefaultMCPAuthHandler provides the transport mechanics of an OAuth flow — reserving a local TCP port and running a one-shot HTTP callback server — without making any user-experience decisions.
+- [`GetAnthropicAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetAnthropicAPIKey) — GetAnthropicAPIKey resolves the Anthropic API key using the standard resolution order: stored credentials -> ANTHROPIC_API_KEY env var.
+- [`GetCopilotCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetCopilotCredentials) — GetCopilotCredentials retrieves stored GitHub Copilot credentials.
+- [`GetProviderAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetProviderAPIKey) — GetProviderAPIKey returns the API key stored for providerID, or "" when none is stored.
+- [`GetValidCopilotAccessToken`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetValidCopilotAccessToken) — GetValidCopilotAccessToken returns a fresh GitHub Copilot access token.
+- [`HasAnthropicCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HasAnthropicCredentials) — HasAnthropicCredentials checks if valid Anthropic credentials are stored (either OAuth token or API key).
+- [`HasCopilotCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HasCopilotCredentials) — HasCopilotCredentials checks if valid GitHub Copilot credentials are stored.
+- [`HasOpenAICredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HasOpenAICredentials) — HasOpenAICredentials checks if valid OpenAI credentials are stored (either OAuth token or API key).
+- [`HasProviderCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HasProviderCredentials) — HasProviderCredentials reports whether any credential (API key or OAuth token) is stored for providerID.
+- [`IsMissingCredentialsError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#IsMissingCredentialsError) — IsMissingCredentialsError reports whether err is (or wraps) a MissingCredentialsError.
+- [`LoginInstructions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoginInstructions) — LoginInstructions contains the information needed to authorize a provider.
+- [`LoginOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoginOptions) — LoginOptions configures a provider OAuth login.
+- [`LoginProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoginProvider) — LoginProvider authorizes a provider with OAuth and stores its credentials.
+- [`MCPAuthHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPAuthHandler) — MCPAuthHandler handles OAuth authorization for MCP servers.
+- [`MissingCredentialsError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MissingCredentialsError) — MissingCredentialsError is returned when no API key or OAuth token can be resolved for a provider.
+- [`NewCLIMCPAuthHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewCLIMCPAuthHandler) — NewCLIMCPAuthHandler creates a CLI auth handler that prints status messages to stderr, opens the authorization URL in the system browser, and delegates the callback-server mechanics to a [DefaultMCPAuthHandler].
+- [`NewCredentialManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewCredentialManager) — NewCredentialManager creates a credential manager for secure storage and retrieval of authentication credentials.
+- [`NewDefaultMCPAuthHandlerWithPort`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewDefaultMCPAuthHandlerWithPort) — NewDefaultMCPAuthHandlerWithPort creates a handler that listens on the specified port on localhost.
+- [`NewDefaultMCPAuthHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewDefaultMCPAuthHandler) — NewDefaultMCPAuthHandler creates a handler that listens on a random available port on localhost.
+- [`OpenAICredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#OpenAICredentials) — OpenAICredentials holds OpenAI API credentials supporting both OAuth and API key authentication methods.
+- [`ProviderCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ProviderCredentials) — ProviderCredentials holds a stored API key for a generic provider.
+- [`RemoveProviderCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RemoveProviderCredentials) — RemoveProviderCredentials deletes every stored credential for providerID.
+- [`SetProviderAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SetProviderAPIKey) — SetProviderAPIKey stores an API key for providerID in the credentials file ($XDG_CONFIG_HOME/.kit/credentials.json, mode 0600).
+
+## Compaction
+
+- [`ContextStats`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContextStats) — ContextStats contains current context usage information.
+- [`Kit.Compact`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Compact) — Compact summarises older messages to reduce context usage.
+- [`Kit.EstimateContextTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.EstimateContextTokens) — EstimateContextTokens returns the estimated token count of the current conversation based on session messages.
+- [`Kit.GetContextStats`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetContextStats) — GetContextStats returns current context usage statistics including estimated token count, context limit, usage percentage, and message count.
+- [`Kit.ShouldCompact`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ShouldCompact) — ShouldCompact reports whether the conversation is near the model's context limit and should be compacted.
+
+## Configuration, integration and testing helpers
+
+- [`AgentDefinition`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AgentDefinition) — AgentDefinition is a named, reusable subagent preset discovered from markdown definition files or built into Kit.
+- [`ClassifyProviderError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ClassifyProviderError) — ClassifyProviderError inspects err and returns it wrapped with the matching provider-error sentinel ([ErrContextOverflow], [ErrRateLimit], [ErrAuth], [ErrProviderUnavailable], or [ErrInvalidRequest]) when the underlying cause can be recognized.
+- [`CompactionOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompactionOptions) — CompactionOptions configures compaction behaviour.
+- [`CompactionResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompactionResult) — CompactionResult contains statistics from a compaction operation.
+- [`ConfigInitOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ConfigInitOptions) — ConfigInitOptions controls configuration discovery for [InitConfigWithOptions].
+- [`Config`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Config) — Config represents the complete application configuration including MCP servers, model settings, UI preferences, and API credentials.
+- [`ContentPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContentPart) — ContentPart is the marker interface for all message content block types.
+- [`ConvertFromLLMMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ConvertFromLLMMessage) — ConvertFromLLMMessage converts an LLMMessage to an SDK message.
+- [`ConvertToLLMMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ConvertToLLMMessages) — ConvertToLLMMessages converts an SDK message to a slice of LLMMessages.
+- [`CreateProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CreateProvider) — CreateProvider creates a LanguageModel based on provider config.
+- [`DebugLogger`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DebugLogger) — DebugLogger is an SDK-owned interface for low-level debug logging from the engine and MCP tool plumbing.
+- [`DefaultRetryPolicy`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultRetryPolicy) — DefaultRetryPolicy returns four total attempts, a one-second initial delay, a 30-second maximum delay, a two-minute retry scheduling limit, and five step resumes for each turn with delays from 5 to 80 seconds.
+- [`Ephemeral`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Ephemeral) — Ephemeral configures an in-memory session with no persistence (equivalent to Options.NoSession = true).
+- [`ErrAuth`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrAuth) — ErrAuth indicates a credential / authorization failure.
+- [`ErrContextOverflow`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrContextOverflow) — ErrContextOverflow indicates the request exceeded the model's maximum context window or the provider's maximum request size (HTTP 413, for example Anthropic "request_too_large").
+- [`ErrInvalidRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidRequest) — ErrInvalidRequest indicates the request was structurally invalid and retrying will not help.
+- [`ErrMCPNoToken`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrMCPNoToken) — ErrMCPNoToken is the sentinel error that [MCPTokenStore] implementations should return from GetToken when no token is stored for the server.
+- [`ErrProviderUnavailable`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrProviderUnavailable) — ErrProviderUnavailable indicates a transient provider/upstream failure (5xx, network error, timeout).
+- [`ErrRateLimit`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrRateLimit) — ErrRateLimit indicates the provider throttled the request.
+- [`Finish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Finish) — Finish marks the end of an assistant turn, carrying the stop reason.
+- [`GetGlobalRegistry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetGlobalRegistry) — GetGlobalRegistry returns the global models registry instance.
+- [`InitConfigWithOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#InitConfigWithOptions) — InitConfigWithOptions initializes the process-global configuration store with explicit control over discovery.
+- [`InitConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#InitConfig) — InitConfig initializes the process-global configuration store.
+- [`Isolated`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Isolated) — Isolated turns off everything that Kit otherwise discovers or writes on the host by itself.
+- [`Kit.GetAgent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetAgent) — GetAgent returns the named agent definition with the given name, or (nil, false) when no such agent was discovered.
+- [`Kit.GetAgents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetAgents) — GetAgents returns the named agent definitions discovered at construction time (including built-ins, excluding disabled ones).
+- [`LLMFilePart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMFilePart) — LLMFilePart represents a file attachment (image, document, audio, etc.) that can be included in a multimodal prompt via PromptResultWithFiles.
+- [`LLMFinishReason`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMFinishReason) — LLMFinishReason indicates why the LLM stopped generating.
+- [`LLMMessagePart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMMessagePart) — LLMMessagePart is the interface implemented by all LLM message content parts.
+- [`LLMMessageRole`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMMessageRole) — LLMMessageRole identifies the participant role in an LLM conversation.
+- [`LLMMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMMessage) — LLMMessage represents a message in an LLM conversation, carrying a role and a slice of typed content parts (text, tool calls, reasoning, etc.).
+- [`LLMPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMPrompt) — LLMPrompt is an ordered sequence of [LLMMessage] values forming a complete prompt for the LLM.
+- [`LLMProviderMetadata`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMProviderMetadata) — LLMProviderMetadata carries provider-specific metadata returned alongside LLM responses, keyed by provider name.
+- [`LLMProviderOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMProviderOptions) — LLMProviderOptions carries provider-specific key/value option maps, keyed by provider name.
+- [`LLMReasoningPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMReasoningPart) — LLMReasoningPart is a reasoning/chain-of-thought content part.
+- [`LLMResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMResponse) — LLMResponse represents a complete response from the LLM provider.
+- [`LLMRoleAssistant`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMRoleAssistant) — LLMRoleAssistant identifies an assistant message.
+- [`LLMRoleSystem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMRoleSystem) — LLMRoleSystem identifies a system message.
+- [`LLMRoleTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMRoleTool) — LLMRoleTool identifies a tool result message.
+- [`LLMRoleUser`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMRoleUser) — LLMRoleUser identifies a user message.
+- [`LLMSpecificToolChoice`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMSpecificToolChoice) — LLMSpecificToolChoice returns a tool choice that forces the model to call the named tool on the step.
+- [`LLMTextPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMTextPart) — LLMTextPart is a plain-text content part for constructing LLM messages.
+- [`LLMToolCallPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolCallPart) — LLMToolCallPart represents an LLM-initiated tool invocation within a message.
+- [`LLMToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolCall) — LLMToolCall represents the raw tool invocation passed to a [Tool]'s Run method.
+- [`LLMToolChoiceAuto`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolChoiceAuto) — LLMToolChoiceAuto lets the model decide whether to call tools.
+- [`LLMToolChoiceNone`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolChoiceNone) — LLMToolChoiceNone forbids tool calls for the step.
+- [`LLMToolChoiceRequired`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolChoiceRequired) — LLMToolChoiceRequired forces the model to call some tool on the step.
+- [`LLMToolChoice`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolChoice) — LLMToolChoice controls which tool (if any) the model is allowed or required to call on a given LLM step.
+- [`LLMToolInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolInfo) — LLMToolInfo describes a tool's name, description, and JSON-Schema parameters.
+- [`LLMToolResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResponse) — LLMToolResponse represents the raw response returned from a [Tool]'s Run method.
+- [`LLMToolResultContentTypeError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultContentTypeError) — LLMToolResultContentTypeError represents error text output.
+- [`LLMToolResultContentTypeMedia`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultContentTypeMedia) — LLMToolResultContentTypeMedia represents media (binary) output.
+- [`LLMToolResultContentTypeText`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultContentTypeText) — LLMToolResultContentTypeText represents text output.
+- [`LLMToolResultContentType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultContentType) — LLMToolResultContentType classifies the kind of a tool result output ("text", "error", or "media").
+- [`LLMToolResultOutputContentError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultOutputContentError) — LLMToolResultOutputContentError is an error-valued tool result output.
+- [`LLMToolResultOutputContentMedia`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultOutputContentMedia) — LLMToolResultOutputContentMedia is a media-valued tool result output (images, audio, etc.) carrying base64-encoded data and a MIME type.
+- [`LLMToolResultOutputContentText`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultOutputContentText) — LLMToolResultOutputContentText is a text-valued tool result output.
+- [`LLMToolResultOutputContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultOutputContent) — LLMToolResultOutputContent is the interface for tool result output content.
+- [`LLMToolResultPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultPart) — LLMToolResultPart represents the result of a tool execution within a message.
+- [`LLMUsage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMUsage) — LLMUsage contains token usage information returned by the LLM provider.
+- [`LoadAgentDefinitions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadAgentDefinitions) — LoadAgentDefinitions discovers named agents from the standard locations, applies precedence, and filters out disabled agents: 1.
+- [`LoadSystemPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadSystemPrompt) — LoadSystemPrompt loads a system prompt from a file path, or returns the string directly if it is not a valid file path.
+- [`MCPServerConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPServerConfig) — MCPServerConfig represents configuration for an MCP server, supporting both local (stdio) and remote (StreamableHTTP/SSE) server types.
+- [`MCPServer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPServer) — MCPServer is an in-process MCP server from the mcp-go library.
+- [`MCPTokenStoreFactory`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTokenStoreFactory) — MCPTokenStoreFactory creates an [MCPTokenStore] for a given MCP server URL.
+- [`MCPTokenStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTokenStore) — MCPTokenStore persists OAuth tokens for a single MCP server.
+- [`MCPToken`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPToken) — MCPToken represents an OAuth token for an MCP server, containing access and refresh tokens along with expiration metadata.
+- [`MessageEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageEntry) — MessageEntry stores a conversation message as a tree entry in JSONL sessions.
+- [`MessageRole`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageRole) — MessageRole identifies the sender of a message (user, assistant, tool, system).
+- [`Message`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Message) — Message is a single conversation message containing heterogeneous content parts (text, reasoning, tool calls, tool results, finish markers).
+- [`ModelCost`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelCost) — ModelCost represents the pricing information for a model.
+- [`ModelInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelInfo) — ModelInfo represents information about a specific model (capabilities, pricing, limits).
+- [`ModelLimit`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelLimit) — ModelLimit represents the context and output limits for a model.
+- [`ModelsRegistry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelsRegistry) — ModelsRegistry provides validation and information about models, maintaining a registry of all supported LLM providers and their models.
+- [`NewAgent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewAgent) — NewAgent creates a Kit using an ergonomic functional-options API.
+- [`NewIsolatedAgent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewIsolatedAgent) — NewIsolatedAgent is [NewAgent] with [Isolated] applied before opts.
+- [`NewLLMSystemMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewLLMSystemMessage) — NewLLMSystemMessage constructs a system-role LLMMessage from one or more prompt strings.
+- [`NewLLMUserMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewLLMUserMessage) — NewLLMUserMessage constructs a user-role LLMMessage with optional file attachments.
+- [`NewTreeManagerAdapter`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewTreeManagerAdapter) — NewTreeManagerAdapter creates an adapter (exported for use in New function).
+- [`Option`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Option) — Option configures a [Kit] created via [NewAgent].
+- [`ParseModelString`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ParseModelString) — ParseModelString parses a model string in "provider/model" format.
+- [`ProviderConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ProviderConfig) — ProviderConfig holds configuration for creating LLM providers.
+- [`ProviderInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ProviderInfo) — ProviderInfo represents information about a model provider from the models.dev database.
+- [`ProviderResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ProviderResult) — ProviderResult contains the result of provider creation (model + optional feedback message + closer).
+- [`ReasoningContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningContent) — ReasoningContent holds extended thinking / reasoning output from the LLM.
+- [`ResetForTesting`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResetForTesting) — ResetForTesting clears package-global state that survives across tests in the same binary.
+- [`ResponseHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResponseHandler) — ResponseHandler is invoked with the final assistant text for each turn.
+- [`RetryPolicy`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RetryPolicy) — RetryPolicy limits retries for each model request and step resumes for each turn.
+- [`RoleAssistant`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RoleAssistant) — Message roles identify user, assistant, tool and system messages.
+- [`RoleSystem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RoleSystem) — Message roles identify user, assistant, tool and system messages.
+- [`RoleTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RoleTool) — Message roles identify user, assistant, tool and system messages.
+- [`RoleUser`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RoleUser) — Message roles identify user, assistant, tool and system messages.
+- [`SessionHeader`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionHeader) — SessionHeader is the first line in a JSONL session file, carrying metadata.
+- [`SessionInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionInfo) — SessionInfo contains metadata about a discovered session, used for listing and session picker display.
+- [`SpinnerFunc`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SpinnerFunc) — SpinnerFunc wraps a function in a loading spinner animation.
+- [`StreamingResponseHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamingResponseHandler) — StreamingResponseHandler is invoked with each streamed text delta as it arrives from the LLM.
+- [`TextContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextContent) — TextContent holds plain text content within a message.
+- [`ToolCallContentHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallContentHandler) — ToolCallContentHandler is invoked with any assistant text that accompanies a tool call within the same step.
+- [`ToolCallHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallHandler) — ToolCallHandler is invoked when the LLM produces a tool call.
+- [`ToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCall) — ToolCall represents a tool invocation initiated by the LLM.
+- [`ToolExecutionHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolExecutionHandler) — ToolExecutionHandler is invoked at the start and end of tool execution.
+- [`ToolResultHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolResultHandler) — ToolResultHandler is invoked after a tool finishes executing.
+- [`ToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolResult) — ToolResult represents the result of executing a tool.
+- [`TreeManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TreeManager) — TreeManager manages a tree-structured JSONL session with branching, leaf-pointer tracking, and context building.
+- [`WithAgents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithAgents) — WithAgents enables discovery of named agent definitions again.
+- [`WithAllowMissingCredentials`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithAllowMissingCredentials) — WithAllowMissingCredentials lets New succeed when the configured provider cannot be created (no credentials, a failed OAuth token refresh, an unsupported provider, and so on).
+- [`WithConfigFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithConfigFile) — WithConfigFile sets an explicit config file path, overriding the default .kit.yml search.
+- [`WithConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithConfig) — WithConfig enables .kit.yml discovery again (the home and project config files).
+- [`WithContextFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithContextFiles) — WithContextFiles enables loading of project context files (AGENTS.md) from the working directory again.
+- [`WithCoreTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithCoreTools) — WithCoreTools enables the core tools again.
+- [`WithDebugLogger`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDebugLogger) — WithDebugLogger installs a caller-supplied [DebugLogger] for low-level engine and MCP tool plumbing output.
+- [`WithDebug`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDebug) — WithDebug enables SDK debug logging.
+- [`WithExtensions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtensions) — WithExtensions enables loading of extensions again.
+- [`WithExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtraTools) — WithExtraTools adds tools alongside the core/MCP/extension tools rather than replacing them.
+- [`WithHTTPTransport`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) — WithHTTPTransport wraps the base HTTP transport of built-in providers.
+- [`WithMaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) — WithMaxTokens sets the maximum output tokens per LLM response.
+- [`WithModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) — WithModelMode selects a named mode for the selected model.
+- [`WithModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) — WithModel sets the model in "provider/model" format.
+- [`WithProviderAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) — WithProviderAPIKey overrides the API key used to authenticate with the model provider.
+- [`WithProviderURL`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) — WithProviderURL overrides the provider endpoint URL.
+- [`WithProviderWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) — WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google".
+- [`WithRetryPolicy`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithRetryPolicy) — WithRetryPolicy sets the retry limits for model requests.
+- [`WithSessions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithSessions) — WithSessions enables persistent sessions again.
+- [`WithSkillActivation`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithSkillActivation) — WithSkillActivation keeps activate_skill available even before any skills are registered.
+- [`WithSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithSkills) — WithSkills enables skills again.
+- [`WithStreaming`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithStreaming) — WithStreaming enables or disables streaming responses.
+- [`WithSystemPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithSystemPrompt) — WithSystemPrompt sets the system prompt.
+- [`WithThinkingLevel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithThinkingLevel) — WithThinkingLevel sets the reasoning effort for models that support extended thinking.
+- [`WithTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithTools) — WithTools sets the agent's tool set, replacing the default core tools.
+- [`WithUserAgent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithUserAgent) — WithUserAgent sets the per-instance HTTP identity.
+
+## Decision models
+
+- [`BooleanQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BooleanQuestion) — BooleanQuestion returns a question that is answered with P(true).
+- [`ChoiceQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ChoiceQuestion) — ChoiceQuestion returns a question that is answered with one of options.
+- [`Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Decide) — Decide sends req to a decision model with the default settings: API keys from stored credentials or the environment, and no transport wrapper.
+- [`DecisionAPIError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionAPIError) — DecisionAPIError is an HTTP error from a decision provider.
+- [`DecisionAnswer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionAnswer) — DecisionAnswer is the normalized answer to one question.
+- [`DecisionBoolean`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionBoolean) — DecisionBoolean questions are answered with P(true).
+- [`DecisionChoice`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionChoice) — DecisionChoice questions are answered with one option from a set.
+- [`DecisionImage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionImage) — DecisionImage is an image attached to a DecisionState.
+- [`DecisionModelInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelInfo) — DecisionModelInfo describes one decision model of the model database.
+- [`DecisionOption`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionOption) — DecisionOption is one answer of a choice question.
+- [`DecisionProbability`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionProbability) — DecisionProbability is the probability of one option or level.
+- [`DecisionQuestionType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionQuestionType) — DecisionQuestionType is the kind of a decision question.
+- [`DecisionQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionQuestion) — DecisionQuestion is one typed question.
+- [`DecisionRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionRequest) — DecisionRequest is one decision request.
+- [`DecisionResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionResult) — DecisionResult is the result of Decide.
+- [`DecisionScore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionScore) — DecisionScore questions are answered with a position on an ordered scale.
+- [`DecisionState`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionState) — DecisionState is what the questions are about.
+- [`DecisionUsage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionUsage) — DecisionUsage is the token usage of one decision request.
+- [`ErrDecisionModelNotChat`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrDecisionModelNotChat) — ErrDecisionModelNotChat indicates a decision model used as a chat model (for example with SetModel).
+- [`ErrDecisionRefused`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrDecisionRefused) — ErrDecisionRefused indicates that the model refused a question.
+- [`ErrInvalidDecisionRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionRequest) — ErrInvalidDecisionRequest indicates a request that fails validation.
+- [`ErrInvalidDecisionResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionResponse) — ErrInvalidDecisionResponse indicates answers that do not match the questions.
+- [`ErrNoDecisionAnswer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoDecisionAnswer) — ErrNoDecisionAnswer indicates a question ID with no answer.
+- [`ErrNotDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNotDecisionModel) — ErrNotDecisionModel indicates a model that is not a decision model.
+- [`ErrUnknownDecisionWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnknownDecisionWire) — ErrUnknownDecisionWire indicates a decision model whose protocol Kit does not know.
+- [`ErrWrongDecisionAnswerType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrWrongDecisionAnswerType) — ErrWrongDecisionAnswerType indicates an accessor for a different question type.
+- [`GetDecisionModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetDecisionModels) — GetDecisionModels lists the decision models of the model database, sorted by provider and model ID.
+- [`Kit.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Decide) — Decide sends req to a decision model.
+- [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
+
+## Events and hooks
+
+- [`AfterToolResultHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AfterToolResultHook) — AfterToolResultHook is the input for hooks that fire after a tool executes.
+- [`AfterToolResultResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AfterToolResultResult) — AfterToolResultResult can modify the tool's output before it reaches the LLM.
+- [`AfterTurnHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AfterTurnHook) — AfterTurnHook is the input for hooks that fire after a prompt turn completes.
+- [`AfterTurnResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AfterTurnResult) — AfterTurnResult is a placeholder — after-turn hooks are observation-only.
+- [`BeforeCompactHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeCompactHook) — BeforeCompactHook is the input for hooks that fire before compaction runs.
+- [`BeforeCompactResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeCompactResult) — BeforeCompactResult controls whether compaction proceeds.
+- [`BeforeToolCallHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeToolCallHook) — BeforeToolCallHook is the input for hooks that fire before a tool executes.
+- [`BeforeToolCallResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeToolCallResult) — BeforeToolCallResult controls whether the tool call proceeds.
+- [`BeforeTurnHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeTurnHook) — BeforeTurnHook is the input for hooks that fire before a prompt turn.
+- [`BeforeTurnResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BeforeTurnResult) — BeforeTurnResult can modify the prompt, inject system messages, or add context.
+- [`CodeModeCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeCall) — CodeModeCall describes one tool call made by a code mode script.
+- [`CodeModeRun`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeRun) — CodeModeRun describes one code mode script run.
+- [`CompactionEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompactionEvent.EventType) — EventType implements Event.
+- [`CompactionEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompactionEvent) — CompactionEvent fires after a compaction attempt.
+- [`ContextPrepareHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContextPrepareHook) — ContextPrepareHook is the input for hooks that fire after the context window is assembled from the session tree (including compaction) and before the messages are sent to the LLM.
+- [`ContextPrepareResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContextPrepareResult) — ContextPrepareResult can replace the context window.
+- [`DiffBlock`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DiffBlock) — DiffBlock represents a single old→new text replacement within a file.
+- [`ErrorEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrorEvent.EventType) — EventType implements Event.
+- [`ErrorEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrorEvent) — ErrorEvent fires when an agent-level error occurs during streaming.
+- [`EventCompaction`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventCompaction) — EventCompaction fires after a successful compaction.
+- [`EventError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventError) — EventError fires when an agent-level error occurs during streaming.
+- [`EventListener`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventListener) — EventListener is a callback that receives lifecycle events.
+- [`EventMessageEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventMessageEnd) — EventMessageEnd fires when the assistant message is complete.
+- [`EventMessageStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventMessageStart) — EventMessageStart fires when a new assistant message begins.
+- [`EventMessageUpdate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventMessageUpdate) — EventMessageUpdate fires for each streaming text chunk.
+- [`EventPasswordPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventPasswordPrompt) — EventPasswordPrompt fires when a sudo command needs a password.
+- [`EventReasoningComplete`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventReasoningComplete) — EventReasoningComplete fires when reasoning/thinking is finished, after the last reasoning token has been processed.
+- [`EventReasoningDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventReasoningDelta) — EventReasoningDelta fires for each streaming reasoning/thinking chunk.
+- [`EventReasoningStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventReasoningStart) — EventReasoningStart fires when the LLM begins reasoning/thinking.
+- [`EventResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventResponse) — EventResponse fires when the LLM produces a final response.
+- [`EventRetry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventRetry) — EventRetry fires when the LLM provider request is retried after a transient error.
+- [`EventSource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventSource) — EventSource fires when the LLM references a source.
+- [`EventSteerConsumed`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventSteerConsumed) — EventSteerConsumed fires when one or more steering messages have been injected into the agent turn via PrepareStep.
+- [`EventStepFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventStepFinish) — EventStepFinish fires when a step completes, providing full step context including whether tool calls were made, the finish reason, and usage stats.
+- [`EventStepResume`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventStepResume) — EventStepResume fires when a failed streaming step is restarted from the last completed step after a transient error.
+- [`EventStepStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventStepStart) — EventStepStart fires when a new LLM call begins within a turn.
+- [`EventStepUsage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventStepUsage) — EventStepUsage fires with token usage for a completed step.
+- [`EventStreamFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventStreamFinish) — EventStreamFinish fires when a per-step LLM stream completes with usage stats and a finish reason.
+- [`EventTextEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventTextEnd) — EventTextEnd fires when the LLM finishes generating text content.
+- [`EventTextStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventTextStart) — EventTextStart fires when the LLM begins generating text content.
+- [`EventToolCallContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolCallContent) — EventToolCallContent fires when a step includes text alongside tool calls.
+- [`EventToolCallDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolCallDelta) — EventToolCallDelta fires for each streamed fragment of tool call arguments.
+- [`EventToolCallEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolCallEnd) — EventToolCallEnd fires when tool argument streaming is complete, before the tool call is parsed and execution begins.
+- [`EventToolCallStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolCallStart) — EventToolCallStart fires when the LLM begins generating tool call arguments.
+- [`EventToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolCall) — EventToolCall fires when a tool call has been parsed and is about to execute.
+- [`EventToolExecutionEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolExecutionEnd) — EventToolExecutionEnd fires when a tool finishes executing.
+- [`EventToolExecutionStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolExecutionStart) — EventToolExecutionStart fires when a tool begins executing.
+- [`EventToolOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolOutput) — EventToolOutput fires when a tool produces streaming output chunks.
+- [`EventToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventToolResult) — EventToolResult fires after a tool execution completes with its result.
+- [`EventTurnEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventTurnEnd) — EventTurnEnd fires after the agent finishes processing (success or error).
+- [`EventTurnStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventTurnStart) — EventTurnStart fires before the agent begins processing a prompt.
+- [`EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventType) — EventType identifies the kind of lifecycle event.
+- [`EventWarnings`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EventWarnings) — EventWarnings fires when the LLM provider returns warnings.
+- [`Event`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Event) — Event is the interface implemented by all lifecycle events.
+- [`FileDiffInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FileDiffInfo) — FileDiffInfo describes a file modification from an edit or write tool.
+- [`FinishReasonContentFilter`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonContentFilter) — FinishReasonContentFilter: the provider's safety filter stopped generation.
+- [`FinishReasonError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonError) — FinishReasonError: the model stopped because of an error.
+- [`FinishReasonLength`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonLength) — FinishReasonLength: the model hit the configured max_output_tokens budget.
+- [`FinishReasonOther`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonOther) — FinishReasonOther: provider-specific reason that doesn't map to any of the above.
+- [`FinishReasonStop`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonStop) — FinishReasonStop: the model produced a natural stop.
+- [`FinishReasonToolCalls`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonToolCalls) — FinishReasonToolCalls: the model stopped to emit tool calls (normal mid-turn state during agentic loops).
+- [`FinishReasonUnknown`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FinishReasonUnknown) — FinishReasonUnknown: the provider didn't report a finish reason.
+- [`HookPriorityHigh`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HookPriorityHigh) — HookPriorityHigh runs before normal hooks.
+- [`HookPriorityLow`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HookPriorityLow) — HookPriorityLow runs after normal hooks.
+- [`HookPriorityNormal`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HookPriorityNormal) — HookPriorityNormal is the default priority.
+- [`HookPriority`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#HookPriority) — HookPriority controls execution order of hooks.
+- [`Kit.OnAfterToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnAfterToolResult) — OnAfterToolResult registers a hook that fires after each tool execution.
+- [`Kit.OnAfterTurn`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnAfterTurn) — OnAfterTurn registers a hook that fires after each prompt turn completes.
+- [`Kit.OnBeforeCompact`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnBeforeCompact) — OnBeforeCompact registers a hook that fires before context compaction runs.
+- [`Kit.OnBeforeToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnBeforeToolCall) — OnBeforeToolCall registers a hook that fires before each tool execution.
+- [`Kit.OnBeforeTurn`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnBeforeTurn) — OnBeforeTurn registers a hook that fires before each prompt turn.
+- [`Kit.OnCompaction`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnCompaction) — OnCompaction registers a handler that fires only for CompactionEvent.
+- [`Kit.OnContextPrepare`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnContextPrepare) — OnContextPrepare registers a hook that fires after the context window is built from the session tree and before messages are sent to the LLM.
+- [`Kit.OnError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnError) — OnError registers a handler that fires only for ErrorEvent.
+- [`Kit.OnMessageEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnMessageEnd) — OnMessageEnd registers a handler that fires only for MessageEndEvent.
+- [`Kit.OnMessageStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnMessageStart) — OnMessageStart registers a handler that fires only for MessageStartEvent.
+- [`Kit.OnMessageUpdate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnMessageUpdate) — OnMessageUpdate registers a handler that fires only for MessageUpdateEvent (streaming text chunks).
+- [`Kit.OnPrepareStep`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnPrepareStep) — OnPrepareStep registers a hook that fires between steps within a multi-step agent turn, after steering messages are injected and before the messages are sent to the LLM.
+- [`Kit.OnReasoningComplete`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnReasoningComplete) — OnReasoningComplete registers a handler that fires only for ReasoningCompleteEvent.
+- [`Kit.OnReasoningDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnReasoningDelta) — OnReasoningDelta registers a handler that fires only for ReasoningDeltaEvent.
+- [`Kit.OnReasoningStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnReasoningStart) — OnReasoningStart registers a handler that fires only for ReasoningStartEvent.
+- [`Kit.OnResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnResponse) — OnResponse registers a handler that fires only for ResponseEvent.
+- [`Kit.OnRetry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnRetry) — OnRetry registers a handler that fires only for RetryEvent.
+- [`Kit.OnSource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnSource) — OnSource registers a handler that fires only for SourceEvent.
+- [`Kit.OnSteerConsumed`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnSteerConsumed) — OnSteerConsumed registers a handler that fires only for SteerConsumedEvent.
+- [`Kit.OnStepContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStepContext) — OnStepContext registers a context decorator before each StepStartEvent.
+- [`Kit.OnStepFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStepFinish) — OnStepFinish registers a handler that fires only for StepFinishEvent.
+- [`Kit.OnStepResume`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStepResume) — OnStepResume registers a handler that fires only for StepResumeEvent.
+- [`Kit.OnStepStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStepStart) — OnStepStart registers a handler that fires only for StepStartEvent.
+- [`Kit.OnStepUsage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStepUsage) — OnStepUsage registers a handler that fires only for StepUsageEvent.
+- [`Kit.OnStreamFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnStreamFinish) — OnStreamFinish registers a handler that fires only for StreamFinishEvent.
+- [`Kit.OnTextEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnTextEnd) — OnTextEnd registers a handler that fires only for TextEndEvent.
+- [`Kit.OnTextStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnTextStart) — OnTextStart registers a handler that fires only for TextStartEvent.
+- [`Kit.OnToolCallContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolCallContent) — OnToolCallContent registers a handler that fires only for ToolCallContentEvent.
+- [`Kit.OnToolCallDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolCallDelta) — OnToolCallDelta registers a handler that fires only for ToolCallDeltaEvent.
+- [`Kit.OnToolCallEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolCallEnd) — OnToolCallEnd registers a handler that fires only for ToolCallEndEvent.
+- [`Kit.OnToolCallStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolCallStart) — OnToolCallStart registers a handler that fires only for ToolCallStartEvent.
+- [`Kit.OnToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolCall) — OnToolCall registers a handler that fires only for ToolCallEvent.
+- [`Kit.OnToolExecutionEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolExecutionEnd) — OnToolExecutionEnd registers a handler that fires only for ToolExecutionEndEvent.
+- [`Kit.OnToolExecutionStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolExecutionStart) — OnToolExecutionStart registers a handler that fires only for ToolExecutionStartEvent.
+- [`Kit.OnToolOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolOutput) — OnToolOutput registers a handler that fires only for ToolOutputEvent (streaming tool output chunks, e.g., from the shell tool).
+- [`Kit.OnToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnToolResult) — OnToolResult registers a handler that fires only for ToolResultEvent.
+- [`Kit.OnTurnEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnTurnEnd) — OnTurnEnd registers a handler that fires only for TurnEndEvent.
+- [`Kit.OnTurnStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnTurnStart) — OnTurnStart registers a handler that fires only for TurnStartEvent.
+- [`Kit.OnWarnings`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OnWarnings) — OnWarnings registers a handler that fires only for WarningsEvent.
+- [`Kit.SubscribeSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SubscribeSubagent) — SubscribeSubagent registers a listener for real-time events from a subagent identified by its tool call ID.
+- [`MessageEndEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageEndEvent.EventType) — EventType implements Event.
+- [`MessageEndEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageEndEvent) — MessageEndEvent fires when the assistant message is complete.
+- [`MessageStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageStartEvent.EventType) — EventType implements Event.
+- [`MessageStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageStartEvent) — MessageStartEvent fires when a new assistant message begins.
+- [`MessageUpdateEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageUpdateEvent.EventType) — EventType implements Event.
+- [`MessageUpdateEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MessageUpdateEvent) — MessageUpdateEvent fires for each streaming text chunk.
+- [`PasswordPromptEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PasswordPromptEvent.EventType) — EventType implements Event.
+- [`PasswordPromptEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PasswordPromptEvent) — PasswordPromptEvent fires when a sudo command needs a password.
+- [`PasswordPromptResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PasswordPromptResponse) — PasswordPromptResponse carries the password prompt result.
+- [`PrepareStepHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PrepareStepHook) — PrepareStepHook is the input for hooks that fire between steps within a multi-step agent turn, with full message replacement capability.
+- [`PrepareStepResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PrepareStepResult) — PrepareStepResult can replace the context window, the tool set, and the tool-choice mode between steps.
+- [`ReasoningCompleteEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningCompleteEvent.EventType) — EventType implements Event.
+- [`ReasoningCompleteEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningCompleteEvent) — ReasoningCompleteEvent fires when reasoning/thinking is finished, after the last reasoning token has been processed.
+- [`ReasoningDeltaEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningDeltaEvent.EventType) — EventType implements Event.
+- [`ReasoningDeltaEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningDeltaEvent) — ReasoningDeltaEvent fires for each streaming reasoning/thinking chunk.
+- [`ReasoningStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningStartEvent.EventType) — EventType implements Event.
+- [`ReasoningStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReasoningStartEvent) — ReasoningStartEvent fires when the LLM begins reasoning/thinking.
+- [`ResponseEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResponseEvent.EventType) — EventType implements Event.
+- [`ResponseEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResponseEvent) — ResponseEvent fires when the LLM produces a final response.
+- [`RetryEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RetryEvent.EventType) — EventType implements Event.
+- [`RetryEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RetryEvent) — RetryEvent fires when the LLM provider request is retried after a transient error.
+- [`SourceEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SourceEvent.EventType) — EventType implements Event.
+- [`SourceEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SourceEvent) — SourceEvent fires when the LLM references a source.
+- [`SteerConsumedEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SteerConsumedEvent.EventType) — EventType implements Event.
+- [`SteerConsumedEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SteerConsumedEvent) — SteerConsumedEvent fires when one or more steering messages have been injected into the agent turn via PrepareStep.
+- [`StepContextHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepContextHook) — StepContextHook is the input to an OnStepContext hook.
+- [`StepFinishEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepFinishEvent.EventType) — EventType implements Event.
+- [`StepFinishEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepFinishEvent) — StepFinishEvent fires when a step completes, providing full step context.
+- [`StepResumeEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepResumeEvent.EventType) — EventType implements Event.
+- [`StepResumeEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepResumeEvent) — StepResumeEvent fires when a streaming step failed with a transient provider error and is restarted from the last completed step after Delay.
+- [`StepStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepStartEvent.EventType) — EventType implements Event.
+- [`StepStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepStartEvent) — StepStartEvent fires when a new LLM call begins within a multi-step agent turn.
+- [`StepUsageEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepUsageEvent.EventType) — EventType implements Event.
+- [`StepUsageEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepUsageEvent) — StepUsageEvent fires after each complete step in a multi-step agent turn, carrying the token usage for that specific step.
+- [`StreamFinishEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamFinishEvent.EventType) — EventType implements Event.
+- [`StreamFinishEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamFinishEvent) — StreamFinishEvent fires when a per-step LLM stream completes.
+- [`TextEndEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextEndEvent.EventType) — EventType implements Event.
+- [`TextEndEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextEndEvent) — TextEndEvent fires when the LLM finishes generating text content.
+- [`TextStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextStartEvent.EventType) — EventType implements Event.
+- [`TextStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextStartEvent) — TextStartEvent fires when the LLM begins generating text content.
+- [`ToolCallContentEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallContentEvent.EventType) — EventType implements Event.
+- [`ToolCallContentEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallContentEvent) — ToolCallContentEvent fires when a step includes text alongside tool calls.
+- [`ToolCallDeltaEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallDeltaEvent.EventType) — EventType implements Event.
+- [`ToolCallDeltaEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallDeltaEvent) — ToolCallDeltaEvent fires for each streamed fragment of tool call arguments.
+- [`ToolCallEndEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallEndEvent.EventType) — EventType implements Event.
+- [`ToolCallEndEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallEndEvent) — ToolCallEndEvent fires when tool argument streaming is complete, before the tool call is parsed and execution begins.
+- [`ToolCallEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallEvent.EventType) — EventType implements Event.
+- [`ToolCallEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallEvent) — ToolCallEvent fires when a tool call has been parsed.
+- [`ToolCallStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallStartEvent.EventType) — EventType implements Event.
+- [`ToolCallStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallStartEvent) — ToolCallStartEvent fires when the LLM begins generating tool call arguments.
+- [`ToolExecutionEndEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolExecutionEndEvent.EventType) — EventType implements Event.
+- [`ToolExecutionEndEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolExecutionEndEvent) — ToolExecutionEndEvent fires when a tool finishes executing.
+- [`ToolExecutionStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolExecutionStartEvent.EventType) — EventType implements Event.
+- [`ToolExecutionStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolExecutionStartEvent) — ToolExecutionStartEvent fires when a tool begins executing.
+- [`ToolKindEdit`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolKindEdit) — ToolKind constants classify what a tool does, enabling UIs to render appropriate visualizations.
+- [`ToolKindExecute`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolKindExecute) — ToolKind constants classify what a tool does, enabling UIs to render appropriate visualizations.
+- [`ToolKindRead`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolKindRead) — ToolKind constants classify what a tool does, enabling UIs to render appropriate visualizations.
+- [`ToolKindSearch`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolKindSearch) — ToolKind constants classify what a tool does, enabling UIs to render appropriate visualizations.
+- [`ToolKindSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolKindSubagent) — ToolKind constants classify what a tool does, enabling UIs to render appropriate visualizations.
+- [`ToolOutputEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOutputEvent.EventType) — EventType implements Event.
+- [`ToolOutputEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOutputEvent) — ToolOutputEvent fires when a tool produces streaming output chunks (e.g., shell output).
+- [`ToolResultEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolResultEvent.EventType) — EventType implements Event.
+- [`ToolResultEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolResultEvent) — ToolResultEvent fires after a tool execution completes with its result.
+- [`ToolResultMetadata`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolResultMetadata) — ToolResultMetadata carries structured data from tool executions.
+- [`TurnEndEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TurnEndEvent.EventType) — EventType implements Event.
+- [`TurnEndEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TurnEndEvent) — TurnEndEvent fires after the agent finishes processing.
+- [`TurnStartEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TurnStartEvent.EventType) — EventType implements Event.
+- [`TurnStartEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TurnStartEvent) — TurnStartEvent fires before the agent begins processing a prompt.
+- [`WarningsEvent.EventType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WarningsEvent.EventType) — EventType implements Event.
+- [`WarningsEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WarningsEvent) — WarningsEvent fires when the LLM provider returns warnings about the request.
+
+## Extensions
+
+- [`ArgumentPattern`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ArgumentPattern) — ArgumentPattern describes how ParseArguments should interpret command-line style input (positional variables and flags).
+- [`CompleteRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompleteRequest) — CompleteRequest describes a one-shot LLM completion request executed by ExecuteCompletion, independent of the main agent loop.
+- [`CompleteResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompleteResponse) — CompleteResponse holds the text and token usage returned by ExecuteCompletion.
+- [`ExtensionAPI`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionAPI) — ExtensionAPI provides grouped access to all extension-related functionality.
+- [`ExtensionCommandDef`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionCommandDef) — ExtensionCommandDef describes a slash command registered by an extension.
+- [`ExtensionContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionContext) — ExtensionContext holds the runtime context passed to extensions, including callbacks for printing, sending messages, and accessing session state.
+- [`ExtensionEditorConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionEditorConfig) — ExtensionEditorConfig configures editor behaviour overrides set by extensions.
+- [`ExtensionEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionEntry) — ExtensionEntry represents a custom data entry stored by an extension in the session tree.
+- [`ExtensionHeaderFooterConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionHeaderFooterConfig) — ExtensionHeaderFooterConfig describes a header or footer registered by an extension.
+- [`ExtensionInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionInfo) — ExtensionInfo describes a single loaded extension for display purposes.
+- [`ExtensionMessageRendererConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionMessageRendererConfig) — ExtensionMessageRendererConfig describes custom message rendering registered by an extension.
+- [`ExtensionPromptTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionPromptTemplate) — ExtensionPromptTemplate is a parsed prompt template in the extension-facing format used by ParseTemplate and RenderTemplate.
+- [`ExtensionSessionMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionSessionMessage) — ExtensionSessionMessage represents a single message in the session history as exposed to extensions.
+- [`ExtensionShortcutInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionShortcutInfo) — ExtensionShortcutInfo describes a keyboard shortcut registered by an extension.
+- [`ExtensionSkillLoadResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionSkillLoadResult) — ExtensionSkillLoadResult holds the outcome of loading skills from a directory for extensions: the loaded skills or an error string.
+- [`ExtensionSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionSkill) — ExtensionSkill represents a skill in the extension-facing format returned by the skill bridge methods (DiscoverSkillsForExtension and friends).
+- [`ExtensionStatusBarEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionStatusBarEntry) — ExtensionStatusBarEntry describes a status bar entry registered by an extension.
+- [`ExtensionToolInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionToolInfo) — ExtensionToolInfo describes a tool available to the agent, as seen by extensions.
+- [`ExtensionToolRenderConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionToolRenderConfig) — ExtensionToolRenderConfig describes custom tool output rendering registered by an extension.
+- [`ExtensionUIVisibility`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionUIVisibility) — ExtensionUIVisibility controls which UI elements are visible.
+- [`ExtensionWidgetConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionWidgetConfig) — ExtensionWidgetConfig describes a widget registered by an extension.
+- [`ExtensionWidgetPlacement`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionWidgetPlacement) — ExtensionWidgetPlacement indicates where a widget should be rendered.
+- [`Kit.Extensions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Extensions) — Extensions returns the ExtensionAPI for accessing all extension-related functionality.
+- [`ModelCapabilities`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelCapabilities) — ModelCapabilities describes a model's provider, context/output limits, feature support, and token pricing as reported by the model registry.
+- [`ModelInfoEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelInfoEntry) — ModelInfoEntry describes one model known to the registry, as returned by GetAvailableModels.
+- [`ModelPricing`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelPricing) — ModelPricing describes a model's token costs in US dollars per million tokens.
+- [`ModelResolutionResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelResolutionResult) — ModelResolutionResult is the outcome of ResolveModelChain: the first available model from a preference list, its capabilities, and the models attempted along the way.
+- [`ParseResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ParseResult) — ParseResult holds the variables and flags produced by ParseArguments.
+
+## Lifecycle, prompts and results
+
+- [`CLIOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CLIOptions) — CLIOptions holds fields only relevant to the CLI binary.
+- [`ContextFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContextFile) — ContextFile represents a project context file.
+- [`InitTreeSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#InitTreeSession) — InitTreeSession creates or opens a tree session based on the given options.
+- [`Kit.AddInProcessMCPServer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddInProcessMCPServer) — AddInProcessMCPServer connects an in-process mcp-go server and makes its tools available to the agent immediately.
+- [`Kit.AddMCPServer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddMCPServer) — AddMCPServer connects to a new MCP server at runtime and makes its tools available to the agent immediately.
+- [`Kit.AddTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddTools) — AddTools additively registers native Go tools on the live host.
+- [`Kit.ClearSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ClearSession) — ClearSession resets the session's leaf pointer to the root, starting a fresh conversation branch.
+- [`Kit.CloseContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CloseContext) — CloseContext is like [Kit.Close] but accepts a context so graceful shutdown can be bounded by a deadline or cancellation.
+- [`Kit.Close`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Close) — Close cleans up resources including MCP server connections, model resources, and the tree session file handle.
+- [`Kit.ContinueResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ContinueResult) — ContinueResult resumes model generation from the installed session's current conversation without adding a user message.
+- [`Kit.DrainSteer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.DrainSteer) — DrainSteer removes and returns all unconsumed steer messages.
+- [`Kit.ExecuteCompletion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ExecuteCompletion) — ExecuteCompletion makes a standalone LLM completion call for extensions.
+- [`Kit.FollowUp`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.FollowUp) — FollowUp continues the conversation without explicit new user input.
+- [`Kit.GetAvailableModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetAvailableModels) — GetAvailableModels returns a list of known models from the registry.
+- [`Kit.GetBufferedDebugMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetBufferedDebugMessages) — GetBufferedDebugMessages returns any debug messages that were buffered during initialization, then clears the buffer.
+- [`Kit.GetContextFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetContextFiles) — GetContextFiles returns the context files.
+- [`Kit.GetCurrentModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetCurrentModel) — GetCurrentModel returns the fully qualified "provider/model" string for the model currently in use, as resolved from configuration.
+- [`Kit.GetExtensionToolCount`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetExtensionToolCount) — GetExtensionToolCount returns the number of tools registered by extensions.
+- [`Kit.GetExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetExtraTools) — GetExtraTools returns a snapshot of the native extra tools that were added via AddTools / SetExtraTools / RemoveTools or Options.ExtraTools.
+- [`Kit.GetLoadedServerNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetLoadedServerNames) — GetLoadedServerNames returns the names of successfully loaded MCP servers.
+- [`Kit.GetLoadingMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetLoadingMessage) — GetLoadingMessage returns the agent's startup info message.
+- [`Kit.GetMCPPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetMCPPrompt) — GetMCPPrompt retrieves and expands a specific prompt from an MCP server.
+- [`Kit.GetMCPToolCount`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetMCPToolCount) — GetMCPToolCount returns the number of tools loaded from external MCP servers.
+- [`Kit.GetMCPToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetMCPToolNames) — GetMCPToolNames returns the prefixed names (serverName__toolName) of all tools currently loaded from external MCP servers.
+- [`Kit.GetModelInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetModelInfo) — GetModelInfo returns detailed information about the current model (capabilities, pricing, limits).
+- [`Kit.GetModelString`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetModelString) — GetModelString returns the current model string identifier (e.g., "anthropic/claude-sonnet-4-5-20250929" or "openai/gpt-4") being used by the agent.
+- [`Kit.GetSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSkills) — GetSkills returns the skills currently active on this Kit instance.
+- [`Kit.GetStructuredMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetStructuredMessages) — GetStructuredMessages returns the conversation messages on the current branch with full typed content parts.
+- [`Kit.GetSystemPromptSource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSystemPromptSource) — GetSystemPromptSource returns the raw configured value — a file path or inline text — when HasCustomSystemPrompt is true; returns an empty string when the built-in default prompt is active.
+- [`Kit.GetSystemPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSystemPrompt) — GetSystemPrompt returns the system prompt the agent sends to the model.
+- [`Kit.GetThinkingLevel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetThinkingLevel) — GetThinkingLevel returns the resolved current thinking level, including per-model defaults.
+- [`Kit.GetToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetToolNames) — GetToolNames returns the names of all tools available to the agent.
+- [`Kit.GetToolsForSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetToolsForSubagent) — GetToolsForSubagent like GetTools but eliminates subagent tool to avoid infinite recursion.
+- [`Kit.GetTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetTools) — GetTools returns all tools available to the agent (core + MCP + extensions).
+- [`Kit.HasCustomSystemPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.HasCustomSystemPrompt) — HasCustomSystemPrompt reports whether the user explicitly configured a system prompt via --system-prompt, a config file entry, or SDK Options.SystemPrompt.
+- [`Kit.InjectSteerWithFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.InjectSteerWithFiles) — InjectSteerWithFiles sends a steering message with optional file attachments.
+- [`Kit.InjectSteer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.InjectSteer) — InjectSteer sends a steering message into the currently active agent turn.
+- [`Kit.IsGenerating`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.IsGenerating) — IsGenerating returns true if an agent turn is currently in progress.
+- [`Kit.IsOAuth`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.IsOAuth) — IsOAuth reports whether the active model uses a subscription OAuth credential.
+- [`Kit.IsReasoningModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.IsReasoningModel) — IsReasoningModel returns true if the current model supports extended thinking / reasoning.
+- [`Kit.ListMCPPrompts`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ListMCPPrompts) — ListMCPPrompts returns all prompts discovered from connected MCP servers.
+- [`Kit.ListMCPResources`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ListMCPResources) — ListMCPResources returns all resources discovered from connected MCP servers.
+- [`Kit.ListMCPServers`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ListMCPServers) — ListMCPServers returns the status of all currently loaded MCP servers, including successful zero-tool attachments (ToolCount is zero).
+- [`Kit.MCPToolsReady`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.MCPToolsReady) — MCPToolsReady returns true if MCP tool loading has completed (or was never started).
+- [`Kit.MaxOutputLimit`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.MaxOutputLimit) — MaxOutputLimit returns the catalog-reported output ceiling for the current model in tokens, or 0 when the model isn't in the registry (custom models, new releases, Ollama, etc.).
+- [`Kit.MaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.MaxTokens) — MaxTokens returns the effective max output tokens currently configured for the agent.
+- [`Kit.PromptResultWithFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptResultWithFiles) — PromptResultWithFiles sends a multimodal message (text + images) and returns the full turn result.
+- [`Kit.PromptResultWithMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptResultWithMessages) — PromptResultWithMessages submits multiple user messages in a single turn.
+- [`Kit.PromptResultWithOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptResultWithOptions) — PromptResultWithOptions is the [TurnResult]-returning counterpart of PromptWithOptions.
+- [`Kit.PromptResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptResult) — PromptResult sends a message and returns the full turn result including usage statistics and conversation messages.
+- [`Kit.PromptWithOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptWithOptions) — PromptWithOptions sends a message with per-call configuration.
+- [`Kit.Prompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Prompt) — Prompt sends a message to the agent and returns the response.
+- [`Kit.ProviderError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ProviderError) — ProviderError returns the error that kept the model provider from being created when the instance was built with Options.AllowMissingCredentials.
+- [`Kit.ReadMCPResource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ReadMCPResource) — ReadMCPResource reads a specific resource from an MCP server by URI.
+- [`Kit.ReloadExtensions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ReloadExtensions) — ReloadExtensions hot-reloads all extensions from disk.
+- [`Kit.RemoveMCPServer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RemoveMCPServer) — RemoveMCPServer disconnects an MCP server and removes all its tools from the agent.
+- [`Kit.RemoveTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RemoveTools) — RemoveTools removes previously-added native Go tools by name.
+- [`Kit.SetExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetExtraTools) — SetExtraTools replaces the entire native extra-tool set in one call.
+- [`Kit.SetModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetModel) — SetModel changes the active model at runtime.
+- [`Kit.SetThinkingLevel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetThinkingLevel) — SetThinkingLevel changes the thinking level and recreates the agent with the new thinking budget.
+- [`Kit.Steer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Steer) — Steer injects a system-level instruction and triggers a new agent turn.
+- [`Kit.Subagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Subagent) — Subagent runs a child agent with the supplied prompt and configuration.
+- [`Kit.SubscribeMCPResource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SubscribeMCPResource) — SubscribeMCPResource subscribes to change notifications for a resource.
+- [`Kit.Subscribe`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Subscribe) — Subscribe registers an EventListener that will be called for every lifecycle event emitted during Prompt().
+- [`Kit.SupportedThinkingLevels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SupportedThinkingLevels) — SupportedThinkingLevels returns the reasoning levels the currently selected model accepts.
+- [`Kit.UnsubscribeMCPResource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.UnsubscribeMCPResource) — UnsubscribeMCPResource cancels change notifications for a resource.
+- [`Kit.WaitForMCPTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.WaitForMCPTools) — WaitForMCPTools blocks until background MCP tool loading completes.
+- [`Kit`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit) — Kit provides programmatic access to kit functionality, allowing integration of MCP tools and LLM interactions into Go applications.
+- [`MCPPromptArgument`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPPromptArgument) — MCPPromptArgument describes a single argument for an MCP prompt.
+- [`MCPPromptMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPPromptMessage) — MCPPromptMessage is a single message returned by a prompt expansion.
+- [`MCPPromptResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPPromptResult) — MCPPromptResult is the result of expanding an MCP prompt.
+- [`MCPPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPPrompt) — MCPPrompt describes a prompt exposed by an MCP server.
+- [`MCPResourceContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPResourceContent) — MCPResourceContent is the result of reading an MCP resource.
+- [`MCPResource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPResource) — MCPResource describes a resource exposed by an MCP server.
+- [`MCPServerStatus`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPServerStatus) — MCPServerStatus describes the runtime state of a loaded MCP server.
+- [`New`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#New) — New creates a Kit instance using the same initialization as the CLI.
+- [`Options`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) — Options configures Kit creation with optional overrides for model, prompts, configuration, and behavior settings.
+- [`ParseSkillCommand`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ParseSkillCommand) — ParseSkillCommand splits a user prompt of the form "/<name> [args]" into its skill name and trailing args.
+- [`PromptOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PromptOptions) — PromptOptions configures a single PromptWithOptions call.
+- [`SteerMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SteerMessage) — SteerMessage is a queued mid-turn steering message (text plus optional file attachments) as returned by DrainSteer.
+- [`StreamEventKind`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventKind) — StreamEventKind classifies a [StreamEvent] captured during a turn.
+- [`StreamEventReasoningDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventReasoningDelta) — Stream event kinds captured in [TurnResult.Stream].
+- [`StreamEventReasoningEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventReasoningEnd) — Stream event kinds captured in [TurnResult.Stream].
+- [`StreamEventReasoningStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventReasoningStart) — Stream event kinds captured in [TurnResult.Stream].
+- [`StreamEventTextDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventTextDelta) — Stream event kinds captured in [TurnResult.Stream].
+- [`StreamEventToolCallChunk`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEventToolCallChunk) — Stream event kinds captured in [TurnResult.Stream].
+- [`StreamEvent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StreamEvent) — StreamEvent is a single delta observed during a turn, captured in [TurnResult.Stream].
+- [`StructuredMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StructuredMessage) — StructuredMessage represents a conversation message with typed content parts (tool calls, reasoning, finish markers, etc.) instead of flattened text.
+- [`SubagentConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentConfig) — SubagentConfig configures an in-process subagent spawned via Kit.Subagent().
+- [`SubagentResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentResult) — SubagentResult contains the outcome of an in-process subagent execution.
+- [`TurnResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TurnResult) — TurnResult contains the full result of a prompt turn, including usage statistics and the updated conversation.
+
+## Models, providers and MCP
+
+- [`ErrMCPTasksListUnsupported`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrMCPTasksListUnsupported) — ErrMCPTasksListUnsupported reports that an MCP server will not answer a task-listing request.
+- [`ErrUnsupportedModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnsupportedModelMode) — ErrUnsupportedModelMode means that the active model does not support a mode.
+- [`GetLLMProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetLLMProviders) — GetLLMProviders returns provider IDs that have LLM support, either through a native provider or via openaicompat auto-routing.
+- [`GetModelsForProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetModelsForProvider) — GetModelsForProvider returns all known models for a provider.
+- [`GetProviderInfo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetProviderInfo) — GetProviderInfo returns information about a provider (env vars, API URL, etc.).
+- [`GetSupportedProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetSupportedProviders) — GetSupportedProviders returns all known provider names in the registry.
+- [`IsThinkingLevelSupported`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#IsThinkingLevelSupported) — IsThinkingLevelSupported reports whether a model accepts the named reasoning level.
+- [`Kit.CancelMCPTask`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CancelMCPTask) — CancelMCPTask issues tasks/cancel for an in-flight task on the named server.
+- [`Kit.CurrentModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CurrentModelMode) — CurrentModelMode returns the selected mode.
+- [`Kit.GetMCPTask`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetMCPTask) — GetMCPTask queries tasks/get for a single in-flight task on the named server.
+- [`Kit.ListMCPTasks`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ListMCPTasks) — ListMCPTasks lists the active and recent tasks the named MCP server is willing to disclose.
+- [`Kit.ModelModes`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ModelModes) — ModelModes returns catalog modes, including unavailable modes and their reasons.
+- [`Kit.SetModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetModelMode) — SetModelMode selects a mode for the active model.
+- [`Kit.SupportedModelModes`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SupportedModelModes) — SupportedModelModes returns the modes supported by the active model in stable order.
+- [`LLMLanguageModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMLanguageModel) — LLMLanguageModel is a language model that Kit drives.
+- [`LLMProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMProvider) — LLMProvider is a source of language models.
+- [`LookupModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LookupModel) — LookupModel returns information about a model, or nil if unknown.
+- [`MCPTaskConfig`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskConfig) — MCPTaskConfig configures task-aware MCP tools/call execution.
+- [`MCPTaskModeAlways`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskModeAlways) — MCPTaskModeAlways always opts into task augmentation, even when the server didn't advertise the capability.
+- [`MCPTaskModeAuto`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskModeAuto) — MCPTaskModeAuto augments tools/call with task metadata only when the server advertises tasks/toolCalls capability during initialize.
+- [`MCPTaskModeNever`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskModeNever) — MCPTaskModeNever forces every tools/call to be issued synchronously (no Task field), regardless of server capability.
+- [`MCPTaskMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskMode) — MCPTaskMode controls when Kit augments tools/call requests with MCP task metadata for a specific server.
+- [`MCPTaskProgressHandler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskProgressHandler) — MCPTaskProgressHandler is called once when a task is accepted and again on every observed status transition.
+- [`MCPTaskProgress`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskProgress) — MCPTaskProgress is a single status update emitted while Kit is waiting on a task-augmented tool call.
+- [`MCPTaskStatus.IsTerminal`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatus.IsTerminal) — IsTerminal reports whether the status represents a final state — that is, the task will not change again.
+- [`MCPTaskStatusCancelled`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatusCancelled) — MCPTaskStatusCancelled indicates the task was cancelled before completion.
+- [`MCPTaskStatusCompleted`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatusCompleted) — MCPTaskStatusCompleted indicates the task finished successfully.
+- [`MCPTaskStatusFailed`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatusFailed) — MCPTaskStatusFailed indicates the task ended in error.
+- [`MCPTaskStatusInputRequired`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatusInputRequired) — MCPTaskStatusInputRequired indicates the server is waiting for client input before it can proceed (rare; typically surfaced via elicitation).
+- [`MCPTaskStatusWorking`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatusWorking) — MCPTaskStatusWorking indicates the task is currently being processed.
+- [`MCPTaskStatus`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTaskStatus) — MCPTaskStatus represents the lifecycle state of a task-augmented MCP tool call.
+- [`MCPTask`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MCPTask) — MCPTask is the SDK-level view of an MCP Task.
+- [`ModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ModelMode) — ModelMode describes a mode available for the active model.
+- [`ProviderFactory`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ProviderFactory) — ProviderFactory creates a language model for a provider name that the application supplies.
+- [`RegisterProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisterProvider) — RegisterProvider registers f as the process-wide factory for the provider name.
+- [`RegisteredProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisteredProviders) — RegisteredProviders returns the sorted names of all process-wide provider factories registered with [RegisterProvider].
+- [`ResolveProviderBaseURL`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResolveProviderBaseURL) — ResolveProviderBaseURL returns the base API URL kit will use when talking to the given provider, applying the same resolution order that CreateProvider uses internally: 1.
+- [`SuggestModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SuggestModels) — SuggestModels returns model names similar to an invalid model string.
+- [`SuggestThinkingLevel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SuggestThinkingLevel) — SuggestThinkingLevel returns the level to use in place of one the model does not accept, choosing the nearest supported level of similar cost.
+- [`SupportedThinkingLevels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SupportedThinkingLevels) — SupportedThinkingLevels returns the reasoning levels the given model accepts, drawn from the model catalog's published reasoning metadata.
+- [`ThinkingLevels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ThinkingLevels) — ThinkingLevels returns the default ladder for unknown model capabilities: off, none, minimal, low, medium, high, xhigh.
+- [`UnregisterProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UnregisterProvider) — UnregisterProvider removes the process-wide factory registered for name.
+- [`ValidateEnvironment`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ValidateEnvironment) — ValidateEnvironment checks if required API keys are set for a provider.
+- [`WithProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProvider) — WithProvider registers a provider factory for this Kit instance only.
+
+## Sessions
+
+- [`BranchEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BranchEntry) — BranchEntry represents a single node in the conversation tree.
+- [`CompactionEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CompactionEntry) — CompactionEntry represents a context compaction/summarization event.
+- [`DeleteSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DeleteSession) — DeleteSession removes a session file from disk.
+- [`EntryTypeBranchSummary`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeBranchSummary) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryTypeCompaction`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeCompaction) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryTypeExtensionData`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeExtensionData) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryTypeIncompleteOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeIncompleteOutput) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryTypeMessage`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeMessage) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryTypeModelChange`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryTypeModelChange) — Session entry types distinguish model history from transcript and metadata records.
+- [`EntryType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EntryType) — EntryType identifies the kind of entry in the session tree.
+- [`ErrBranchSummaryNotSupported`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrBranchSummaryNotSupported) — ErrBranchSummaryNotSupported is returned by SessionManager implementations that do not support collapsing a branch range into a summary entry.
+- [`ErrNoSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoSession) — ErrNoSession is returned by session-dependent operations ([Kit.Branch], [Kit.NavigateTo], [Kit.SummarizeBranch], [Kit.CollapseBranch], [Kit.SetSessionName], and the extension session API) when the Kit was created without a session manager.
+- [`ExtensionDataEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ExtensionDataEntry) — ExtensionDataEntry represents custom extension data stored in the session.
+- [`IncompleteOutputAppender`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#IncompleteOutputAppender) — IncompleteOutputAppender is an optional transcript storage capability.
+- [`IncompleteOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#IncompleteOutput) — IncompleteOutput is unfinished assistant text, not model history.
+- [`Kit.Branch`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Branch) — Branch moves the session's leaf pointer to the given entry ID, creating a branch point.
+- [`Kit.CollapseBranch`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CollapseBranch) — CollapseBranch replaces a branch range with a summary entry.
+- [`Kit.GetChildren`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetChildren) — GetChildren returns direct child IDs of an entry.
+- [`Kit.GetCurrentBranch`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetCurrentBranch) — GetCurrentBranch returns the path from root to current leaf as TreeNodes.
+- [`Kit.GetSessionID`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSessionID) — GetSessionID returns the UUID of the active session, or empty when no session is configured.
+- [`Kit.GetSessionManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSessionManager) — GetSessionManager returns the session manager, or nil if not configured.
+- [`Kit.GetSessionPath`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSessionPath) — GetSessionPath returns the file path of the active session, or empty for in-memory sessions or when no file-based session is configured.
+- [`Kit.GetTreeNode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetTreeNode) — GetTreeNode returns a node by ID with full metadata and children.
+- [`Kit.GetTreeSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetTreeSession) — GetTreeSession returns the default file-backed tree session, or nil if no session is configured or a custom SessionManager is in use.
+- [`Kit.NavigateTo`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.NavigateTo) — NavigateTo branches/forks the session to the specified entry ID.
+- [`Kit.SetSessionManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetSessionManager) — SetSessionManager replaces the session manager on a Kit instance.
+- [`Kit.SetSessionName`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetSessionName) — SetSessionName sets a user-defined display name for the active session.
+- [`Kit.SetTreeSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetTreeSession) — SetTreeSession sets the default file-backed tree session on a Kit instance, replacing any custom SessionManager.
+- [`Kit.SummarizeBranch`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SummarizeBranch) — SummarizeBranch uses the LLM to summarize the conversation between two entry IDs.
+- [`ListAllSessions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ListAllSessions) — ListAllSessions finds all sessions across all working directories, sorted by modification time (newest first).
+- [`ListSessions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ListSessions) — ListSessions finds all sessions for the given working directory, sorted by modification time (newest first).
+- [`OpenTreeSession`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#OpenTreeSession) — OpenTreeSession opens an existing JSONL session file.
+- [`SessionManager`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionManager) — SessionManager defines the contract for conversation storage backends.
+- [`StepAppender`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#StepAppender) — StepAppender is an optional interface a [SessionManager] may implement to receive the messages of one agent step in a single call.
+- [`TreeNode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TreeNode) — TreeNode represents a node in the session tree for SDK consumers.
+
+## Skills, context and templates
+
+- [`CheckModelAvailable`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CheckModelAvailable) — CheckModelAvailable verifies if a model string is valid and provider exists.
+- [`CombineSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CombineSkills) — CombineSkills validates and deduplicates the union of user-level and project-level skills.
+- [`EvaluateModelConditional`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#EvaluateModelConditional) — EvaluateModelConditional checks if condition matches current model.
+- [`FormatSkillActivation`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FormatSkillActivation) — FormatSkillActivation renders a skill for injection into the conversation when it is activated: the body wrapped in a <skill_content name=… location=…> block, a note on resolving relative paths against the skill directory, and a <skill_resources> listing of bundled files.
+- [`GetCurrentModelID`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetCurrentModelID) — GetCurrentModelID extracts model ID from model string.
+- [`GetCurrentProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetCurrentProvider) — GetCurrentProvider extracts provider from model string.
+- [`GetModelCapabilities`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetModelCapabilities) — GetModelCapabilities returns capabilities for a specific model, including its token pricing.
+- [`Kit.AddContextFileContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddContextFileContent) — AddContextFileContent is a convenience wrapper around [Kit.AddContextFile] that builds the ContextFile from a path and inline content string.
+- [`Kit.AddContextFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddContextFile) — AddContextFile registers a project context file.
+- [`Kit.AddSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.AddSkill) — AddSkill registers a single skill on this Kit instance.
+- [`Kit.ClearSkillCache`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ClearSkillCache) — ClearSkillCache clears the skill cache for this Kit instance.
+- [`Kit.DisableSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.DisableSkill) — DisableSkill hides the named skill from the model-facing catalog while keeping it loaded (so it can still be activated explicitly via /<name>).
+- [`Kit.DiscoverSkillsForExtension`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.DiscoverSkillsForExtension) — DiscoverSkillsForExtension finds skills in standard locations for extensions.
+- [`Kit.EnableSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.EnableSkill) — EnableSkill re-exposes a previously disabled skill in the model-facing catalog.
+- [`Kit.LoadAndAddContextFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.LoadAndAddContextFile) — LoadAndAddContextFile reads a file from disk and registers it as a project context file via [Kit.AddContextFile].
+- [`Kit.LoadAndAddSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.LoadAndAddSkill) — LoadAndAddSkill loads a skill from a filesystem path (single .md/.txt file) and adds it via [Kit.AddSkill].
+- [`Kit.LoadSkillForExtension`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.LoadSkillForExtension) — LoadSkillForExtension loads a single skill file for extensions.
+- [`Kit.LoadSkillsFromDirForExtension`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.LoadSkillsFromDirForExtension) — LoadSkillsFromDirForExtension loads all skills from a directory for extensions.
+- [`Kit.RefreshSystemPrompt`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RefreshSystemPrompt) — RefreshSystemPrompt manually recomposes the system prompt from the current skills and context files and applies it to the agent.
+- [`Kit.ReloadSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.ReloadSkills) — ReloadSkills re-discovers skills from disk, replacing the current set.
+- [`Kit.RemoveContextFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RemoveContextFile) — RemoveContextFile removes the context file with the given path and recomposes the system prompt.
+- [`Kit.RemoveSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RemoveSkill) — RemoveSkill removes the named skill from this Kit instance and recomposes the system prompt.
+- [`Kit.SetContextFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetContextFiles) — SetContextFiles replaces the active context-file set with the provided slice.
+- [`Kit.SetSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SetSkills) — SetSkills replaces the active skill set with the provided slice.
+- [`LoadProjectSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadProjectSkills) — LoadProjectSkills discovers skills from the project-local scopes only (<cwd>/.agents/skills and <cwd>/.kit/skills).
+- [`LoadPromptTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadPromptTemplate) — LoadPromptTemplate reads a template from a file.
+- [`LoadSkill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadSkill) — LoadSkill reads a single skill file (markdown with optional YAML frontmatter).
+- [`LoadSkillsFromDir`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadSkillsFromDir) — LoadSkillsFromDir loads all skills from a single directory.
+- [`LoadSkillsFromFS`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadSkillsFromFS) — LoadSkillsFromFS is the [fs.FS]-typed counterpart of [LoadSkillsFromDir].
+- [`LoadSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadSkills) — LoadSkills auto-discovers skills from standard directories: - User-level: ~/.agents/skills/ (cross-client convention) - User-level: $XDG_CONFIG_HOME/kit/skills/ (default ~/.config/kit/skills/) - Project-local: <cwd>/.agents/skills/ (cross-client convention) - Project-local: <cwd>/.kit/skills/ (Kit-specific) Project-level skills take precedence over user-level skills with the same name.
+- [`LoadUserSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LoadUserSkills) — LoadUserSkills discovers skills from the user-level scopes only (~/.agents/skills and $XDG_CONFIG_HOME/kit/skills).
+- [`NewPromptBuilder`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewPromptBuilder) — NewPromptBuilder creates a PromptBuilder with the given base system prompt.
+- [`NewPromptTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewPromptTemplate) — NewPromptTemplate creates a PromptTemplate, automatically extracting variable names from {{...}} placeholders in content.
+- [`ParseArguments`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ParseArguments) — ParseArguments parses command-line style arguments.
+- [`ParseTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ParseTemplate) — ParseTemplate extracts {{variables}} from template content.
+- [`PromptBuilder`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PromptBuilder) — PromptBuilder composes a system prompt from a base prompt, skills, and arbitrary named sections.
+- [`PromptTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#PromptTemplate) — PromptTemplate is a named text template with {{variable}} placeholders.
+- [`RemoveProviderFromModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RemoveProviderFromModel) — RemoveProviderFromModel removes the provider prefix from a model string.
+- [`RenderTemplate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RenderTemplate) — RenderTemplate substitutes variables into template content.
+- [`RenderWithModelConditionals`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RenderWithModelConditionals) — RenderWithModelConditionals processes <if-model> blocks in content.
+- [`ResolveModelChain`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ResolveModelChain) — ResolveModelChain attempts each model in order until one is available.
+- [`SimpleParseArguments`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SimpleParseArguments) — SimpleParseArguments parses $1, $2, $@ style arguments.
+- [`SkillDiagnostic`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SkillDiagnostic) — SkillDiagnostic describes a validation problem found by Skill.Validate.
+- [`Skill`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Skill) — Skill represents a markdown-based instruction file with optional YAML frontmatter that provides domain-specific context and workflows.
+- [`SkipProjectSkills`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SkipProjectSkills) — SkipProjectSkills declines to load project skills this session.
+- [`TrustDecision`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TrustDecision) — TrustDecision is the outcome of a project-skill trust prompt.
+- [`TrustProjectOnce`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TrustProjectOnce) — TrustProjectOnce loads project skills this session without persisting.
+- [`TrustProject`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TrustProject) — TrustProject loads project skills and persists the directory as trusted.
+
+## Subagents
+
+- [`ErrSubagentKilled`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrSubagentKilled) — ErrSubagentKilled is the error a subagent run returns when it was stopped with [Kit.KillSubagent].
+- [`Kit.GetSubagentRun`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetSubagentRun) — GetSubagentRun returns a retained snapshot for an execution ID, not a child session ID.
+- [`Kit.KillSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.KillSubagent) — KillSubagent stops the running subagent with the given ID (see [RunningSubagent].ID).
+- [`Kit.RunningSubagents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RunningSubagents) — RunningSubagents returns the in-process subagents of this Kit instance that are running now, oldest first.
+- [`Kit.SubagentRuns`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SubagentRuns) — SubagentRuns returns active and retained finished run snapshots, oldest first by registration order.
+- [`Kit.SubscribeSubagentRuns`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SubscribeSubagentRuns) — SubscribeSubagentRuns registers a listener for the changes to every subagent run of this Kit instance: registration, each child event, and each status change.
+- [`RunningSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RunningSubagent) — RunningSubagent describes an in-process subagent that is currently running.
+- [`SubagentRunUpdate`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentRunUpdate) — SubagentRunUpdate describes one change to a retained subagent run.
+- [`SubagentRun`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentRun) — SubagentRun is a snapshot of an active or finished in-process subagent run.
+
+## Tools and code mode
+
+- [`AllTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AllTools) — AllTools returns all available core tools.
+- [`CodeModeExposureDeferred`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeExposureDeferred) — CodeModeExposureDeferred: only scripts can call the tool, and the catalog does not list it; scripts find it with searchTools().
+- [`CodeModeExposureDirect`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeExposureDirect) — CodeModeExposureDirect: the model sees the tool and scripts can call it.
+- [`CodeModeExposureModelOnly`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeExposureModelOnly) — CodeModeExposureModelOnly: the model sees the tool, scripts cannot call it.
+- [`CodeModeExposureScriptOnly`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeExposureScriptOnly) — CodeModeExposureScriptOnly: only scripts can call the tool; the code mode catalog lists its full signature.
+- [`CodeModeOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeOptions) — CodeModeOptions configures code mode: one tool ("codemode") that runs a JavaScript program in a sandbox.
+- [`CodeModeToolName`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodeModeToolName) — CodeModeToolName is the name of the code mode tool.
+- [`CodingTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CodingTools) — CodingTools returns the default set of core tools for a coding agent: shell, read, write, edit.
+- [`CommandRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandRequest) — CommandRequest describes one command the shell tool wants to run.
+- [`CommandResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandResult) — CommandResult is the outcome of a command run by a [CommandRunner].
+- [`CommandRunner`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandRunner) — CommandRunner runs the shell tool's commands somewhere other than a local child process, for example in an editor's terminal.
+- [`DefaultCoreToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultCoreToolNames) — DefaultCoreToolNames returns the core tools enabled when none are named.
+- [`ErrorResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrorResult) — ErrorResult creates an error [ToolOutput].
+- [`FileSystem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FileSystem) — FileSystem reads and writes text files for the read, write and edit tools.
+- [`FilterCoreToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FilterCoreToolNames) — FilterCoreToolNames resolves the effective core tool list from include and exclude name lists.
+- [`ImageResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ImageResult) — ImageResult creates a [ToolOutput] that returns an image to the LLM.
+- [`ListAllCoreToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ListAllCoreToolNames) — --- Tool bundles ---
+- [`MediaResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#MediaResult) — MediaResult creates a [ToolOutput] that returns non-image binary media.
+- [`NewCodeModeTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewCodeModeTool) — NewCodeModeTool creates the code mode tool.
+- [`NewEditTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewEditTool) — NewEditTool creates a surgical text-editing tool.
+- [`NewFindTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewFindTool) — NewFindTool creates a file search tool (uses fd when available).
+- [`NewGrepTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewGrepTool) — NewGrepTool creates a content search tool (uses ripgrep when available).
+- [`NewLsTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewLsTool) — NewLsTool creates a directory listing tool.
+- [`NewParallelTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewParallelTool) — NewParallelTool is like [NewTool] but marks the tool as safe for concurrent execution alongside other tools.
+- [`NewRawTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewRawTool) — NewRawTool is the schema-driven counterpart to [NewTool].
+- [`NewReadTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewReadTool) — NewReadTool creates a file-reading tool.
+- [`NewShellTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewShellTool) — NewShellTool creates the shell command execution tool.
+- [`NewTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewTool) — NewTool creates a custom [Tool] with automatic JSON schema generation from the TInput struct type.
+- [`NewWriteTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewWriteTool) — NewWriteTool creates a file-writing tool.
+- [`ReadOnlyTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReadOnlyTools) — ReadOnlyTools returns tools for read-only exploration: read, grep, find, ls.
+- [`SubagentTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentTools) — SubagentTools returns all core tools except subagent.
+- [`TextResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextResult) — TextResult creates a successful text [ToolOutput].
+- [`ToolCallIDFromContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallIDFromContext) — ToolCallIDFromContext extracts the tool call ID from the context.
+- [`ToolOption`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOption) — ToolOption configures tool behavior.
+- [`ToolOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOutput) — ToolOutput is the return value from custom tool handlers created with [NewTool] or [NewParallelTool].
+- [`Tool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Tool) — Tool is the interface that all Kit tools implement.
+- [`WithCommandRunner`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithCommandRunner) — WithCommandRunner makes the shell tool run commands through a [CommandRunner] instead of local child processes.
+- [`WithFileSystem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithFileSystem) — WithFileSystem routes the text file access of the read, write and edit tools through a [FileSystem].
+- [`WithShellMaxTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellMaxTimeout) — WithShellMaxTimeout sets the maximum timeout a shell tool call may request.
+- [`WithShellTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellTimeout) — WithShellTimeout sets the default per-call timeout for the shell tool.
+- [`WithShell`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShell) — WithShell sets the shell the shell tool runs command strings through: the shell plus its own leading arguments.
+- [`WithWorkDir`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithWorkDir) — WithWorkDir sets the working directory for file-based tools.

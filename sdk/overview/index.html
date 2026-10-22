@@ -6,7 +6,7 @@
 <title>Go SDK | Kit</title>
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CZkxMSkZ.js"></script>
+<script type="module" src="/assets/index-BzU3KYGw.js"></script>
 <link rel="canonical" href="https://go-kit.dev/sdk/overview" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -30,6 +30,12 @@
 <div id="tome-root"></div>
 <div data-pagefind-body style="display:none"><h1>Go SDK</h1>
 # Go SDK
+
+## SDK guides
+
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
 
 The `pkg/kit` package lets you embed Kit as a library in your Go applications.
 
@@ -835,7 +841,7 @@ Key points:
   `Options.SkillsDisable`, `Options.SkillTrustPrompt`, `Options.NoSkills`, and
   `Options.NoContextFiles` continue to control the startup set; the runtime API
   mutates from whatever state `New()` produced.
-  See [SDK options](/sdk/options#skills--configuration).
+  See [SDK options](/sdk/options#skills-configuration).
 - **Auto-discovery scopes.** When no explicit `Skills`/`SkillsDir` are given,
   `New()` scans four [agentskills.io](https://agentskills.io/specification)
   locations: `~/.agents/skills/`, `~/.config/kit/skills/`,
@@ -1030,6 +1036,8 @@ Inspect active and finished child runs with `host.SubagentRuns()` or look up one
 See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.
 
-See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.</div>
+See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.
+
+Model modes and code mode are described in [SDK options](/sdk/options#model-modes). Isolation switches are not an OS sandbox.</div>
 </body>
 </html>

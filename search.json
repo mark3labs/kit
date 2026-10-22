@@ -2,7 +2,7 @@
   "version": 1,
   "generator": "tome",
   "site": "Kit",
-  "totalPages": 24,
+  "totalPages": 27,
   "searchEndpoint": "/pagefind/pagefind.js",
   "pages": [
     {
@@ -426,6 +426,41 @@
       "wordCount": 405
     },
     {
+      "id": "sdk/api-reference",
+      "url": "https://go-kit.dev/sdk/api-reference",
+      "title": "SDK API Reference",
+      "description": "A task-based index of the public Kit Go SDK.",
+      "headings": [
+        "Authentication",
+        "Compaction",
+        "Configuration, integration and testing helpers",
+        "Decision models",
+        "Events and hooks",
+        "Extensions",
+        "Lifecycle, prompts and results",
+        "Models, providers and MCP",
+        "Sessions",
+        "Skills, context and templates",
+        "Subagents",
+        "Tools and code mode"
+      ],
+      "tags": [],
+      "wordCount": 9347
+    },
+    {
+      "id": "sdk/authentication",
+      "url": "https://go-kit.dev/sdk/authentication",
+      "title": "SDK Authentication",
+      "description": "Stored provider credentials and host-controlled login in Go.",
+      "headings": [
+        "Stored credentials",
+        "Startup without credentials",
+        "Host-controlled OpenAI login"
+      ],
+      "tags": [],
+      "wordCount": 390
+    },
+    {
       "id": "sdk/callbacks",
       "url": "https://go-kit.dev/sdk/callbacks",
       "title": "Callbacks",
@@ -442,10 +477,26 @@
         "Hook priorities",
         "All event types",
         "Compaction telemetry",
-        "Subagent event monitoring"
+        "Subagent event monitoring",
+        "Provider request tracing"
       ],
       "tags": [],
-      "wordCount": 1309
+      "wordCount": 1530
+    },
+    {
+      "id": "sdk/decisions",
+      "url": "https://go-kit.dev/sdk/decisions",
+      "title": "Decision API",
+      "description": "Ask typed questions about state with decision models in Go.",
+      "headings": [
+        "Discover models",
+        "Standalone or instance",
+        "Build a request",
+        "Read answers by ID",
+        "Errors and cancellation"
+      ],
+      "tags": [],
+      "wordCount": 1008
     },
     {
       "id": "sdk/options",
@@ -474,10 +525,14 @@
         "Custom debug logger",
         "Precedence",
         "Tool configuration",
-        "Routing file access and commands"
+        "Routing file access and commands",
+        "Options and functional helper inventory",
+        "Model modes",
+        "Code mode",
+        "Managed skill activation"
       ],
       "tags": [],
-      "wordCount": 3988
+      "wordCount": 6155
     },
     {
       "id": "sdk/overview",
@@ -485,6 +540,7 @@
       "title": "Go SDK",
       "description": "Embed Kit in your Go applications.",
       "headings": [
+        "SDK guides",
         "Installation",
         "Basic usage",
         "Functional options (NewAgent)",
@@ -519,7 +575,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5203
+      "wordCount": 5249
     },
     {
       "id": "sdk/sessions",
@@ -533,10 +589,13 @@
         "Clearing history",
         "Tree-based sessions",
         "Listing and managing sessions",
-        "Custom session manager"
+        "Custom session manager",
+        "Model request retries",
+        "Step resume",
+        "Partial results and session write errors"
       ],
       "tags": [],
-      "wordCount": 393
+      "wordCount": 1372
     },
     {
       "id": "sessions",

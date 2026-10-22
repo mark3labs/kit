@@ -1,6 +1,12 @@
 
 # Go SDK
 
+## SDK guides
+
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
+
 The `pkg/kit` package lets you embed Kit as a library in your Go applications.
 
 ## Installation
@@ -805,7 +811,7 @@ Key points:
   `Options.SkillsDisable`, `Options.SkillTrustPrompt`, `Options.NoSkills`, and
   `Options.NoContextFiles` continue to control the startup set; the runtime API
   mutates from whatever state `New()` produced.
-  See [SDK options](/sdk/options#skills--configuration).
+  See [SDK options](/sdk/options#skills-configuration).
 - **Auto-discovery scopes.** When no explicit `Skills`/`SkillsDir` are given,
   `New()` scans four [agentskills.io](https://agentskills.io/specification)
   locations: `~/.agents/skills/`, `~/.config/kit/skills/`,
@@ -1001,3 +1007,5 @@ See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.
 
 See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.
+
+Model modes and code mode are described in [SDK options](/sdk/options#model-modes). Isolation switches are not an OS sandbox.

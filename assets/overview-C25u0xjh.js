@@ -1,4 +1,10 @@
 var e={frontmatter:{title:`Go SDK`,description:`Embed Kit in your Go applications.`,hidden:!1,toc:!0,ogImage:`/og-image.png`,draft:!1},html:`<h1 id="go-sdk"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#go-sdk"><span class="icon icon-link"></span></a>Go SDK</h1>
+<h2 id="sdk-guides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sdk-guides"><span class="icon icon-link"></span></a>SDK guides</h2>
+<ul>
+<li><a href="https://go-kit.dev/sdk/decisions">Decision API</a>: typed probabilistic questions, not chat.</li>
+<li><a href="https://go-kit.dev/sdk/authentication">Authentication</a>: credential resolution and host-controlled login.</li>
+<li><a href="https://go-kit.dev/sdk/api-reference">Public API index</a>: every public declaration, with Go reference links.</li>
+</ul>
 <p>The <code>pkg/kit</code> package lets you embed Kit as a library in your Go applications.</p>
 <h2 id="installation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#installation"><span class="icon icon-link"></span></a>Installation</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> get</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github.com/mark3labs/kit/pkg/kit</span></span></code></pre>
@@ -818,7 +824,7 @@ from multiple goroutines; the underlying state is guarded by an internal
 <code>Options.SkillsDisable</code>, <code>Options.SkillTrustPrompt</code>, <code>Options.NoSkills</code>, and
 <code>Options.NoContextFiles</code> continue to control the startup set; the runtime API
 mutates from whatever state <code>New()</code> produced.
-See <a href="/sdk/options#skills--configuration">SDK options</a>.</p>
+See <a href="/sdk/options#skills-configuration">SDK options</a>.</p>
 </li>
 <li>
 <p><strong>Auto-discovery scopes.</strong> When no explicit <code>Skills</code>/<code>SkillsDir</code> are given,
@@ -1001,8 +1007,15 @@ prompts that reuse its accumulated context.</p>
 <p>Inspect active and finished child runs with <code>host.SubagentRuns()</code> or look up one execution with <code>host.GetSubagentRun(runID)</code>. Each <code>SubagentRun</code> includes status, session links, and retained child events. <code>host.RunningSubagents()</code> still lists only active runs; pass a run ID, not a session ID, to <code>host.KillSubagent(runID)</code> to stop one. See <a href="/advanced/subagents#retained-run-snapshots">Retained run snapshots</a> for API examples and history limits.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Isolated agents`,id:`isolated-agents`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>
+<p>Model modes and code mode are described in <a href="/sdk/options#model-modes">SDK options</a>. Isolation switches are not an OS sandbox.</p>`,headings:[{depth:2,text:`SDK guides`,id:`sdk-guides`},{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Isolated agents`,id:`isolated-agents`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
 # Go SDK
+
+## SDK guides
+
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
 
@@ -1808,7 +1821,7 @@ Key points:
   \`Options.SkillsDisable\`, \`Options.SkillTrustPrompt\`, \`Options.NoSkills\`, and
   \`Options.NoContextFiles\` continue to control the startup set; the runtime API
   mutates from whatever state \`New()\` produced.
-  See [SDK options](/sdk/options#skills--configuration).
+  See [SDK options](/sdk/options#skills-configuration).
 - **Auto-discovery scopes.** When no explicit \`Skills\`/\`SkillsDir\` are given,
   \`New()\` scans four [agentskills.io](https://agentskills.io/specification)
   locations: \`~/.agents/skills/\`, \`~/.config/kit/skills/\`,
@@ -2004,4 +2017,6 @@ See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.
 
 See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.
+
+Model modes and code mode are described in [SDK options](/sdk/options#model-modes). Isolation switches are not an OS sandbox.
 `};export{e as default};

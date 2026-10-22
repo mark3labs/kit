@@ -20,7 +20,10 @@
 - [Installation](https://go-kit.dev/installation) - Install Kit using the install script, npm, bun, pnpm, Nix, Go, or build from source.
 - [Providers](https://go-kit.dev/providers) - Supported LLM providers and model configuration.
 - [Quick Start](https://go-kit.dev/quick-start) - Get up and running with Kit in minutes.
+- [SDK API Reference](https://go-kit.dev/sdk/api-reference) - A task-based index of the public Kit Go SDK.
+- [SDK Authentication](https://go-kit.dev/sdk/authentication) - Stored provider credentials and host-controlled login in Go.
 - [Callbacks](https://go-kit.dev/sdk/callbacks) - Monitor tool calls and streaming output with the Kit Go SDK.
+- [Decision API](https://go-kit.dev/sdk/decisions) - Ask typed questions about state with decision models in Go.
 - [SDK Options](https://go-kit.dev/sdk/options) - Configuration options for the Kit Go SDK.
 - [Go SDK](https://go-kit.dev/sdk/overview) - Embed Kit in your Go applications.
 - [SDK Sessions](https://go-kit.dev/sdk/sessions) - Session management in the Kit Go SDK.
