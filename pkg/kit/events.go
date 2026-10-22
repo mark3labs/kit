@@ -54,7 +54,8 @@ const (
 	EventReasoningComplete EventType = "reasoning_complete"
 	// EventToolOutput fires when a tool produces streaming output chunks.
 	EventToolOutput EventType = "tool_output"
-	EventStepUsage  EventType = "step_usage"
+	// EventStepUsage fires with token usage for a completed step.
+	EventStepUsage EventType = "step_usage"
 	// EventPasswordPrompt fires when a sudo command needs a password.
 	EventPasswordPrompt EventType = "password_prompt"
 	// EventSteerConsumed fires when one or more steering messages have been

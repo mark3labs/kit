@@ -1,7 +1,48 @@
 # KIT SDK
 
-The KIT SDK (`pkg/kit`) lets you embed Kit's full agent capabilities — LLM interactions, tool execution, session management, streaming, hooks — into any Go application.
+## SDK guides
 
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
+
+## Model modes
+
+`ModelMode` describes catalog modes, including `Experimental`, `Supported`, `UnsupportedReason`, and estimated input/output USD per million tokens. `host.ModelModes()` includes unavailable modes; `host.SupportedModelModes()` filters them. Query these methods rather than assuming every model offers a fixed mode.
+
+Select with `Options.ModelMode` / `WithModelMode`, or `host.SetModelMode(ctx, name)`. Check errors with `errors.Is(err, kit.ErrUnsupportedModelMode)` for unsupported modes. `CurrentModelMode` reports the selection; an empty string selects the model default. Changes during an active turn fail, including reset. Finish or cancel the turn first.
+
+## Code mode
+
+`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the current tool set with hooks applied, so nested calls still pass through hooks.
+
+Zero option fields fall back to the `codemode` config section, then defaults:
+
+| Field | Default and unit |
+| --- | --- |
+| `Timeout` | 30 seconds (`time.Duration` in Go, seconds in YAML) |
+| `MaxToolCalls` | 50 tool calls per script |
+| `MaxOutputBytes` | 100000 bytes; larger captured output may be saved to a temporary file, but combined script output and logs are capped at 4 MiB and excess is truncated |
+| `MaxConcurrency` | 8 parallel tool calls per script |
+| `MemoryLimitMB` | 256 MiB approximate heap growth (value shifted by 20 bits); negative disables check |
+| `CatalogBudget` | 12000 bytes in the tool catalog description |
+| `MCPExposure` | `CodeModeExposureDirect` for unmatched MCP tools |
+| `Exposure` | Tool-name glob rules; exact names win over globs, then longer patterns win |
+
+Exposure constants and their config values:
+
+- `CodeModeExposureDirect` (`direct`): model sees the tool; scripts can call it.
+- `CodeModeExposureScriptOnly` (`codemode`): scripts only; full signature in catalog.
+- `CodeModeExposureDeferred` (`deferred`): scripts only; discover with `searchTools()`.
+- `CodeModeExposureModelOnly` (`model-only`): model only; scripts cannot call it.
+
+`CodeModeToolName` is `codemode`. See [code mode](https://go-kit.dev/advanced/code-mode) for JavaScript APIs. JavaScript limits and discovery/isolation switches are not OS sandboxing. Tool access has the host process permissions; restrict the runtime when inputs are untrusted.
+
+## Managed skill activation
+
+`AlwaysOfferSkillActivation` / `WithSkillActivation` keeps `activate_skill` offered even with an empty catalog. It does not enable discovery or override `NoSkills`. Combine with `Isolated` and register application-owned skills. Use `Skill.NoHostIO` for content that must not be reopened from host paths. Caller-owned activation tools and explicit preparation tool overrides retain precedence. See the [Go contract](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithSkillActivation) for per-step snapshot and cancellation rules.
+
+The KIT SDK (`pkg/kit`) lets you embed Kit's full agent capabilities — LLM interactions, tool execution, session management, streaming, hooks — into any Go application.
 
 ## HTTP request identity
 
@@ -656,8 +697,10 @@ is safe to call concurrently from multiple goroutines.
 Decision models (TypeSafe Jev, Cloudflare Clef, Perplexity Decider, Inception
 Mercury Decide, Microsoft Decision-1, Liquid d1 and others) answer typed
 questions about a state with probabilities instead of generated text. Use them
-to classify, route, score or gate actions. `Decide` sends one request with any
-number of boolean, choice and score questions:
+to classify, route, score or provide probabilistic gates, not security authorization.
+See the [Decision API guide](https://go-kit.dev/sdk/decisions) for all public types,
+errors, wire capabilities and bounded retries. `Decide` sends one request with
+boolean, choice and score questions (non-gateway wires allow at most 64):
 
 ```go
 res, err := host.Decide(ctx, kit.DecisionRequest{
@@ -680,9 +723,13 @@ if err != nil {
     return err
 }
 team, err := res.Choice("team") // errors on a wrong type, missing answer or refusal
-p, _ := team.Prob("billing")    // per-option probability, in question order
-refund, _ := res.Boolean("refund")
-fmt.Println(team.Choice, p, refund.Probability, team.Confidence)
+if err != nil { return err }
+p, hasProbability := team.Prob("billing") // absence is not zero probability
+refund, err := res.Boolean("refund")
+if err != nil { return err }
+urgency, err := res.Score("urgency")
+if err != nil { return err }
+fmt.Println(team.Choice, p, hasProbability, refund.Probability, urgency.Score)
 ```
 
 Kit finds decision models in the model database (models.dev entries of type
@@ -958,8 +1005,9 @@ wait. Cancellation can stop the wait, so an event does not guarantee that the
 next request will start. Extension retry events also include the delay.
 
 For safety, streaming retries are permitted only before content is delivered.
-Warnings, keepalives and start parts (text, reasoning, tool input) are held
-until content arrives, so they do not prevent a retry. A failure after content
+Warnings and start parts (text, reasoning, tool input) are held until content
+arrives, so they do not prevent a retry. Keepalive parts are forwarded
+immediately and can reach consumers from an attempt that later fails. A failure after content
 was delivered is handled by step resume (below). The TUI resets transient
 stream state on a retry event and keeps completed messages. Retries do not
 repeat completed steps or tool execution. The underlying agent library's
@@ -978,7 +1026,7 @@ Safety rules:
 
 - Local tools run only after a step stream ends without error, so the failed
   step ran no tools. Completed steps and tool results are never repeated.
-- The failed step's partial output is discarded and is not saved to the session.
+- The failed step's partial output is excluded from normal model history and completed-step storage. A terminal failure can still save it as an `incomplete_output` transcript record (see below).
 - Only transient errors are resumed. Auth, validation, cancellation, deadline
   and tool errors are not. A failed session write stops resumes.
 - The `MaxSteps` limit applies to the whole turn, also across resumes.
@@ -1036,3 +1084,7 @@ keeps the turn's context values. Backends must honor that deadline. Legacy
 `AppendMessage` has no context, and local filesystem calls cannot be interrupted
 safely; these writes remain synchronous. Kit does not start a background write
 that could change the session after the caller starts another turn.
+
+### SDK configuration resolution
+
+File selection is separate from effective field precedence. An explicit SDK `ConfigFile` loads only that file; otherwise project config is preferred over home config. SDK generation/provider overrides win over environment, then configuration, per-model defaults and fallbacks. Stored credentials win over provider environment variables unless explicitly overridden. See [SDK option precedence](https://go-kit.dev/sdk/options#precedence).

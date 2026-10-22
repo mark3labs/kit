@@ -92,31 +92,11 @@ Rules:
 
 ### Decision models (`Decide`)
 
-Decision models answer typed questions with probabilities instead of text. They
-are separate from chat models: `SetModel` rejects them
-(`kit.ErrDecisionModelNotChat`) and they do not appear in chat model lists.
-
-```go
-res, err := host.Decide(ctx, kit.DecisionRequest{
-    Model: "openrouter/typesafe/jev-1.14", // see kit.GetDecisionModels()
-    State: kit.DecisionState{Text: ticket, Images: []kit.DecisionImage{{MediaType: "image/png", Data: png}}},
-    Questions: []kit.DecisionQuestion{
-        kit.BooleanQuestion("refund", "Does the customer ask for a refund?"),
-        kit.ChoiceQuestion("team", "Which team?", kit.DecisionOption{Name: "billing"}, kit.DecisionOption{Name: "technical"}),
-        kit.ScoreQuestion("urgency", "How urgent?", "low", "medium", "high"),
-    },
-})
-team, err := res.Choice("team") // also res.Boolean, res.Score; team.Prob("billing")
-```
-
-- The wire protocol comes from the model database: the effective npm package
-  `@ai-sdk/typesafe-ai` → SystemOne, `@ai-sdk/gateway` → Vercel gateway, plus
-  overrides for Cloudflare Workers AI, OpenRouter, TypeSafe and local Ollama.
-- `DecisionAnswer.Distribution` and `Confidence` are nil when the provider
-  returns none; do not read a missing value as 0.
-- Errors: `ErrNotDecisionModel`, `ErrUnknownDecisionWire`,
-  `ErrInvalidDecisionRequest` (nothing sent), `ErrInvalidDecisionResponse`,
-  `ErrDecisionRefused`, `*DecisionAPIError` (HTTP status and message).
+Decision models answer typed questions with probabilities instead of chat text.
+`SetModel` rejects them with `ErrDecisionModelNotChat`. Use `GetDecisionModels`
+and standalone `Decide` or instance `Kit.Decide`. Read the dedicated
+[Decision API reference](decisions.md) for requests, all question kinds, typed
+answers, images, errors and bounded retries. These are not authorization guarantees.
 
 ## Dynamic MCP Server Management
 
@@ -309,4 +289,11 @@ host, _ := kit.New(ctx, &kit.Options{
 ```
 
 The `MCPTokenStore` interface requires `GetToken`/`SetToken`/`DeleteToken` methods. Return `kit.ErrMCPNoToken` from `GetToken` when no token is stored.
+
+
+## Model modes
+
+`ModelMode` describes catalog modes, including `Experimental`, `Supported`, `UnsupportedReason`, and estimated input/output USD per million tokens. `host.ModelModes()` includes unavailable modes; `host.SupportedModelModes()` filters them. Query these methods rather than assuming every model offers a fixed mode.
+
+Select with `Options.ModelMode` / `WithModelMode`, or `host.SetModelMode(ctx, name)`. Check errors with `errors.Is(err, kit.ErrUnsupportedModelMode)` for unsupported modes. `CurrentModelMode` reports the selection; an empty string selects the model default. Changes during an active turn fail, including reset. Finish or cancel the turn first.
 

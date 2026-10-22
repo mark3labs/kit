@@ -204,3 +204,5 @@ Tools are classified by kind for UI rendering:
 - `ToolKindSearch` = `"search"` — grep, find
 - `ToolKindSubagent` = `"agent"` — subagent
 
+
+`StepStartEvent.Model` and `StepFinishEvent.Model` identify the serving provider/model, not necessarily the current configured model. Use `OnStepContext` for context propagation before each start event; see [hooks](hooks.md). `PasswordPromptEvent` is generic-only (`Subscribe`), not a typed convenience subscription.

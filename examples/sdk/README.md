@@ -64,3 +64,9 @@ host, err := kit.NewIsolatedAgent(ctx,
 ```
 
 See the [SDK README](../../pkg/kit/README.md) for the full API reference.
+
+## SDK guides
+
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.

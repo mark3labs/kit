@@ -4,13 +4,9 @@
 
 ## Configuration
 
-The SDK loads config identically to the CLI:
+File selection is separate from field precedence. An explicit `ConfigFile` loads only that file. Otherwise discovery prefers project `.kit.yml`/`.kit.yaml`/`.kit.json` to the home configuration. `SkipConfig` skips files but not environment variables.
 
-1. Explicit `ConfigFile` in Options (highest priority)
-2. `.kit.yml` in current directory
-3. `~/.kit.yml` in home directory
-4. Environment variables with `KIT_` prefix (`KIT_MODEL`, etc.)
-5. Provider-specific env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
+Effective generation/provider settings use explicit SDK values, then environment, then configuration, per-model defaults and final fallbacks. Zero/nil fields can mean unset; use pointer fields for explicit zero sampling values. Stored credentials beat provider environment variables; explicit provider API-key overrides win over resolved credentials. See [SDK option precedence](https://go-kit.dev/sdk/options#precedence).
 
 Config files support `${ENV_VAR}` expansion.
 

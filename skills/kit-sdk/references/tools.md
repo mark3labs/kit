@@ -128,3 +128,29 @@ extCount := host.GetExtensionToolCount() // tools from extensions
 ready := host.MCPToolsReady()      // true when async MCP tool loading is complete
 ```
 
+## Code mode
+
+`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the live wrapped tool set, so nested calls still pass through hooks.
+
+Zero option fields fall back to the `codemode` config section, then defaults:
+
+| Field | Default and unit |
+| --- | --- |
+| `Timeout` | 30 seconds (`time.Duration` in Go, seconds in YAML) |
+| `MaxToolCalls` | 50 tool calls per script |
+| `MaxOutputBytes` | 100000 bytes; larger captured output may be saved to a temporary file, but combined script output and logs are capped at 4 MiB and excess is truncated |
+| `MaxConcurrency` | 8 parallel tool calls per script |
+| `MemoryLimitMB` | 256 MiB approximate heap growth (value shifted by 20 bits); negative disables check |
+| `CatalogBudget` | 12000 bytes in the tool catalog description |
+| `MCPExposure` | `CodeModeExposureDirect` for unmatched MCP tools |
+| `Exposure` | Tool-name glob rules; exact names win over globs, then longer patterns win |
+
+Exposure constants and their config values:
+
+- `CodeModeExposureDirect` (`direct`): model sees the tool; scripts can call it.
+- `CodeModeExposureScriptOnly` (`codemode`): scripts only; full signature in catalog.
+- `CodeModeExposureDeferred` (`deferred`): scripts only; discover with `searchTools()`.
+- `CodeModeExposureModelOnly` (`model-only`): model only; scripts cannot call it.
+
+`CodeModeToolName` is `codemode`. See [code mode](https://go-kit.dev/advanced/code-mode) for JavaScript APIs. JavaScript limits and discovery/isolation switches are not OS sandboxing. Tool access has the host process permissions; restrict the runtime when inputs are untrusted.
+

@@ -112,3 +112,32 @@ kit.HookPriorityLow    = 100 // runs last
 
 Lower values run first. Within the same priority, registration order applies. First non-nil result wins.
 
+
+## Provider request tracing
+
+Use `WithHTTPTransport` (or `Options.HTTPTransport`) to wrap the base transport
+of built-in providers. The wrapper receives requests after Kit applies its
+headers. It must return a non-nil `http.RoundTripper`. It passes to model changes,
+temporary completions, and subagents. Custom provider factories own their HTTP
+clients; this option does not wrap them, MCP, OAuth, or credential requests.
+
+Use `OnStepContext` to pass a step span or other context value to the provider
+request and that step's tools:
+
+The fragment assumes `host` and an application-owned comparable `stepKey`.
+
+```go
+host.OnStepContext(kit.HookPriorityNormal, func(h kit.StepContextHook) context.Context {
+    return context.WithValue(h.Context, stepKey, h.StepNumber)
+})
+```
+
+Every context hook runs in priority order. A nil result keeps the current
+context. Derive results from `h.Context` so turn cancellation still applies.
+Each step starts from the turn context, not the previous step context. A resumed
+step runs the hooks again with the same step number. `OnPrepareStep` keeps its
+existing first-non-nil-result behavior. Context hooks run after preparation and
+before `StepStartEvent`. Both `StepStartEvent.Model` and `StepFinishEvent.Model`
+report the `provider/model` that served the step, even if the configured model
+changes during the turn. Kit does not create spans or depend on a tracing SDK.
+

@@ -43,7 +43,7 @@ export default {
     },
     {
       group: "Go SDK",
-      pages: ["sdk/overview", "sdk/options", "sdk/callbacks", "sdk/sessions"],
+      pages: ["sdk/overview", "sdk/decisions", "sdk/options", "sdk/authentication", "sdk/callbacks", "sdk/sessions", "sdk/api-reference"],
     },
     {
       group: "Advanced",
