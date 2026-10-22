@@ -1484,7 +1484,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 	// back to half-block thumbnails when the probe finds no support.
 	termgfx.Resolve()
 
-	program := tea.NewProgram(appModel, tea.WithColorProfile(ui.ColorProfile()))
+	program := tea.NewProgram(appModel, tea.WithContext(appInstance.Context()), tea.WithColorProfile(ui.ColorProfile()))
 
 	// Register the program with the app layer so agent events are sent to the TUI.
 	appInstance.SetProgram(program)

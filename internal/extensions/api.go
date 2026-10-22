@@ -168,9 +168,17 @@ type Context struct {
 	// non-interactive (ACP / headless) mode this is a no-op that returns
 	// an error.
 	//
-	// Because NewSession may block, call it from a goroutine — not
-	// directly from inside an event handler that the agent loop is waiting
-	// on.
+	// Because NewSession blocks, never call it synchronously from HandleKey,
+	// editor/widget/message/tool render callbacks, or any other TUI-loop
+	// callback. Use a goroutine and handle the error, for example:
+	//
+	//   go func() {
+	//       if err := ctx.NewSession(""); err != nil {
+	//           ctx.PrintError(err.Error())
+	//       }
+	//   }()
+	//
+	// The same restriction applies to handlers the agent loop is waiting on.
 	//
 	// Typical pattern — start a fresh session at the end of a phase by
 	// reading a handoff file:
@@ -265,6 +273,7 @@ type Context struct {
 	//   if !result.Cancelled {
 	//       fmt.Println("Selected:", result.Value)
 	//   }
+	// Never call synchronously from a TUI-loop callback; see NewSession.
 	PromptSelect func(PromptSelectConfig) PromptSelectResult
 
 	// PromptConfirm shows a yes/no confirmation to the user and blocks
@@ -280,6 +289,7 @@ type Context struct {
 	//   if !result.Cancelled && result.Value {
 	//       // proceed with deployment
 	//   }
+	// Never call synchronously from a TUI-loop callback; see NewSession.
 	PromptConfirm func(PromptConfirmConfig) PromptConfirmResult
 
 	// PromptInput shows a text input field to the user and blocks until
@@ -295,6 +305,7 @@ type Context struct {
 	//   if !result.Cancelled {
 	//       fmt.Println("Tag:", result.Value)
 	//   }
+	// Never call synchronously from a TUI-loop callback; see NewSession.
 	PromptInput func(PromptInputConfig) PromptInputResult
 
 	// PromptMultiSelect shows a multi-selection list to the user, allowing
@@ -311,6 +322,7 @@ type Context struct {
 	//   if !result.Cancelled {
 	//       fmt.Println("Selected:", result.Values)
 	//   }
+	// Never call synchronously from a TUI-loop callback; see NewSession.
 	PromptMultiSelect func(PromptMultiSelectConfig) PromptMultiSelectResult
 
 	// ShowOverlay displays a modal overlay dialog that blocks until the
@@ -329,6 +341,7 @@ type Context struct {
 	//   if !result.Cancelled {
 	//       fmt.Println("Selected:", result.Action)
 	//   }
+	// Never call synchronously from a TUI-loop callback; see NewSession.
 	ShowOverlay func(OverlayConfig) OverlayResult
 
 	// SetEditor installs an editor interceptor that wraps the built-in
@@ -1796,6 +1809,8 @@ type WidgetContent struct {
 	// IMPORTANT (Yaegi): assign an anonymous closure, or declare the target
 	// function ABOVE this code. A bare reference to a function declared
 	// later in the file silently renders nothing. See the extension docs.
+	// Follow the TUI callback rules documented on EditorConfig.HandleKey.
+	// Do not print or mutate UI state unconditionally on every render.
 	Render func(width int) string
 
 	// RefreshHz requests continuous repainting for an animated widget.
@@ -2212,6 +2227,7 @@ type MessageRendererConfig struct {
 	// terminal width will be wrapped a second time. Size output to roughly
 	// width-4 and prefer inline styling over full-width frames. For output
 	// Kit uses as-is, use a widget with a Render callback instead.
+	// Return promptly; follow the TUI callback rules on EditorConfig.HandleKey.
 	Render func(content string, width int) string
 }
 
@@ -2305,12 +2321,14 @@ type ToolRenderConfig struct {
 	// in the tool header line. Receives the JSON-encoded arguments and the
 	// maximum width in columns. Return a short summary string for display
 	// after the tool name, or empty string to fall back to default formatting.
+	// Return promptly; follow the TUI callback rules on EditorConfig.HandleKey.
 	RenderHeader func(toolArgs string, width int) string
 
 	// RenderBody, if non-nil, replaces the default tool result body rendering.
 	// Receives the result text, error flag, and available width in columns.
 	// Return the full styled body content, or empty string to fall back to
 	// the builtin renderer (or default).
+	// Return promptly; follow the TUI callback rules on EditorConfig.HandleKey.
 	RenderBody func(toolResult string, isError bool, width int) string
 }
 
@@ -2396,6 +2414,17 @@ type EditorConfig struct {
 	// TUI event loop: a blocking call here freezes the whole interface. Keep
 	// it fast, and dispatch slow work to a goroutine.
 	//
+	// Print, PrintInfo, PrintError, PrintBlock, SetEditorText, SetModel's TUI
+	// notification, and Exit use deferred FIFO delivery; they do not need an
+	// author-created goroutine for TUI delivery. SetModel still resolves the
+	// model and runs hooks synchronously. SetEditorText requests a later
+	// update; it does not change this callback's currentText argument.
+	// NewSession, PromptSelect, PromptMultiSelect, PromptConfirm, PromptInput,
+	// and ShowOverlay wait for replies and must run outside TUI callbacks
+	// (see NewSession for a goroutine example). Render callbacks share these
+	// rules and must return promptly. Unconditional printing or UI mutation
+	// on every render can trigger repeated repaints.
+	//
 	// The interceptor is the last hook before the editor, so it never sees
 	// keys an earlier stage consumed — among them "ctrl+c", any registered
 	// extension shortcut, "esc" while a turn is running, "ctrl+x" and its
@@ -2409,6 +2438,8 @@ type EditorConfig struct {
 	// textarea, popup, and help text). Return the modified content to display.
 	//
 	// If nil, the default rendering is used unchanged.
+	// Return promptly; follow HandleKey's TUI callback rules. Avoid repeated
+	// printing or UI mutation on every render.
 	Render func(width int, defaultContent string) string
 }
 

@@ -6,6 +6,33 @@
 
 The `ext.Context` struct provides runtime capabilities via function fields.
 
+### TUI callback safety
+
+Key and editor/widget/message/tool render callbacks must return promptly.
+`Print`, `PrintInfo`, `PrintError`, `PrintBlock`, `SetEditorText`, `SetModel`'s TUI
+notification, and `Exit` use deferred FIFO delivery; no author-created goroutine
+is needed for delivery. This is not an acknowledgement of UI processing.
+`SetModel` still resolves the model and runs hooks synchronously.
+
+`NewSession`, `PromptSelect`, `PromptMultiSelect`, `PromptConfirm`, `PromptInput`,
+and `ShowOverlay` wait for replies. Never call them synchronously from TUI-loop
+callbacks. Use a goroutine and handle errors:
+
+```go
+go func() {
+    if err := ctx.NewSession(""); err != nil {
+        ctx.PrintError(err.Error())
+    }
+}()
+```
+
+`SetEditorText` in `HandleKey` requests a later update; `currentText` stays the
+callback's original snapshot. Avoid unconditional printing or mutation on every
+render, which can cause repeated repaints. FIFO covers these notifications only;
+shutdown can discard pending events. Output faster than the UI can consume it
+can grow the queue. See [TUI callback safety](https://go-kit.dev/extensions/capabilities#tui-callback-safety)
+for the shared rule used by all renderers.
+
 ### Output
 
 ```go
