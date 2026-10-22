@@ -569,10 +569,9 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			}
 			// Update the extension context's Model field so handlers see it.
 			k.Extensions().UpdateContextModel(modelString)
-			// NOTE: We do NOT call appInstance.NotifyModelChanged() here because
-			// this callback runs synchronously inside BubbleTea's Update(), and
-			// NotifyModelChanged calls prog.Send() which deadlocks. The UI layer
-			// updates m.providerName and m.modelName directly after setModel returns.
+			// No notification is needed here: the UI layer updates m.providerName
+			// and m.modelName directly after setModel returns. Extension model
+			// changes instead use the deferred NotifyModelChanged notification.
 			// Update usage tracker with new model info for correct token counting.
 			ui.UpdateUsageTrackerForModel(usageTracker, modelString, k.IsOAuth())
 			return nil

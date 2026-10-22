@@ -73,6 +73,10 @@ type App struct {
 	// Nil in non-interactive mode.
 	program *tea.Program
 
+	// Extension notifications share one FIFO worker, guarded by mu.
+	extensionMessages []extensionMessage
+	extensionWake     chan struct{}
+
 	// mcpToolsReadyPending records that MCP loading finished before the
 	// program was registered; SetProgram then sends MCPToolsReadyEvent.
 	// Guarded by mu.
@@ -238,14 +242,23 @@ func (a *App) WaitForIdle(timeout time.Duration) error {
 	}
 }
 
+// Context returns the app lifetime context. Programs registered with SetProgram
+// must use tea.WithContext(a.Context()) so Close can unblock pending sends.
+func (a *App) Context() context.Context { return a.rootCtx }
+
 // SetProgram registers the Bubble Tea program used to send events in
 // interactive mode. Must be called before Run() in interactive mode.
+// Construct the program with tea.WithContext(a.Context()) to allow safe shutdown.
 //
 // MCP servers load in the background and can finish before the program
 // exists. NotifyMCPToolsReady records that case, and SetProgram sends the
 // event on its behalf.
 func (a *App) SetProgram(p *tea.Program) {
 	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
 	a.program = p
 	replay := p != nil && a.mcpToolsReadyPending
 	if replay {
@@ -924,6 +937,7 @@ func (a *App) Close() {
 		return
 	}
 	a.closed = true
+	a.extensionMessages = nil
 	cancel := a.cancelStep
 	// Detach the TUI program: after Close, tea.Program.Send silently drops
 	// messages, so extension goroutines doing request/response round-trips
@@ -1418,13 +1432,11 @@ func (a *App) formatMaxTokensTruncatedMessage() string {
 // QuitFromExtension triggers a graceful shutdown. In interactive mode it
 // sends a tea.QuitMsg to the program so the TUI exits cleanly. In
 // non-interactive mode it cancels the root context, stopping any in-flight
-// step. Safe to call from any goroutine; idempotent.
+// step. TUI delivery is deferred in sequential notification order, behind
+// earlier extension messages, without acknowledgement of processing.
+// Safe to call from TUI callbacks or any goroutine; idempotent.
 func (a *App) QuitFromExtension() {
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(tea.QuitMsg{})
+	if a.enqueueExtensionMessage(tea.QuitMsg{}) {
 		return
 	}
 	// Non-interactive: cancel the root context.
@@ -1437,12 +1449,9 @@ func (a *App) QuitFromExtension() {
 // ExtensionPrintEvent through the program so the TUI can render it with the
 // appropriate renderer. In non-interactive mode it falls back to stderr with
 // a level prefix so errors are distinguishable from plain output.
+// TUI delivery is deferred in sequential notification order, not acknowledged.
 func (a *App) PrintFromExtension(level, text string) {
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(ExtensionPrintEvent{Text: text, Level: level})
+	if a.enqueueExtensionMessage(ExtensionPrintEvent{Text: text, Level: level}) {
 		return
 	}
 	// Non-interactive fallback: write to stderr with a level prefix so that
@@ -1466,13 +1475,9 @@ func (a *App) PrintFromExtension(level, text string) {
 
 // SetEditorTextFromExtension sends an EditorTextSetEvent to the TUI to
 // pre-fill the input editor. In non-interactive mode this is a no-op.
+// TUI delivery is deferred in sequential notification order, not acknowledged.
 func (a *App) SetEditorTextFromExtension(text string) {
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(EditorTextSetEvent{Text: text})
-	}
+	a.enqueueExtensionMessage(EditorTextSetEvent{Text: text})
 }
 
 // RequestNewSessionFromExtension sends a NewSessionRequestEvent to the TUI
@@ -1492,7 +1497,9 @@ func (a *App) SetEditorTextFromExtension(text string) {
 //
 // This is the implementation behind ctx.NewSession(prompt) for the
 // interactive TUI. It blocks the caller until the TUI processes the
-// switch, so it must be invoked from a goroutine outside Update().
+// switch, so it must be invoked from a goroutine outside Update(), HandleKey,
+// editor/widget/message/tool render callbacks, and other TUI-loop callbacks.
+// The same restriction applies to prompt and overlay response waits.
 func (a *App) RequestNewSessionFromExtension(initialPrompt string) error {
 	a.mu.Lock()
 	prog := a.program
@@ -1508,18 +1515,19 @@ func (a *App) RequestNewSessionFromExtension(initialPrompt string) error {
 	}
 	ch := make(chan error, 1)
 	prog.Send(NewSessionRequestEvent{InitialPrompt: initialPrompt, ResponseCh: ch})
-	return <-ch
+	select {
+	case err := <-ch:
+		return err
+	case <-a.rootCtx.Done():
+		return a.rootCtx.Err()
+	}
 }
 
 // NotifyModelChanged sends a ModelChangedEvent to the TUI so it updates
 // the model name in the status bar and message attribution.
+// TUI delivery is deferred in sequential notification order, not acknowledged.
 func (a *App) NotifyModelChanged(provider, model string) {
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(ModelChangedEvent{ProviderName: provider, ModelName: model})
-	}
+	a.enqueueExtensionMessage(ModelChangedEvent{ProviderName: provider, ModelName: model})
 }
 
 // NotifyWidgetUpdate sends a WidgetUpdateEvent to the TUI so it re-renders
@@ -1710,18 +1718,15 @@ func (a *App) SuspendTUI(callback func()) error {
 }
 
 // PrintBlockFromExtension outputs a custom styled block from an extension.
+// TUI delivery is deferred in sequential notification order, not acknowledged.
 func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(ExtensionPrintEvent{
-			Text:        opts.Text,
-			Level:       "block",
-			BorderColor: opts.BorderColor,
-			Subtitle:    opts.Subtitle,
-			Markdown:    opts.Markdown,
-		})
+	if a.enqueueExtensionMessage(ExtensionPrintEvent{
+		Text:        opts.Text,
+		Level:       "block",
+		BorderColor: opts.BorderColor,
+		Subtitle:    opts.Subtitle,
+		Markdown:    opts.Markdown,
+	}) {
 		return
 	}
 	// Non-interactive fallback: render a simple framed block to stderr so

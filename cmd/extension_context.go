@@ -15,6 +15,17 @@ import (
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
+// waitExtensionResponse releases a synchronous round trip if shutdown causes
+// the program to discard its request. It does not make TUI callbacks safe.
+func waitExtensionResponse[T any](ctx context.Context, ch <-chan T, cancelled T) T {
+	select {
+	case response := <-ch:
+		return response
+	case <-ctx.Done():
+		return cancelled
+	}
+}
+
 // extensionContextDeps groups the runtime dependencies needed to wire up
 // an extensions.Context for the interactive TUI mode.
 type extensionContextDeps struct {
@@ -155,7 +166,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			Options:    config.Options,
 			ResponseCh: ch,
 		})
-		resp := <-ch
+		resp := waitExtensionResponse(appInstance.Context(), ch, app.PromptResponse{Cancelled: true})
 		if resp.Cancelled {
 			return extensions.PromptSelectResult{Cancelled: true}
 		}
@@ -170,7 +181,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			DefaultSelected: config.DefaultSelected,
 			ResponseCh:      ch,
 		})
-		resp := <-ch
+		resp := waitExtensionResponse(appInstance.Context(), ch, app.PromptResponse{Cancelled: true})
 		if resp.Cancelled {
 			return extensions.PromptMultiSelectResult{Cancelled: true}
 		}
@@ -191,7 +202,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			Default:    def,
 			ResponseCh: ch,
 		})
-		resp := <-ch
+		resp := waitExtensionResponse(appInstance.Context(), ch, app.PromptResponse{Cancelled: true})
 		if resp.Cancelled {
 			return extensions.PromptConfirmResult{Cancelled: true}
 		}
@@ -206,7 +217,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			Default:     config.Default,
 			ResponseCh:  ch,
 		})
-		resp := <-ch
+		resp := waitExtensionResponse(appInstance.Context(), ch, app.PromptResponse{Cancelled: true})
 		if resp.Cancelled {
 			return extensions.PromptInputResult{Cancelled: true}
 		}
@@ -226,7 +237,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			Actions:     config.Actions,
 			ResponseCh:  ch,
 		})
-		resp := <-ch
+		resp := waitExtensionResponse(appInstance.Context(), ch, app.OverlayResponse{Cancelled: true})
 		if resp.Cancelled {
 			return extensions.OverlayResult{Cancelled: true, Index: -1}
 		}

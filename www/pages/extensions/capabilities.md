@@ -173,6 +173,8 @@ ctx.SetWidget(ext.WidgetConfig{
 
 ### Custom rendering
 
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
+
 `Text` covers static content. For anything Kit has no vocabulary for — sparklines,
 gauges, box drawing, sprites — supply a `Render` function instead. It receives the
 width in columns available for content (the gutter and padding are already
@@ -486,6 +488,8 @@ ctx.ShowOverlay(ext.OverlayConfig{
 
 ## Tool renderers
 
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
+
 Customize how specific tool calls are displayed in the TUI. `RenderHeader`
 replaces the parameter summary on the header line; `RenderBody` replaces the
 result body. Both receive the width they may draw into, and returning an empty
@@ -558,7 +562,37 @@ api.RegisterToolRenderer(ext.ToolRenderConfig{
 Register renderers in `Init`. A renderer registered later, for example in an
 event handler, has no effect.
 
+## TUI callback safety
+
+Key and render callbacks must return promptly. `Print`, `PrintInfo`, `PrintError`,
+`PrintBlock`, `SetEditorText`, the TUI notification from `SetModel`, and `Exit`
+use deferred FIFO delivery. These notifications do not need your own goroutine.
+Delivery is a request, not an acknowledgement that the UI has processed it.
+`SetModel` still resolves the model and runs hooks synchronously.
+
+`NewSession`, `PromptSelect`, `PromptMultiSelect`, `PromptConfirm`, `PromptInput`,
+and `ShowOverlay` wait for replies. Never call them synchronously from
+`HandleKey`, editor/widget/message/tool render callbacks, or other TUI-loop
+callbacks. Run them outside the callback and handle errors, for example:
+
+```go
+go func() {
+    if err := ctx.NewSession(""); err != nil {
+        ctx.PrintError(err.Error())
+    }
+}()
+```
+
+Calling `SetEditorText` from `HandleKey` requests a later editor update; it does
+not change the callback's `currentText` argument. Do not print or mutate UI state
+unconditionally on every render: this can cause repeated repaints. FIFO order
+covers these notifications only, not unrelated input or widget events. Pending
+notifications can be discarded at shutdown. A producer that outpaces the UI can
+grow the queue, so avoid unbounded output loops.
+
 ## Message renderers
+
+Render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
 
 Named renderers invoked explicitly from extension code via
 `ctx.RenderMessage(name, content)`:
@@ -582,6 +616,8 @@ ctx.RenderMessage("build-status", "all tests passed")
 > [widget with a `Render` callback](#custom-rendering).
 
 ## Editor interceptors
+
+Key and render callbacks follow the shared [TUI callback safety](#tui-callback-safety) rules.
 
 Handle key events and wrap the editor's rendering:
 
