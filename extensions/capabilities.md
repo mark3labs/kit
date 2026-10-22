@@ -199,6 +199,38 @@ active instead, read [`ctx.GetTheme()`](#reading-the-active-theme) inside
 
 `Render` also works on headers and footers via `HeaderFooterConfig`.
 
+### Fill the transcript height
+
+Use `FillHeight` for a panel that replaces the transcript area without guessing
+how many rows the other UI elements need:
+
+```go
+Content: ext.WidgetContent{
+    FillHeight: true,
+    RenderSized: func(width, height int) string {
+        return renderPanel(width, height)
+    },
+},
+```
+
+This applies only to `WidgetAbove` and `WidgetBelow`. Headers, footers and
+overlays ignore these fields. Kit measures the other widgets, header, footer,
+activity and subagent rows, queued messages, confirmation row and composer first.
+Fill widgets share the remaining rows evenly. Ordering is above before below,
+then each slot's priority order; earlier widgets receive any remainder rows.
+The transcript has zero rows until all fill widgets are removed.
+
+`RenderSized` takes priority over `Render` only in fill mode. It receives the
+content width (without the gutter and padding) and the allocated height. Kit
+pads or truncates the output to exactly that height, including empty output.
+At zero height the callback is not called. Without `RenderSized`, fill mode
+uses `Render` or `Text` and enforces the same height limit. Remove the widget
+to restore the transcript; returning an empty string does not release its rows.
+Height-only changes invalidate the render cache, including animated widgets.
+Like `Render`, this callback must be cheap and must not block. In interpreted
+extensions, use an anonymous closure when calling a helper declared later in
+the file. See `file-explorer.go` for a complete example.
+
 ### Animated widgets
 
 Kit's animation clock is demand-driven — it runs while the startup logo or the

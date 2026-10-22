@@ -340,6 +340,31 @@ the error logged, rather than taking down the TUI.</p>
 active instead, read <a href="#reading-the-active-theme"><code>ctx.GetTheme()</code></a> inside
 <code>Render</code> and paint with <code>ANSI</code> / <code>ANSIBold</code>.</p>
 <p><code>Render</code> also works on headers and footers via <code>HeaderFooterConfig</code>.</p>
+<h3 id="fill-the-transcript-height"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#fill-the-transcript-height"><span class="icon icon-link"></span></a>Fill the transcript height</h3>
+<p>Use <code>FillHeight</code> for a panel that replaces the transcript area without guessing
+how many rows the other UI elements need:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    FillHeight: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RenderSized: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">height</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> renderPanel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(width, height)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span></code></pre>
+<p>This applies only to <code>WidgetAbove</code> and <code>WidgetBelow</code>. Headers, footers and
+overlays ignore these fields. Kit measures the other widgets, header, footer,
+activity and subagent rows, queued messages, confirmation row and composer first.
+Fill widgets share the remaining rows evenly. Ordering is above before below,
+then each slot's priority order; earlier widgets receive any remainder rows.
+The transcript has zero rows until all fill widgets are removed.</p>
+<p><code>RenderSized</code> takes priority over <code>Render</code> only in fill mode. It receives the
+content width (without the gutter and padding) and the allocated height. Kit
+pads or truncates the output to exactly that height, including empty output.
+At zero height the callback is not called. Without <code>RenderSized</code>, fill mode
+uses <code>Render</code> or <code>Text</code> and enforces the same height limit. Remove the widget
+to restore the transcript; returning an empty string does not release its rows.
+Height-only changes invalidate the render cache, including animated widgets.
+Like <code>Render</code>, this callback must be cheap and must not block. In interpreted
+extensions, use an anonymous closure when calling a helper declared later in
+the file. See <code>file-explorer.go</code> for a complete example.</p>
 <h3 id="animated-widgets"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#animated-widgets"><span class="icon icon-link"></span></a>Animated widgets</h3>
 <p>Kit's animation clock is demand-driven — it runs while the startup logo or the
 activity spinner needs it and stops otherwise, so an idle session costs nothing.
@@ -1066,7 +1091,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Built-in chrome`,id:`built-in-chrome`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:`Lifecycle events`,id:`lifecycle-events`},{depth:3,text:`Example`,id:`example`},{depth:2,text:`Tools`,id:`tools`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Widgets`,id:`widgets`},{depth:3,text:`Markdown content`,id:`markdown-content`},{depth:3,text:`Custom rendering`,id:`custom-rendering`},{depth:3,text:`Fill the transcript height`,id:`fill-the-transcript-height`},{depth:3,text:`Animated widgets`,id:`animated-widgets`},{depth:2,text:`Headers and footers`,id:`headers-and-footers`},{depth:2,text:`Terminal size`,id:`terminal-size`},{depth:2,text:`Status bar`,id:`status-bar`},{depth:2,text:`Built-in chrome`,id:`built-in-chrome`},{depth:2,text:`Thinking level`,id:`thinking-level`},{depth:2,text:`Turn state`,id:`turn-state`},{depth:2,text:`MCP tools ready`,id:`mcp-tools-ready`},{depth:2,text:`Shortcuts`,id:`shortcuts`},{depth:3,text:`Key names`,id:`key-names`},{depth:3,text:`Reserved and shadowed keys`,id:`reserved-and-shadowed-keys`},{depth:2,text:`Overlays`,id:`overlays`},{depth:2,text:`Tool renderers`,id:`tool-renderers`},{depth:2,text:`Message renderers`,id:`message-renderers`},{depth:2,text:`Editor interceptors`,id:`editor-interceptors`},{depth:2,text:`Interactive prompts`,id:`interactive-prompts`},{depth:2,text:`Options`,id:`options`},{depth:2,text:`Subagents`,id:`subagents`},{depth:3,text:`Monitoring subagents spawned by the main agent`,id:`monitoring-subagents-spawned-by-the-main-agent`},{depth:2,text:`LLM completion`,id:`llm-completion`},{depth:2,text:`Themes`,id:`themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:2,text:`Custom events`,id:`custom-events`},{depth:2,text:`Session state`,id:`session-state`},{depth:3,text:`When to use which persistence primitive`,id:`when-to-use-which-persistence-primitive`},{depth:2,text:`Bridged SDK APIs`,id:`bridged-sdk-apis`},{depth:3,text:`Tree Navigation`,id:`tree-navigation`},{depth:3,text:`Skill Loading`,id:`skill-loading`},{depth:3,text:`Template Parsing`,id:`template-parsing`},{depth:3,text:`Model Resolution`,id:`model-resolution`},{depth:3,text:`Model pricing`,id:`model-pricing`}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -1266,6 +1291,38 @@ active instead, read [\`ctx.GetTheme()\`](#reading-the-active-theme) inside
 \`Render\` and paint with \`ANSI\` / \`ANSIBold\`.
 
 \`Render\` also works on headers and footers via \`HeaderFooterConfig\`.
+
+### Fill the transcript height
+
+Use \`FillHeight\` for a panel that replaces the transcript area without guessing
+how many rows the other UI elements need:
+
+\`\`\`go
+Content: ext.WidgetContent{
+    FillHeight: true,
+    RenderSized: func(width, height int) string {
+        return renderPanel(width, height)
+    },
+},
+\`\`\`
+
+This applies only to \`WidgetAbove\` and \`WidgetBelow\`. Headers, footers and
+overlays ignore these fields. Kit measures the other widgets, header, footer,
+activity and subagent rows, queued messages, confirmation row and composer first.
+Fill widgets share the remaining rows evenly. Ordering is above before below,
+then each slot's priority order; earlier widgets receive any remainder rows.
+The transcript has zero rows until all fill widgets are removed.
+
+\`RenderSized\` takes priority over \`Render\` only in fill mode. It receives the
+content width (without the gutter and padding) and the allocated height. Kit
+pads or truncates the output to exactly that height, including empty output.
+At zero height the callback is not called. Without \`RenderSized\`, fill mode
+uses \`Render\` or \`Text\` and enforces the same height limit. Remove the widget
+to restore the transcript; returning an empty string does not release its rows.
+Height-only changes invalidate the render cache, including animated widgets.
+Like \`Render\`, this callback must be cheap and must not block. In interpreted
+extensions, use an anonymous closure when calling a helper declared later in
+the file. See \`file-explorer.go\` for a complete example.
 
 ### Animated widgets
 

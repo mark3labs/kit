@@ -221,6 +221,7 @@
         "Widgets",
         "Markdown content",
         "Custom rendering",
+        "Fill the transcript height",
         "Animated widgets",
         "Headers and footers",
         "Terminal size",
@@ -254,7 +255,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4909
+      "wordCount": 5133
     },
     {
       "id": "extensions/examples",
@@ -274,7 +275,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 696
+      "wordCount": 712
     },
     {
       "id": "extensions/loading",
