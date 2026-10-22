@@ -35,8 +35,11 @@ type ThinkingLevelSelectorComponent struct {
 // currentLevel is the level to mark as active in the list. When the model is
 // unknown or ungraded, every level Kit understands is offered.
 func NewThinkingLevelSelector(provider, modelName, currentLevel string, width, height int) *ThinkingLevelSelectorComponent {
-	levels := models.SupportedThinkingLevels(provider, modelName)
+	return NewThinkingLevelSelectorWithLevels(currentLevel, width, height, models.SupportedThinkingLevels(provider, modelName))
+}
 
+// NewThinkingLevelSelectorWithLevels accepts the host's instance-aware ladder.
+func NewThinkingLevelSelectorWithLevels(currentLevel string, width, height int, levels []models.ThinkingLevel) *ThinkingLevelSelectorComponent {
 	items := make([]PopupItem, len(levels))
 	for i, l := range levels {
 		s := string(l)
@@ -102,4 +105,16 @@ func (t *ThinkingLevelSelectorComponent) View() tea.View {
 // conversation, matching ModelSelectorComponent's overlay behaviour.
 func (t *ThinkingLevelSelectorComponent) RenderOverlay() string {
 	return t.popup.Render()
+}
+
+func (m *AppModel) supportedThinkingLevels() []models.ThinkingLevel {
+	if m.getThinkingLevels == nil {
+		return models.SupportedThinkingLevels(m.providerName, m.modelName)
+	}
+	values := m.getThinkingLevels()
+	levels := make([]models.ThinkingLevel, len(values))
+	for i, value := range values {
+		levels[i] = models.ThinkingLevel(value)
+	}
+	return levels
 }

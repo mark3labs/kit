@@ -1438,6 +1438,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		GetSkillItems:            prov.getSkillItems,
 		ExtensionItems:           snap.extensionItems,
 		GetModelEntries:          prov.getModelEntries,
+		GetThinkingLevels:        prov.getThinkingLevels,
 		GetExtensionItems:        prov.getExtensionItems,
 		StartupExtensionMessages: snap.startupExtensionMessages,
 		GetWidgets:               prov.getWidgets,

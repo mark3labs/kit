@@ -74,6 +74,7 @@ type startupSnapshot struct {
 // chrome and to refresh lists after hot-reload. None of these mutate state.
 type uiProviders struct {
 	getModelEntries      func() []ui.ModelEntry
+	getThinkingLevels    func() []string
 	getPromptTemplates   func() []*prompts.PromptTemplate
 	getSkillItems        func() []ui.SkillItem
 	getExtensionItems    func() []ui.ExtensionItem
@@ -505,6 +506,7 @@ func mcpResourceReaderForUI(k *kit.Kit) ui.MCPResourceReader {
 // buildUIProviders wires the read-only getters the TUI polls.
 func buildUIProviders(k *kit.Kit) uiProviders {
 	return uiProviders{
+		getThinkingLevels: k.SupportedThinkingLevels,
 		getModelEntries: func() []ui.ModelEntry {
 			entries := []ui.ModelEntry{}
 			for _, item := range k.GetAvailableModels() {
