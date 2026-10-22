@@ -25,6 +25,10 @@ import (
 // isContextOverflow reports whether err is (or classifies as) a provider
 // context-window overflow.
 func isContextOverflow(err error) bool {
+	var extension interface{ ExtensionRetryable() bool }
+	if errors.As(err, &extension) {
+		return false
+	} // Extension callbacks are never replayed by overflow recovery.
 	return err != nil && !agent.IsPreparationError(err) && errors.Is(ClassifyProviderError(err), ErrContextOverflow)
 }
 
