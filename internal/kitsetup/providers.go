@@ -110,7 +110,7 @@ func PrepareProviderResolver(loaded []extensions.LoadedExtension) *models.Resolv
 			entries[def.ID] = map[string]models.ModelInfo{}
 			unknown[def.ID] = def.AllowUnknownModels
 			for _, item := range def.Models {
-				info := models.ModelInfo{ID: item.ID, Name: item.Name, Limit: models.Limit{Context: int(item.ContextLimit), Output: int(item.OutputLimit)}, Reasoning: item.Capabilities.Reasoning, ReasoningIsGraded: true, ReasoningLevels: slices.Clone(item.Capabilities.ReasoningLevels), InputModalities: slices.Clone(item.Capabilities.InputModalities)}
+				info := models.ModelInfo{CapabilitiesKnown: true, Tools: item.Capabilities.Tools, Streaming: item.Capabilities.Streaming, ID: item.ID, Name: item.Name, Limit: models.Limit{Context: int(item.ContextLimit), Output: int(item.OutputLimit)}, Reasoning: item.Capabilities.Reasoning, ReasoningIsGraded: true, ReasoningLevels: slices.Clone(item.Capabilities.ReasoningLevels), InputModalities: slices.Clone(item.Capabilities.InputModalities)}
 				info.Cost = models.Cost{Input: item.InputPrice.Value, Output: item.OutputPrice.Value, Published: item.InputPrice.Known && item.OutputPrice.Known}
 				if item.CacheReadPrice.Known {
 					value := item.CacheReadPrice.Value

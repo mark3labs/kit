@@ -1076,6 +1076,10 @@ type ModelConditional struct {
 
 // ModelCapabilities describes what a model supports.
 type ModelCapabilities struct {
+	Tools             bool
+	CapabilitiesKnown bool
+	ContextLimitKnown bool
+	OutputLimitKnown  bool
 	// Provider is the provider ID (e.g., "anthropic").
 	Provider string
 	// ModelID is the model identifier (e.g., "claude-sonnet-4-20250929").
@@ -2115,6 +2119,12 @@ type OverlayResult struct {
 // ModelInfoEntry represents a known model from the registry. Used by
 // GetAvailableModels to let extensions discover which models are available.
 type ModelInfoEntry struct {
+	InputModalities   []string
+	Tools             bool
+	Streaming         bool
+	CapabilitiesKnown bool
+	ContextLimitKnown bool
+	OutputLimitKnown  bool
 	// Provider is the provider ID (e.g. "anthropic", "openai").
 	Provider string
 	// ModelID is the model identifier (e.g. "claude-sonnet-4-5-20250929").

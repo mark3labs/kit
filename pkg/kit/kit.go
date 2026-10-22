@@ -1066,6 +1066,7 @@ func (m *Kit) GetAvailableModels() []ModelInfoEntry {
 		}
 		for modelID, info := range modelsMap {
 			result = append(result, extensions.ModelInfoEntry{
+				InputModalities: slices.Clone(info.InputModalities), Tools: info.Tools, Streaming: info.Streaming, CapabilitiesKnown: info.CapabilitiesKnown, ContextLimitKnown: info.Limit.Context > 0, OutputLimitKnown: info.Limit.Output > 0,
 				Provider:     providerID,
 				ModelID:      modelID,
 				Name:         info.Name,

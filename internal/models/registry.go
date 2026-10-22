@@ -19,8 +19,12 @@ var embeddedModelsJSON []byte
 
 // ModelInfo represents information about a specific model.
 type ModelInfo struct {
-	ID   string
-	Name string
+	// Extension capabilities are authoritative when CapabilitiesKnown is true.
+	CapabilitiesKnown bool
+	Tools             bool
+	Streaming         bool
+	ID                string
+	Name              string
 	// Type is the catalog model kind: ModelTypeDecision, or empty for chat
 	// models.
 	Type       string

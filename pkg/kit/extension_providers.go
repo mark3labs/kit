@@ -50,7 +50,11 @@ func (m *Kit) GetModelCapabilities(model string) (ModelCapabilities, string) {
 	if info == nil {
 		return ModelCapabilities{}, "model not found in instance catalog"
 	}
-	return ModelCapabilities{Provider: provider, ModelID: id, ContextLimit: info.Limit.Context, OutputLimit: info.Limit.Output, Reasoning: info.Reasoning, Streaming: true, Pricing: modelPricingFrom(info)}, ""
+	streaming := true
+	if info.CapabilitiesKnown {
+		streaming = info.Streaming
+	}
+	return ModelCapabilities{Tools: info.Tools, CapabilitiesKnown: info.CapabilitiesKnown, ContextLimitKnown: info.Limit.Context > 0, OutputLimitKnown: info.Limit.Output > 0, Provider: provider, ModelID: id, ContextLimit: info.Limit.Context, OutputLimit: info.Limit.Output, Reasoning: info.Reasoning, Streaming: streaming, Pricing: modelPricingFrom(info)}, ""
 }
 
 // CheckModelAvailable checks identity and metadata in this instance.
