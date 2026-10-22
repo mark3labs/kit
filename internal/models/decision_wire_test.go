@@ -38,10 +38,19 @@ func TestDecisionModelsAreNotChatModels(t *testing.T) {
 }
 
 func TestCreateProviderRejectsDecisionModel(t *testing.T) {
-	_, err := CreateProvider(context.Background(), &ProviderConfig{ModelString: "openrouter/typesafe/jev-1.14"})
-	if !errors.Is(err, ErrDecisionModelNotChat) {
-		t.Fatalf("CreateProvider error = %v, want ErrDecisionModelNotChat", err)
+	for _, url := range []string{"", "http://proxy.test/v1"} {
+		_, err := CreateProvider(context.Background(), &ProviderConfig{ModelString: "openrouter/typesafe/jev-1.14", ProviderURL: url})
+		if !errors.Is(err, ErrDecisionModelNotChat) {
+			t.Errorf("provider URL %q: CreateProvider error = %v, want ErrDecisionModelNotChat", url, err)
+		}
 	}
+}
+
+// isolateCredentials keeps stored developer credentials out of a test.
+func isolateCredentials(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 }
 
 // Every embedded decision model resolves to a wire, except the providers
@@ -68,6 +77,7 @@ func TestEmbeddedDecisionModelsHaveWires(t *testing.T) {
 }
 
 func TestResolveDecisionEndpoint(t *testing.T) {
+	isolateCredentials(t)
 	t.Setenv("OPENROUTER_API_KEY", "or-key")
 	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "acct123")
 	t.Setenv("CLOUDFLARE_API_KEY", "")
@@ -108,6 +118,7 @@ func TestResolveDecisionEndpoint(t *testing.T) {
 }
 
 func TestResolveDecisionEndpointErrors(t *testing.T) {
+	isolateCredentials(t)
 	t.Setenv("OPENROUTER_API_KEY", "or-key")
 
 	_, err := ResolveDecisionEndpoint(&ProviderConfig{ModelString: "anthropic/claude-sonnet-4-6"})
@@ -126,7 +137,6 @@ func TestResolveDecisionEndpointErrors(t *testing.T) {
 	}
 
 	t.Setenv("OPENROUTER_API_KEY", "")
-	t.Setenv("HOME", t.TempDir()) // no stored credentials
 	_, err = ResolveDecisionEndpoint(&ProviderConfig{ModelString: "openrouter/typesafe/jev-1.14"})
 	if err == nil || !strings.Contains(err.Error(), "OPENROUTER_API_KEY") {
 		t.Errorf("missing key: error = %v, want a missing credentials error", err)
@@ -144,5 +154,16 @@ func TestResolveDecisionEndpointOverrides(t *testing.T) {
 	}
 	if ep.URL != "http://proxy.test/v1/systemone" || ep.APIKey != "explicit" {
 		t.Errorf("url=%s key=%q; want the explicit URL and key", ep.URL, ep.APIKey)
+	}
+
+	// An Ollama URL gets exactly one /v1, as for chat.
+	for _, url := range []string{"http://gpu:11434", "http://gpu:11434/", "http://gpu:11434/v1"} {
+		ep, err := ResolveDecisionEndpoint(&ProviderConfig{ModelString: "ollama/pplx-decider", ProviderURL: url})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ep.URL != "http://gpu:11434/v1/systemone" {
+			t.Errorf("ollama URL %q: got %s", url, ep.URL)
+		}
 	}
 }

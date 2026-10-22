@@ -112,7 +112,7 @@ var decisionProviderOverrides = map[string]decisionProviderOverride{
 	},
 	"ollama": {
 		Wire:       DecisionWireSystemOne,
-		BaseURL:    func() string { return strings.TrimRight(ollamaBaseURL(), "/") + "/v1" },
+		BaseURL:    ollamaBaseURL, // /v1 is added in ResolveDecisionEndpoint
 		Images:     DecisionImagesBase64,
 		ImageTypes: []string{"image/png", "image/jpeg", "image/webp"},
 		NoAuth:     true,
@@ -280,6 +280,10 @@ func ResolveDecisionEndpoint(config *ProviderConfig) (*DecisionEndpoint, error) 
 		baseURL = resolved
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	// An Ollama URL is the server root (as for chat); decisions use /v1.
+	if providerID == "ollama" && !strings.HasSuffix(baseURL, "/v1") {
+		baseURL += "/v1"
+	}
 
 	wireModel := modelName
 	if info != nil && info.ID != "" {

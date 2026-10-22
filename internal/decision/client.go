@@ -21,6 +21,10 @@ const maxRetries = 2
 // maxResponseBytes limits the size of a response body.
 const maxResponseBytes = 16 << 20
 
+// requestTimeout bounds one attempt, so a stalled provider cannot block a
+// caller whose context has no deadline. A timed-out attempt is retried.
+const requestTimeout = 2 * time.Minute
+
 // APIError is an HTTP error from a decision provider.
 type APIError struct {
 	StatusCode int
@@ -81,8 +85,10 @@ func send(ctx context.Context, ep *models.DecisionEndpoint, body []byte, content
 	}
 	var lastErr error
 	for attempt := 0; ; attempt++ {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(body))
+		attemptCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, ep.URL, bytes.NewReader(body))
 		if err != nil {
+			cancel()
 			return nil, fmt.Errorf("create decision request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", contentType)
@@ -94,7 +100,8 @@ func send(ctx context.Context, ep *models.DecisionEndpoint, body []byte, content
 			httpReq.Header.Set(k, v)
 		}
 
-		data, retryAfter, err := do(client, httpReq)
+		data, retryAfter, err := do(client, httpReq) // do reads the whole body
+		cancel()
 		if err == nil {
 			return data, nil
 		}

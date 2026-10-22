@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/kit/internal/models"
 )
@@ -395,5 +397,35 @@ func TestAPIErrorNotRetried(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Errorf("calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestImageURLStateRejectsBadJSON(t *testing.T) {
+	ep := endpoint("http://unused.test", models.DecisionWireSystemOne, models.DecisionImagesImageURLParts)
+	_, err := Decide(context.Background(), ep, Request{
+		State:     State{JSON: map[string]any{"x": math.NaN()}, Images: []Image{{MediaType: "image/png", Data: []byte("x")}}},
+		Questions: testQuestions,
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestStalledAttemptTimesOut(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-block:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(block); srv.Close() })
+	ep := endpoint(srv.URL, models.DecisionWireSystemOne, models.DecisionImagesMultipart)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := Decide(ctx, ep, Request{State: State{Text: "x"}, Questions: testQuestions})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want context.DeadlineExceeded", err)
 	}
 }

@@ -122,11 +122,14 @@ func systemOneState(s State, multipartImages bool) (any, error) {
 
 // imageURLState returns the state as an array of parts: the text state
 // (or the JSON state as text), then one image_url part per image.
-func imageURLState(s State, state any) []any {
+func imageURLState(s State, state any) ([]any, error) {
 	var parts []any
 	text, ok := state.(string)
 	if !ok {
-		b, _ := json.Marshal(state) // state came from json-encodable input
+		b, err := json.Marshal(state)
+		if err != nil {
+			return nil, fmt.Errorf("%w: state JSON: %v", ErrInvalidRequest, err)
+		}
 		text = string(b)
 	}
 	if text != "" {
@@ -136,7 +139,7 @@ func imageURLState(s State, state any) []any {
 		url := "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
 		parts = append(parts, orderedObject{{"type", "image_url"}, {"image_url", orderedObject{{"url", url}}}})
 	}
-	return parts
+	return parts, nil
 }
 
 // encodeSystemOne builds a SystemOne request body (also used, without
@@ -148,7 +151,9 @@ func encodeSystemOne(ep *models.DecisionEndpoint, req Request) ([]byte, string, 
 		return nil, "", nil, err
 	}
 	if ep.Images == models.DecisionImagesImageURLParts && len(req.State.Images) > 0 {
-		state = imageURLState(req.State, state)
+		if state, err = imageURLState(req.State, state); err != nil {
+			return nil, "", nil, err
+		}
 	}
 	body := orderedObject{
 		{"model", ep.Model},
