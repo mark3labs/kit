@@ -62,10 +62,10 @@ func explorerView(t *testing.T, h *test.Harness) string {
 	if !ok {
 		t.Fatal("explorer widget is not set")
 	}
-	if w.Content.Render == nil {
-		t.Fatal("explorer widget has no Render func")
+	if !w.Content.FillHeight || w.Content.RenderSized == nil {
+		t.Fatal("explorer widget has no fill renderer")
 	}
-	return w.Content.Render(100)
+	return w.Content.RenderSized(100, 20)
 }
 
 func explorerKey(t *testing.T, h *test.Harness, key, text string) extensions.EditorKeyAction {

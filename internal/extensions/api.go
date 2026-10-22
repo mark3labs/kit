@@ -1798,6 +1798,19 @@ type WidgetContent struct {
 	// later in the file silently renders nothing. See the extension docs.
 	Render func(width int) string
 
+	// FillHeight reserves the rows otherwise used by the transcript. It applies
+	// only to WidgetAbove and WidgetBelow, not headers, footers or overlays.
+	// Multiple fill widgets share the rows evenly, in placement order (above,
+	// then below) and priority order. Earlier widgets receive remainder rows.
+	FillHeight bool
+
+	// RenderSized takes priority over Render when FillHeight is active. It
+	// receives the content width and allocated height in rows. Kit pads or
+	// truncates the output to exactly that height. At zero height it is not
+	// called. Like Render, it must not block; use an anonymous closure or
+	// declare helper functions before their use in an interpreted extension.
+	RenderSized func(width, height int) string
+
 	// RefreshHz requests continuous repainting for an animated widget.
 	//
 	// Kit's animation clock is demand-driven: it runs while the startup logo
