@@ -89,6 +89,7 @@ type Kit struct {
 	// map do not affect this Kit. Nil when no instance factories are set.
 	providerMu            sync.RWMutex
 	retiredProviderOwners []*extensions.ProviderOwner
+	providerClosing       bool
 	resolver              *models.Resolver
 	providers             map[string]ProviderFactory
 	httpTransport         func(http.RoundTripper) http.RoundTripper
@@ -1119,6 +1120,10 @@ func (m *Kit) ReloadExtensions() error {
 	oldContext := m.extRunner.GetContext()
 	// Candidate validation is complete. Runtime owners retain old callbacks.
 	m.providerMu.Lock()
+	if m.providerClosing || m.resolver != priorResolver {
+		m.providerMu.Unlock()
+		return errors.New("extension provider generation changed during reload; retry reload")
+	}
 	m.providers = factories
 	m.resolver = resolver
 	for _, owner := range old {
@@ -3862,9 +3867,10 @@ func (m *Kit) Close() error {
 func (m *Kit) CloseContext(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	m.providerMu.RLock()
+	m.providerMu.Lock()
+	m.providerClosing = true
 	owners := slices.Clone(m.retiredProviderOwners)
-	m.providerMu.RUnlock()
+	m.providerMu.Unlock()
 	if m.extRunner != nil {
 		for _, owner := range m.extRunner.Extensions() {
 			owners = append(owners, owner.Owner)
