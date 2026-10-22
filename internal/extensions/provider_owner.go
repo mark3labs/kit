@@ -16,6 +16,8 @@ type ProviderOwner struct {
 	shutdownScheduled bool
 	shutdown          func()
 	runtimes          map[*providerAdapter]struct{}
+	calls             map[int64]context.CancelFunc
+	drained           chan struct{}
 }
 
 func (o *ProviderOwner) acquire() bool {
@@ -27,6 +29,9 @@ func (o *ProviderOwner) acquire() bool {
 	if o.retired {
 		return false
 	}
+	if o.active == 0 {
+		o.drained = make(chan struct{})
+	}
 	o.active++
 	return true
 }
@@ -36,6 +41,9 @@ func (o *ProviderOwner) release() {
 	}
 	o.mu.Lock()
 	o.active--
+	if o.active == 0 && o.drained != nil {
+		close(o.drained)
+	}
 	var shutdown func()
 	if o.retired && o.active == 0 {
 		shutdown = o.shutdown
@@ -102,6 +110,9 @@ func (o *ProviderOwner) CheckReentrant() error {
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if _, ok := o.calls[goroutineID()]; ok {
+		return errors.New("cannot retire provider generation from its own callback")
+	}
 	for runtime := range o.runtimes {
 		if runtime.callbackGID.Load() == goroutineID() {
 			return errors.New("cannot retire provider generation from its own callback")
@@ -116,15 +127,11 @@ func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	o.mu.Lock()
-	for runtime := range o.runtimes {
-		if runtime.callbackGID.Load() == goroutineID() {
-			o.mu.Unlock()
-			return errors.New("cannot shut down provider generation from its own callback")
-		}
+	if err := o.CancelOwnedWork(); err != nil {
+		return err
 	}
-	o.retired = true
-	o.shuttingDown = true
+	o.mu.Lock()
+	drained := o.drained
 	runtimes := make([]*providerAdapter, 0, len(o.runtimes))
 	for runtime := range o.runtimes {
 		runtimes = append(runtimes, runtime)
@@ -139,5 +146,64 @@ func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	if drained != nil {
+		select {
+		case <-drained:
+		case <-ctx.Done():
+			errs = append(errs, ctx.Err())
+		}
+	}
 	return errors.Join(errs...)
+}
+
+func (o *ProviderOwner) callback(ctx context.Context) (context.Context, func(), error) {
+	ctx, cancel := context.WithCancel(ctx)
+	if o == nil {
+		return ctx, cancel, nil
+	}
+	gid := goroutineID()
+	o.mu.Lock()
+	if o.shuttingDown {
+		o.mu.Unlock()
+		cancel()
+		return nil, nil, errors.New("extension provider generation is shutting down")
+	}
+	if o.calls == nil {
+		o.calls = map[int64]context.CancelFunc{}
+	}
+	o.calls[gid] = cancel
+	o.mu.Unlock()
+	return ctx, func() { cancel(); o.mu.Lock(); delete(o.calls, gid); o.mu.Unlock() }, nil
+}
+
+// CancelOwnedWork stops all request classes without waiting for callbacks.
+func (o *ProviderOwner) CancelOwnedWork() error {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	if _, ok := o.calls[goroutineID()]; ok {
+		o.mu.Unlock()
+		return errors.New("cannot shut down provider generation from its own callback")
+	}
+	for runtime := range o.runtimes {
+		if runtime.callbackGID.Load() == goroutineID() {
+			o.mu.Unlock()
+			return errors.New("cannot shut down provider generation from its own callback")
+		}
+	}
+	o.retired = true
+	o.shuttingDown = true
+	var cancels []context.CancelFunc
+	for _, cancel := range o.calls {
+		cancels = append(cancels, cancel)
+	}
+	for runtime := range o.runtimes {
+		cancels = append(cancels, runtime.cancel)
+	}
+	o.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	return nil
 }

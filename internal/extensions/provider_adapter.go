@@ -73,6 +73,12 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
+	callbackCtx, callbackDone, callbackErr := def.owner.callback(ctx)
+	if callbackErr != nil {
+		return nil, nil, callbackErr
+	}
+	defer callbackDone()
+	ctx = callbackCtx
 	request.Provider = def.ID
 	request.Done = ctx.Done()
 	if level := request.Parameters.ReasoningLevel; level != "" && level != "off" {

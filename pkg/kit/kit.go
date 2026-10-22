@@ -3882,6 +3882,18 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 		}
 	}
 	var providerErrors []error
+	if m.opts == nil || m.opts.inheritedResolver == nil {
+		for _, owner := range owners {
+			if err := owner.CheckReentrant(); err != nil {
+				return err
+			}
+		}
+		for _, owner := range owners {
+			if err := owner.CancelOwnedWork(); err != nil {
+				return err
+			}
+		}
+	}
 	for _, owner := range owners {
 		if m.opts != nil && m.opts.inheritedResolver != nil {
 			break

@@ -40,6 +40,15 @@ func (c *ProviderAuthCache) Status(def ProviderDef, configured bool) ProviderAut
 			defer def.owner.release()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
+			callbackCtx, callbackDone, err := def.owner.callback(ctx)
+			if err != nil {
+				c.mu.Lock()
+				c.pending = false
+				c.mu.Unlock()
+				return
+			}
+			defer callbackDone()
+			ctx = callbackCtx
 			result := ProviderAuthResult{Status: ProviderAuthUnknown}
 			// Trusted code must cooperate with Done. We do not leak an extra waiter
 			// goroutine per timed-out check or start another while it remains active.
