@@ -128,6 +128,8 @@ func PrepareProviderResolver(loaded []extensions.LoadedExtension) *models.Resolv
 	for _, owner := range loaded {
 		for _, def := range owner.Providers {
 			resolver.SetOwner(def.ID, owner.Path)
+			caps := def.UnknownModelDefaults
+			resolver.SetUnknownMetadata(def.ID, models.ModelInfo{Tools: caps.Tools, Reasoning: caps.Reasoning, ReasoningLevels: slices.Clone(caps.ReasoningLevels), InputModalities: slices.Clone(caps.InputModalities)})
 		}
 	}
 	return resolver

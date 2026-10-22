@@ -10,9 +10,10 @@ import (
 // Resolver combines an immutable instance catalog with the process catalog.
 // It does not retain extension implementation types or publish global entries.
 type Resolver struct {
-	entries map[string]map[string]ModelInfo
-	unknown map[string]bool
-	owners  map[string]string
+	entries         map[string]map[string]ModelInfo
+	unknown         map[string]bool
+	owners          map[string]string
+	unknownMetadata map[string]ModelInfo
 }
 
 // NewResolver snapshots instance metadata. Unknown lookups do not populate lists.
@@ -48,6 +49,14 @@ func (r *Resolver) SetOwner(provider, path string) {
 	r.owners[provider] = path
 }
 
+// SetUnknownMetadata supplies explicit provider-level unknown-model defaults.
+func (r *Resolver) SetUnknownMetadata(provider string, info ModelInfo) {
+	if r.unknownMetadata == nil {
+		r.unknownMetadata = map[string]ModelInfo{}
+	}
+	r.unknownMetadata[provider] = cloneModelInfo(info)
+}
+
 // Owner returns the registered source identity.
 func (r *Resolver) Owner(provider string) string {
 	if r == nil {
@@ -74,7 +83,16 @@ func (r *Resolver) Lookup(provider, id string) *ModelInfo {
 				return &copy
 			}
 			if r.unknown[strings.ToLower(provider)] {
-				return &ModelInfo{ID: id, Name: id, InputModalities: []string{"text"}, ReasoningIsGraded: true}
+				info := cloneModelInfo(r.unknownMetadata[strings.ToLower(provider)])
+				info.ID = id
+				info.Name = id
+				info.CapabilitiesKnown = true
+				info.Streaming = true
+				info.ReasoningIsGraded = true
+				if len(info.InputModalities) == 0 {
+					info.InputModalities = []string{"text"}
+				}
+				return &info
 			}
 			return nil
 		}
