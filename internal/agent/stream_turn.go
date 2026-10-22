@@ -38,6 +38,7 @@ type streamTurn struct {
 	completedSteps        int
 	stepOffset            int
 	// stepCounter tracks the current step number for StepStart/StepFinish events.
+	stepModel      string
 	stepCounter    int
 	persistedCount int
 	persistenceErr error
@@ -338,7 +339,7 @@ func (t *streamTurn) onStepStart(stepNumber int) error {
 	t.stepCounter = t.stepOffset + stepNumber
 	t.attemptID = rand.Text()
 	if t.cb.OnStepStart != nil {
-		t.cb.OnStepStart(t.stepCounter)
+		t.cb.OnStepStart(t.stepCounter, t.stepModel)
 	}
 	return nil
 }
@@ -424,7 +425,7 @@ func (t *streamTurn) onStepFinish(step fantasy.StepResult) error {
 	}
 	// Emit unified step finish event
 	if t.cb.OnStepFinish != nil {
-		t.cb.OnStepFinish(t.stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage)
+		t.cb.OnStepFinish(t.stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage, t.stepModel)
 	}
 	return nil
 }
@@ -452,6 +453,11 @@ func (t *streamTurn) prepareStep(
 	stepCtx context.Context,
 	opts fantasy.PrepareStepFunctionOptions,
 ) (context.Context, fantasy.PrepareStepResult, error) {
+	if t.cb.OnStepContext != nil {
+		// The previous step may have ended its own deadline or cancellation.
+		// Preparation belongs to the next step, not that completed step.
+		stepCtx = t.ctx
+	}
 	hasSteering := t.steerCh != nil
 	hasPrepareStepHook := t.cb.OnPrepareStep != nil
 	if err := stepCtx.Err(); err != nil {
@@ -563,6 +569,17 @@ func (t *streamTurn) prepareStep(
 	if err := stepCtx.Err(); err != nil {
 		t.preparationErr = err
 		return stepCtx, result, err
+	}
+	t.stepModel = ""
+	if opts.Model != nil {
+		t.stepModel = opts.Model.Provider() + "/" + opts.Model.Model()
+	}
+	if t.cb.OnStepContext != nil {
+		// Start from the turn context: the library carries the previous step's
+		// context forward, which would otherwise nest successive step spans.
+		if decorated := t.cb.OnStepContext(t.ctx, t.stepOffset+opts.StepNumber, t.stepModel); decorated != nil {
+			stepCtx = decorated
+		}
 	}
 	return stepCtx, result, nil
 }

@@ -69,7 +69,21 @@ func TestAutoRoutedUserAgents(t *testing.T) {
 					_, _ = io.WriteString(w, `{}`)
 				}))
 				defer srv.Close()
-				cfg := &ProviderConfig{ProviderAPIKey: "fake", ProviderURL: srv.URL + "/v1", ProviderWire: wire, UserAgent: identity}
+				wrappedRequests := 0
+				cfg := &ProviderConfig{ProviderAPIKey: "fake", ProviderURL: srv.URL + "/v1", ProviderWire: wire, UserAgent: identity,
+					HTTPTransport: func(base http.RoundTripper) http.RoundTripper {
+						return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+							wrappedRequests++
+							if req.Header.Get("User-Agent") != want || req.Header.Get("X-Keep") != "keep" {
+								t.Errorf("wrapper headers = %v", req.Header)
+							}
+							if wire == "google" && strings.Contains(req.URL.Path, "v1beta") {
+								t.Errorf("wrapper saw unrewritten path %s", req.URL.Path)
+							}
+							return base.RoundTrip(req)
+						})
+					},
+				}
 				reg := newTestRegistry(srv.URL+"/v1", "@ai-sdk/openai-compatible", "test-model", "")
 				info := reg.providers["testproxy"]
 				info.Headers = map[string]string{"uSeR-aGeNt": "catalog-conflict", "X-Keep": "keep"}
@@ -81,8 +95,8 @@ func TestAutoRoutedUserAgents(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 				defer cancel()
 				_, _ = result.Model.Generate(ctx, fantasy.Call{Prompt: []fantasy.Message{fantasy.NewUserMessage("hi")}, Headers: map[string]string{"User-Agent": "call-conflict"}})
-				if !seen {
-					t.Fatal("no request")
+				if !seen || wrappedRequests == 0 {
+					t.Fatal("no wrapped request")
 				}
 			})
 		}

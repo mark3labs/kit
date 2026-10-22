@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -86,7 +87,8 @@ type Kit struct {
 	// providers is this instance's snapshot of Options.Providers, keyed by
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
-	providers map[string]ProviderFactory
+	providers     map[string]ProviderFactory
+	httpTransport func(http.RoundTripper) http.RoundTripper
 	// activeModelFromFactory is true when the active model was built by a
 	// ProviderFactory. Set in New and SetModel.
 	activeModelFromFactory bool
@@ -127,6 +129,7 @@ type Kit struct {
 	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
 	contextPrepare  *hookRegistry[ContextPrepareHook, ContextPrepareResult]
 	beforeCompact   *hookRegistry[BeforeCompactHook, BeforeCompactResult]
+	stepContext     *hookRegistry[StepContextHook, context.Context]
 	prepareStep     *hookRegistry[PrepareStepHook, PrepareStepResult]
 
 	// lastInputTokens stores the API-reported input token count from the
@@ -850,6 +853,7 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		SessionIDFunc:          m.GetSessionID,
 		// Instance provider factories (snapshot of Options.Providers).
 		ProviderFactories: m.providers,
+		HTTPTransport:     m.httpTransport,
 	}
 	m.applyEffectiveProviderSettings(cfg, modelString)
 
@@ -1153,6 +1157,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			SessionIDFunc: m.GetSessionID,
 			// Instance provider factories (snapshot of Options.Providers).
 			ProviderFactories: m.providers,
+			HTTPTransport:     m.httpTransport,
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
@@ -1268,6 +1273,12 @@ type Options struct {
 	// UserAgent identifies Kit-controlled HTTP requests. Empty means "KIT".
 	// Codex and Copilot inference retain their fixed compatibility identities.
 	UserAgent string
+
+	// HTTPTransport wraps each built-in provider's base HTTP transport. Kit's
+	// User-Agent, default headers, and session headers are applied on top.
+	// It does not apply to Providers factories, OAuth, credential, or MCP requests.
+	// The wrapper must return a non-nil transport and be safe for concurrent use.
+	HTTPTransport func(base http.RoundTripper) http.RoundTripper
 
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
@@ -1827,6 +1838,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
 		providers:             providers,
+		httpTransport:         opts.HTTPTransport,
 		mcpConfig:             mcpConfig,
 		v:                     v,
 		hasCustomSystemPrompt: rc.hasCustomSystemPrompt,
@@ -1840,6 +1852,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		contextPrepare:        hooks.contextPrepare,
 		beforeCompact:         hooks.beforeCompact,
 		prepareStep:           hooks.prepareStep,
+		stepContext:           hooks.stepContext,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
 	// The agent setup above built the model with the same factory lookup.
@@ -2257,7 +2270,8 @@ type SubagentResult struct {
 }
 
 // inheritProviderConfig copies the parent's effective provider/runtime
-// configuration from its isolated config store onto child Options. Used by
+// configuration from its isolated config store onto child Options. The caller
+// also copies HTTPTransport, which cannot be stored in the config store. Used by
 // Kit.Subagent so the child — which owns a separate store and re-loads only
 // .kit.yml / KIT_* on its own — still observes provider credentials, the
 // thinking level, and sampler/token overrides the parent acquired via
@@ -2546,6 +2560,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// programmatic Options or runtime setters (e.g. SetThinkingLevel) would
 	// otherwise be lost.
 	inheritProviderConfig(childOpts, m.v)
+	childOpts.HTTPTransport = m.httpTransport
 	// The endpoint overrides belong to the parent's bound provider. A child
 	// on a different provider resolves its own endpoint and credentials.
 	if !m.endpointOverridesApply(model) {
@@ -2929,16 +2944,17 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 
 		// New callbacks for previously unwired agent lifecycle events.
-		OnStepStart: func(stepNumber int) {
+		OnStepStart: func(stepNumber int, model string) {
 			// Output from here on belongs to this step. A step resume
 			// removes it from TurnResult.Stream.
 			collector.markStep()
-			m.events.emit(StepStartEvent{StepNumber: stepNumber})
+			m.events.emit(StepStartEvent{StepNumber: stepNumber, Model: model})
 		},
-		OnStepFinish: func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage) {
+		OnStepFinish: func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage, model string) {
 			m.events.emit(StepFinishEvent{
 				StepNumber:   stepNumber,
 				HasToolCalls: hasToolCalls,
+				Model:        model,
 				FinishReason: finishReason,
 				Usage:        usage,
 			})
@@ -2987,6 +3003,18 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			defer m.catalogueMu.Unlock()
 			return m.agent.RequestSnapshot()
 		},
+		OnStepContext: func() agent.StepContextHandler {
+			if !m.stepContext.hasHooks() {
+				return nil
+			}
+			return func(ctx context.Context, step int, model string) context.Context {
+				return m.stepContext.chain(StepContextHook{Context: ctx, StepNumber: step, Model: model},
+					func(input StepContextHook, result context.Context) StepContextHook {
+						input.Context = result
+						return input
+					}).Context
+			}
+		}(),
 		OnPrepareStep: func() agent.PrepareStepHandler {
 			if !m.prepareStep.hasHooks() {
 				return nil

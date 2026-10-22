@@ -1,6 +1,15 @@
 package kit
 
-import "context"
+import (
+	"context"
+	"net/http"
+)
+
+// WithHTTPTransport wraps the base HTTP transport of built-in providers.
+// See Options.HTTPTransport for scope and wrapper requirements.
+func WithHTTPTransport(wrap func(http.RoundTripper) http.RoundTripper) Option {
+	return func(opts *Options) { opts.HTTPTransport = wrap }
+}
 
 // Option configures a [Kit] created via [NewAgent]. Options are applied in
 // order to an [Options] value, so later options override earlier ones. The

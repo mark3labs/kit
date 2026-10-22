@@ -421,6 +421,8 @@ func (e SteerConsumedEvent) EventType() EventType { return EventSteerConsumed }
 
 // StepStartEvent fires when a new LLM call begins within a multi-step agent turn.
 type StepStartEvent struct {
+	// Model is the "provider/model" string that serves this step.
+	Model      string
 	StepNumber int
 }
 
@@ -431,6 +433,8 @@ func (e StepStartEvent) EventType() EventType { return EventStepStart }
 // This is a unified event that carries the same data as the existing
 // ToolCallContentEvent and StepUsageEvent, plus additional step metadata.
 type StepFinishEvent struct {
+	// Model is the "provider/model" string that served this step.
+	Model        string
 	StepNumber   int
 	HasToolCalls bool
 	FinishReason string
