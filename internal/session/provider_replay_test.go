@@ -49,3 +49,37 @@ func TestExtensionReplaySurvivesEntryAndContextClone(t *testing.T) {
 		t.Fatal("context replay aliases cache")
 	}
 }
+
+func TestExtensionReplaySaveAndReopen(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := fantasy.ProviderOptions{"kit-extension": &message.ExtensionMetadata{Provider: "fake", Replay: []message.ReplayData{{Version: 1, Provider: "fake", JSON: `{"state":2}`}}}}
+	original := fantasy.Message{Role: fantasy.MessageRoleAssistant, ProviderOptions: options, Content: []fantasy.MessagePart{fantasy.ReasoningPart{Text: "", ProviderOptions: options}, fantasy.TextPart{Text: "saved", ProviderOptions: options}}}
+	if _, err := tm.AppendLLMMessage(original); err != nil {
+		t.Fatal(err)
+	}
+	path := tm.GetFilePath()
+	if err := tm.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := reopened.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	messages, _, _ := reopened.BuildContext()
+	if len(messages) != 1 || len(messages[0].Content) != 2 {
+		t.Fatalf("messages=%+v", messages)
+	}
+	metadata := message.ExtensionOptions(messages[0].ProviderOptions)
+	if metadata == nil || metadata.Provider != "fake" || len(metadata.Replay) != 1 {
+		t.Fatalf("metadata=%+v", metadata)
+	}
+}
