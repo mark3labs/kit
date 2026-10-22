@@ -136,3 +136,41 @@ func TestProviderIteratorStopsWithoutFurtherYield(t *testing.T) {
 		break
 	} // A second yield would panic under iter.Seq.
 }
+
+func TestProviderOwnerCancelsCreateBeforeRuntimeTransfer(t *testing.T) {
+	owner := &ProviderOwner{}
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	returned := make(chan error, 1)
+	var closed atomic.Int32
+	def := ProviderDef{owner: owner, ID: "fake", AllowUnknownModels: true, Create: func(req ProviderCreateRequest) ProviderCreateResult {
+		close(entered)
+		<-req.Done
+		close(canceled)
+		<-release
+		return ProviderCreateResult{Runtime: ProviderRuntime{Stream: func(ProviderRequest, func(ProviderEvent) bool) ProviderResult { return ProviderResult{} }, Close: func() error { closed.Add(1); return nil }}}
+	}}
+	go func() {
+		_, _, err := NewProviderModel(context.Background(), def, ProviderCreateRequest{Model: "echo"})
+		returned <- err
+	}()
+	<-entered
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	err := owner.CloseRuntimes(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("close=%v", err)
+	}
+	<-canceled
+	close(release)
+	if err := <-returned; err == nil {
+		t.Error("runtime published after shutdown")
+	}
+	if err := owner.CloseRuntimes(context.Background()); err != nil {
+		t.Error(err)
+	}
+	if closed.Load() != 1 {
+		t.Errorf("close count=%d", closed.Load())
+	}
+}
