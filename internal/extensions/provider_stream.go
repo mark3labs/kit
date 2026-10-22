@@ -63,6 +63,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 	var usage ProviderUsage
 	var finish fantasy.FinishReason
 	var exposed bool
+	var finishMetadata fantasy.ProviderMetadata
 	send := func(part fantasy.StreamPart) bool {
 		if !yield(part) {
 			setError(context.Canceled)
@@ -103,6 +104,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 			return true
 		}
 		if event.Type == ProviderFinish {
+			finishMetadata = options
 			for _, block := range blocks {
 				if block.open {
 					return protocol()
@@ -224,7 +226,14 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 		return &providerStreamError{cause: ctx.Err(), exposed: exposed}
 	}
 	if result.Error != nil {
-		// The host bridge must redact resolved credentials before surfacing text.
+		if result.Error.Code == "canceled" {
+			return &providerStreamError{cause: context.Canceled, exposed: exposed}
+		}
+		if result.Error.Code == "deadline" {
+			return &providerStreamError{cause: context.DeadlineExceeded, exposed: exposed}
+		}
+		// Keep extension-authored error messages out of host diagnostics until
+		// the bridge can redact every credential source.
 		retryable := result.Error.Retryable && (result.Error.Code == "transport" || result.Error.Code == "rate_limit")
 		return &providerStreamError{cause: fmt.Errorf("extension provider %s/%s: %s", request.Provider, request.Model, result.Error.Code), retryable: retryable, exposed: exposed}
 	}
@@ -236,7 +245,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 			return getError()
 		}
 	}
-	if !send(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: finish, Usage: usageSnapshot(usage)}) {
+	if !send(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: finish, Usage: usageSnapshot(usage), ProviderMetadata: finishMetadata}) {
 		return getError()
 	}
 	return nil
