@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"charm.land/fantasy"
+	"github.com/kaptinlin/jsonschema"
 	"github.com/mark3labs/kit/internal/message"
 )
 
@@ -208,6 +209,16 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 				var object map[string]json.RawMessage
 				if json.Unmarshal([]byte(block.args), &object) != nil || object == nil {
 					return protocol()
+				}
+				for _, tool := range request.Tools {
+					if tool.Name == block.name && tool.SchemaJSON != "" {
+						compiler := jsonschema.NewCompiler()
+						clear(compiler.Loaders)
+						schema, err := compiler.Compile([]byte(tool.SchemaJSON))
+						if err != nil || !schema.ValidateJSON([]byte(block.args)).IsValid() {
+							return protocol()
+						}
+					}
 				}
 				block.open = false
 				part.Type = fantasy.StreamPartTypeToolInputEnd
