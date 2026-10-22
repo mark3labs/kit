@@ -839,6 +839,12 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 		}
 	}
 
+	if provider, id, err := ParseModelString(modelString); err == nil && resolver.Owns(provider) && thinkingLevel != models.ThinkingOff && modelString != m.modelString {
+		info := resolver.Lookup(provider, id)
+		if info == nil || !slices.Contains(info.ReasoningLevels, string(thinkingLevel)) {
+			thinkingLevel = models.ThinkingOff
+		}
+	}
 	// With message-level caching, thinking and caching can work together.
 	// No need to disable caching when thinking is enabled.
 	mode := m.modelMode
