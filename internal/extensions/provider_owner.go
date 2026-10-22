@@ -9,11 +9,12 @@ import (
 // ProviderOwner keeps interpreter callbacks alive until all successful runtimes
 // are closed. Retirement stops new creates but never invalidates old runtimes.
 type ProviderOwner struct {
-	mu       sync.Mutex
-	active   int
-	retired  bool
-	shutdown func()
-	runtimes map[*providerAdapter]struct{}
+	mu                sync.Mutex
+	active            int
+	retired           bool
+	shutdownScheduled bool
+	shutdown          func()
+	runtimes          map[*providerAdapter]struct{}
 }
 
 func (o *ProviderOwner) acquire() bool {
@@ -53,11 +54,12 @@ func (o *ProviderOwner) Retire(shutdown func()) {
 		return
 	}
 	o.mu.Lock()
-	if o.retired {
+	if o.shutdownScheduled {
 		o.mu.Unlock()
 		return
 	}
 	o.retired = true
+	o.shutdownScheduled = true
 	if o.active == 0 {
 		o.mu.Unlock()
 		shutdown()
@@ -94,6 +96,7 @@ func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
 		return nil
 	}
 	o.mu.Lock()
+	o.retired = true
 	runtimes := make([]*providerAdapter, 0, len(o.runtimes))
 	for runtime := range o.runtimes {
 		runtimes = append(runtimes, runtime)
