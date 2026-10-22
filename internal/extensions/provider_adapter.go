@@ -144,6 +144,9 @@ func (p *providerAdapter) closeContext(ctx context.Context) error {
 			}()
 			if p.runtime.Close != nil {
 				p.closeErr = p.runtime.Close()
+				if p.closeErr != nil && p.credential != "" {
+					p.closeErr = errors.New(strings.ReplaceAll(p.closeErr.Error(), p.credential, "[redacted]"))
+				}
 			}
 		}()
 	})
