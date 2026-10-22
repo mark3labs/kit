@@ -16,13 +16,15 @@ import (
 // behavioral interface. Never replay after any visible content or tool event.
 type providerStreamError struct {
 	cause     error
+	code      string
 	retryable bool
 	exposed   bool
 }
 
-func (e *providerStreamError) Error() string            { return e.cause.Error() }
-func (e *providerStreamError) Unwrap() error            { return e.cause }
-func (e *providerStreamError) ExtensionRetryable() bool { return e.retryable && !e.exposed }
+func (e *providerStreamError) Error() string              { return e.cause.Error() }
+func (e *providerStreamError) Unwrap() error              { return e.cause }
+func (e *providerStreamError) ExtensionRetryable() bool   { return e.retryable && !e.exposed }
+func (e *providerStreamError) ExtensionErrorCode() string { return e.code }
 
 func usageSnapshot(u ProviderUsage) fantasy.Usage {
 	return fantasy.Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, ReasoningTokens: u.ReasoningTokens, CacheCreationTokens: u.CacheCreationTokens, CacheReadTokens: u.CacheReadTokens}
@@ -232,10 +234,9 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 		if result.Error.Code == "deadline" {
 			return &providerStreamError{cause: context.DeadlineExceeded, exposed: exposed}
 		}
-		// Keep extension-authored error messages out of host diagnostics until
-		// the bridge can redact every credential source.
+		// The adapter redacts host-resolved credentials before this boundary.
 		retryable := result.Error.Retryable && (result.Error.Code == "transport" || result.Error.Code == "rate_limit")
-		return &providerStreamError{cause: fmt.Errorf("extension provider %s/%s: %s", request.Provider, request.Model, result.Error.Code), retryable: retryable, exposed: exposed}
+		return &providerStreamError{cause: fmt.Errorf("extension provider %s/%s: %s", request.Provider, request.Model, result.Error.Message), code: result.Error.Code, retryable: retryable, exposed: exposed}
 	}
 	if finish == "" {
 		return &providerStreamError{cause: errors.New("extension provider stream missing finish"), exposed: exposed}

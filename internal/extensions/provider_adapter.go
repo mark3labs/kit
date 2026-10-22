@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +30,7 @@ type providerAdapter struct {
 	closeDone    chan struct{}
 	closeErr     error
 	callbackGID  atomic.Int64
+	credential   string
 }
 
 // NewProviderModel creates a private compiled adapter. Callers validate owned
@@ -101,7 +103,7 @@ func NewProviderModel(ctx context.Context, def ProviderDef, request ProviderCrea
 	}
 	lifetime, cancel := context.WithCancel(context.Background())
 	transferred = true
-	adapter := &providerAdapter{owner: def.owner, provider: def.ID, model: request.Model, capabilities: capability, parameters: request.Parameters, runtime: result.Runtime, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel, closeDone: make(chan struct{})}
+	adapter := &providerAdapter{credential: request.APIKey, owner: def.owner, provider: def.ID, model: request.Model, capabilities: capability, parameters: request.Parameters, runtime: result.Runtime, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel, closeDone: make(chan struct{})}
 	def.owner.track(adapter)
 	return adapter, adapter.closeContext, nil
 }
@@ -182,7 +184,21 @@ func (p *providerAdapter) Stream(ctx context.Context, call fantasy.Call) (fantas
 			}
 			return true
 		}
-		if err := runProviderStream(requestCtx, p.runtime, request, forward); err != nil && !consumerStopped {
+		runtime := p.runtime
+		stream := runtime.Stream
+		runtime.Stream = func(request ProviderRequest, emit func(ProviderEvent) bool) ProviderResult {
+			result := stream(request, emit)
+			if result.Error != nil {
+				copy := *result.Error
+				if p.credential != "" {
+					copy.Message = strings.ReplaceAll(copy.Message, p.credential, "[redacted]")
+					copy.Code = strings.ReplaceAll(copy.Code, p.credential, "[redacted]")
+				}
+				result.Error = &copy
+			}
+			return result
+		}
+		if err := runProviderStream(requestCtx, runtime, request, forward); err != nil && !consumerStopped {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: err})
 		}
 	}, nil
