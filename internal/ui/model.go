@@ -353,6 +353,7 @@ type EditorInterceptor struct {
 type widgetRenderCache struct {
 	content string
 	width   int
+	height  int
 	beat    int
 }
 
@@ -370,6 +371,10 @@ type WidgetData struct {
 	// Render, if non-nil, produces the widget body per frame from the
 	// content width. Its output is used verbatim.
 	Render func(width int) string
+	// FillHeight shares the transcript rows with other above/below fill widgets.
+	FillHeight bool
+	// RenderSized receives the content width and assigned fill height.
+	RenderSized func(width, height int) string
 	// RefreshHz, when > 0, asks the shared animation clock to keep running
 	// so the widget repaints continuously. It also bounds how often Render
 	// is actually invoked. Zero means a static widget.
@@ -852,6 +857,8 @@ type AppModel struct {
 	// widgetRenders caches output from animated extension widgets, keyed by
 	// widget ID (headers and footers use synthetic keys).
 	widgetRenders map[string]widgetRenderCache
+	// fillActive requires a layout pass each frame so View reuses sized chrome.
+	fillActive bool
 
 	// renderEpoch increments once per View() pass. Widget Render callbacks
 	// are cached against it so the measurement pass in distributeHeight and
@@ -2236,6 +2243,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Mouse wheel scrolling ────────────────────────────────────────────────
 	case tea.MouseWheelMsg:
+		if _, height := m.currentScrollbackBounds(); height <= 0 {
+			break
+		}
 		// Scroll the scrollback viewport with mouse wheel
 		const scrollLines = 3
 		switch msg.Button {
@@ -2400,7 +2410,7 @@ func (m *AppModel) View() tea.View {
 	m.renderEpoch++
 	m.syncActivityRow()
 	m.syncSubagentStatusBar()
-	if m.layoutDirty {
+	if m.layoutDirty || m.fillActive {
 		m.distributeHeight()
 		m.layoutDirty = false
 	}
@@ -2906,10 +2916,24 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 		return ""
 	}
 
+	return m.renderWidgets(placement, widgets, nil)
+}
+
+// renderWidgets skips fill widgets during measurement (nil heights). The final
+// pass uses the same widget snapshot and assigned heights as distributeHeight.
+func (m *AppModel) renderWidgets(placement string, widgets []WidgetData, heights map[string]int) string {
 	theme := style.GetTheme()
 	var blocks []string
 	for _, w := range widgets {
-		content, ok := m.resolveWidgetContent(w, placement+":"+w.ID, m.width)
+		key := placement + ":" + w.ID
+		height := -1 // natural height
+		if w.FillHeight {
+			if heights == nil || heights[key] <= 0 {
+				continue
+			}
+			height = heights[key]
+		}
+		content, ok := m.resolveWidgetContentSized(w, key, m.width, height)
 		if !ok {
 			continue
 		}
@@ -2931,7 +2955,13 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 		// full message blocks) so they feel compact and unobtrusive.
 		opts = append(opts, WithPaddingTop(0), WithPaddingBottom(0))
 
-		blocks = append(blocks, renderContentBlock(content, m.width, opts...))
+		block := renderContentBlock(content, m.width, opts...)
+		if height >= 0 {
+			// Enforce after styling too: wrapping and trimmed trailing newlines
+			// must not change the number of allocated rows.
+			block = fitWidgetHeight(block, height)
+		}
+		blocks = append(blocks, block)
 	}
 	return strings.Join(blocks, "\n")
 }
@@ -3004,7 +3034,7 @@ func (m *AppModel) animatedWidgets() bool {
 	if m.getWidgets != nil {
 		for _, placement := range []string{"above", "below"} {
 			for _, w := range m.getWidgets(placement) {
-				if w.Render != nil && w.RefreshHz > 0 {
+				if (w.Render != nil || (w.FillHeight && w.RenderSized != nil)) && w.RefreshHz > 0 {
 					return true
 				}
 			}
@@ -3034,14 +3064,45 @@ func (m *AppModel) animatedWidgets() bool {
 // ticks at. Gating on the widget's own rate keeps that crossing proportional
 // to what it actually asked for.
 func (m *AppModel) resolveWidgetContent(w WidgetData, key string, containerWidth int) (string, bool) {
+	return m.resolveWidgetContentSized(w, key, containerWidth, -1)
+}
+
+// resolveWidgetContentSized renders natural content at height -1 or fits the
+// body to the allocated fill rows, with dimensions included in cache lookup.
+func (m *AppModel) resolveWidgetContentSized(w WidgetData, key string, containerWidth, height int) (string, bool) {
 	width := widgetContentWidth(containerWidth, w.NoBorder)
+	if height == 0 {
+		return "", false
+	}
+	if height > 0 {
+		if width < 1 {
+			return "", false
+		}
+		if cached, ok := m.cachedWidgetRender(w, key, width, height); ok {
+			return cached, true
+		}
+		var content string
+		switch {
+		case w.RenderSized != nil:
+			content = safeWidgetRender(func(width int) string { return w.RenderSized(width, height) }, width)
+		case w.Render != nil:
+			content = safeWidgetRender(w.Render, width)
+		case w.Markdown:
+			content = widgetMarkdown(w.Text, containerWidth, w.NoBorder)
+		default:
+			content = w.Text
+		}
+		content = fitWidgetHeight(content, height)
+		m.storeWidgetRender(w, key, width, height, content)
+		return content, true
+	}
 
 	if w.Render != nil {
 		if width < 1 {
 			return "", false
 		}
 
-		if cached, ok := m.cachedWidgetRender(w, key, width); ok {
+		if cached, ok := m.cachedWidgetRender(w, key, width, height); ok {
 			if cached == "" {
 				return "", false
 			}
@@ -3051,7 +3112,7 @@ func (m *AppModel) resolveWidgetContent(w WidgetData, key string, containerWidth
 		// Extension code runs here. A panic in a widget must not take down the
 		// TUI, so it degrades to a hidden widget.
 		content := safeWidgetRender(w.Render, width)
-		m.storeWidgetRender(w, key, width, content)
+		m.storeWidgetRender(w, key, width, height, content)
 		if content == "" {
 			return "", false
 		}
@@ -3082,19 +3143,19 @@ func (m *AppModel) widgetBeat(w WidgetData) int {
 
 // cachedWidgetRender returns a previously rendered body when the widget is not
 // due to advance. See widgetBeat for what "due" means in each mode.
-func (m *AppModel) cachedWidgetRender(w WidgetData, key string, width int) (string, bool) {
+func (m *AppModel) cachedWidgetRender(w WidgetData, key string, width, height int) (string, bool) {
 	if key == "" {
 		return "", false
 	}
 	entry, ok := m.widgetRenders[key]
-	if !ok || entry.width != width || entry.beat != m.widgetBeat(w) {
+	if !ok || entry.width != width || entry.height != height || entry.beat != m.widgetBeat(w) {
 		return "", false
 	}
 	return entry.content, true
 }
 
 // storeWidgetRender records a render for the widget cache.
-func (m *AppModel) storeWidgetRender(w WidgetData, key string, width int, content string) {
+func (m *AppModel) storeWidgetRender(w WidgetData, key string, width, height int, content string) {
 	if key == "" {
 		return
 	}
@@ -3104,8 +3165,24 @@ func (m *AppModel) storeWidgetRender(w WidgetData, key string, width int, conten
 	m.widgetRenders[key] = widgetRenderCache{
 		content: content,
 		width:   width,
+		height:  height,
 		beat:    m.widgetBeat(w),
 	}
+}
+
+// fitWidgetHeight returns exactly height rows, including for empty output.
+func fitWidgetHeight(content string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // safeWidgetRender invokes an extension render callback, converting a panic
@@ -4753,13 +4830,30 @@ func (m *AppModel) distributeHeight() {
 	// next time it grows or shrinks.
 	m.lastInputHeight = inputLines
 
-	// Measure widget heights.
+	// Snapshot both slots so measurement and final rendering agree even if an
+	// extension updates its widgets concurrently. Fill widgets cost no rows yet.
+	var aboveWidgets, belowWidgets []WidgetData
+	if m.getWidgets != nil {
+		aboveWidgets = m.getWidgets("above")
+		belowWidgets = m.getWidgets("below")
+	}
+	var fillKeys []string
+	for _, slot := range []struct {
+		name    string
+		widgets []WidgetData
+	}{{"above", aboveWidgets}, {"below", belowWidgets}} {
+		for _, w := range slot.widgets {
+			if w.FillHeight && widgetContentWidth(m.width, w.NoBorder) > 0 {
+				fillKeys = append(fillKeys, slot.name+":"+w.ID)
+			}
+		}
+	}
 	var widgetLines int
-	if above := m.renderWidgetSlot("above"); above != "" {
+	if above := m.renderWidgets("above", aboveWidgets, nil); above != "" {
 		widgetLines += lipgloss.Height(above)
 		m.chrome.above = above
 	}
-	if below := m.renderWidgetSlot("below"); below != "" {
+	if below := m.renderWidgets("below", belowWidgets, nil); below != "" {
 		widgetLines += lipgloss.Height(below)
 		m.chrome.below = below
 	}
@@ -4790,10 +4884,32 @@ func (m *AppModel) distributeHeight() {
 
 	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-subagentLines-activityLines-inputLines-statusBarLines-warningLines, 0)
 
-	// In alt screen mode, give the calculated height to ScrollList instead of stream.
-	// The stream component still exists but is embedded as the last item in scrollList.
+	m.fillActive = len(fillKeys) > 0
+	if m.fillActive {
+		heights := make(map[string]int, len(fillKeys))
+		for i, key := range fillKeys {
+			heights[key] = streamHeight / len(fillKeys)
+			if i < streamHeight%len(fillKeys) {
+				heights[key]++
+			}
+		}
+		m.chrome.above = m.renderWidgets("above", aboveWidgets, heights)
+		m.chrome.below = m.renderWidgets("below", belowWidgets, heights)
+		streamHeight = 0
+	}
+
+	// Restore the selected message or bottom anchoring when the transcript
+	// becomes visible again. Do not move a hidden transcript's selection.
+	oldHeight := m.scrollList.height
 	m.scrollList.SetHeight(streamHeight)
 	m.scrollList.SetWidth(m.width)
+	if oldHeight == 0 && streamHeight > 0 {
+		if m.state == stateMessageNav {
+			m.scrollList.EnsureVisible(m.scrollList.SelectedIndex())
+		} else if m.scrollList.autoScroll && !m.scrollList.sel.MouseDown {
+			m.scrollList.GotoBottom()
+		}
+	}
 }
 
 // clamp constrains v to the range [lo, hi].

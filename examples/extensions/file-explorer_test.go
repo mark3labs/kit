@@ -56,16 +56,17 @@ func runExplorerCtx(t *testing.T, h *test.Harness, args string, ctx extensions.C
 	t.Fatal("command /explorer is not registered")
 }
 
+// explorerView renders the registered fill widget at a fixed test size.
 func explorerView(t *testing.T, h *test.Harness) string {
 	t.Helper()
 	w, ok := h.Context().GetWidget(fileExplorerWidget)
 	if !ok {
 		t.Fatal("explorer widget is not set")
 	}
-	if w.Content.Render == nil {
-		t.Fatal("explorer widget has no Render func")
+	if !w.Content.FillHeight || w.Content.RenderSized == nil {
+		t.Fatal("explorer widget has no fill renderer")
 	}
-	return w.Content.Render(100)
+	return w.Content.RenderSized(100, 20)
 }
 
 func explorerKey(t *testing.T, h *test.Harness, key, text string) extensions.EditorKeyAction {

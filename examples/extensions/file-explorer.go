@@ -70,7 +70,6 @@ var (
 	offset     int
 	open       bool
 	showHidden bool
-	termHeight = 40
 	lastErr    string
 
 	// Captured from the last shortcut/command so the editor interceptor (which
@@ -466,18 +465,8 @@ func openDefault(ctx ext.Context, path string) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-func panelRows() int {
-	rows := termHeight / 3
-	if rows < 6 {
-		rows = 6
-	}
-	if rows > 20 {
-		rows = 20
-	}
-	return rows
-}
-
-func renderPanel(width int) string {
+// renderPanel draws the file tree within the allocated content dimensions.
+func renderPanel(width, height int) string {
 	mu.Lock()
 	defer mu.Unlock()
 	if !open || root == nil {
@@ -498,7 +487,10 @@ func renderPanel(width int) string {
 
 	bc := borderOn
 
-	rows := panelRows()
+	rows := height - 2 // top and bottom borders
+	if rows < 0 {
+		rows = 0
+	}
 	if cursor < offset {
 		offset = cursor
 	}
@@ -565,6 +557,7 @@ func renderPanel(width int) string {
 // Focus / visibility
 // ---------------------------------------------------------------------------
 
+// widgetConfig reserves the transcript rows for the visible file tree.
 func widgetConfig() ext.WidgetConfig {
 	return ext.WidgetConfig{
 		ID:        widgetID,
@@ -572,7 +565,8 @@ func widgetConfig() ext.WidgetConfig {
 		Priority:  -100,
 		Style:     ext.WidgetStyle{NoBorder: true},
 		Content: ext.WidgetContent{
-			Render: func(width int) string { return renderPanel(width) },
+			FillHeight:  true,
+			RenderSized: func(width, height int) string { return renderPanel(width, height) },
 		},
 	}
 }
@@ -735,11 +729,6 @@ func focusPanel(ctx ext.Context) {
 func toggle(ctx ext.Context, dir string) {
 	mu.Lock()
 	kctx, haveCtx = ctx, true
-	if ctx.GetTerminalSize != nil {
-		if _, h := ctx.GetTerminalSize(); h > 0 {
-			termHeight = h
-		}
-	}
 	if ctx.GetTheme != nil {
 		applyTheme(ctx.GetTheme())
 	}
@@ -798,11 +787,5 @@ func Init(api ext.API) {
 			toggle(ctx, dir)
 			return "", nil
 		},
-	})
-
-	api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
-		mu.Lock()
-		termHeight = e.Height
-		mu.Unlock()
 	})
 }

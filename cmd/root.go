@@ -741,6 +741,8 @@ func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
 				Text:        c.Content.Text,
 				Markdown:    c.Content.Markdown,
 				Render:      c.Content.Render,
+				FillHeight:  c.Content.FillHeight,
+				RenderSized: c.Content.RenderSized,
 				RefreshHz:   c.Content.RefreshHz,
 				BorderColor: c.Style.BorderColor,
 				NoBorder:    c.Style.NoBorder,
