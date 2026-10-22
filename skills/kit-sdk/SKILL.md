@@ -99,7 +99,7 @@ host, _ := kit.New(ctx, &kit.Options{
 
 ## Critical Rules (never skip)
 
-1. **`Tools` replaces, `ExtraTools` adds.** `Options.Tools` replaces ALL default tools (core + MCP + extension). `Options.ExtraTools` adds tools alongside the defaults. Use `Tools` to restrict the agent's capabilities; use `ExtraTools` to extend them.
+1. **`Tools` replaces, `ExtraTools` adds.** `Options.Tools` replaces default core tools, not MCP or extension tools. `Options.ExtraTools` adds tools alongside the defaults. Use `Tools` to replace core tools; use `ExtraTools` to extend them.
 2. **Register events and hooks before calling `Prompt`.** Subscribers and hooks return an unsubscribe function — `defer unsub()` if the handler must not outlive a scope.
 3. **Events are read-only; hooks are read-write.** Use `host.On<Event>` to observe. Use `host.On<Hook>(priority, fn)` to block, modify, or inject. In hooks, return `nil` to allow/pass through; the first non-nil result wins. Lower priority values run first (`kit.HookPriorityHigh = 0`, `Normal = 50`, `Low = 100`).
 4. **Pointer fields mean "unset".** Generation parameters like `Temperature`, `TopP`, `TopK` are pointers so an explicit `0.0` differs from "leave the provider default". Zero-value `MaxTokens` auto-resolves; a non-zero value suppresses right-sizing.

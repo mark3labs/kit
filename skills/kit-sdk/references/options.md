@@ -61,7 +61,7 @@ host, err := kit.New(ctx, &kit.Options{
     ConfigFile:   "/path/to/config.yml",                  // default: ~/.kit.yml
 
     // Behavior
-    MaxSteps:  10,   // 0 = unlimited tool-calling steps
+    MaxSteps:  10,   // 0 = use the configured default
     Streaming: true, // stream LLM output (default from config)
     Quiet:     true, // suppress debug output
     Debug:     true, // enable debug logging
@@ -132,7 +132,7 @@ host, err := kit.New(ctx, &kit.Options{
 func ptrFloat32(v float32) *float32 { return &v }
 ```
 
-**Critical distinction**: `Tools` replaces ALL default tools (core + MCP + extension). `ExtraTools` adds tools alongside the defaults. Use `Tools` to restrict the agent's capabilities; use `ExtraTools` to extend them.
+**Critical distinction**: `Tools` replaces default core tools, not MCP or extension tools. `ExtraTools` adds tools alongside the defaults. Use `Tools` to replace core tools; use `ExtraTools` to extend them.
 
 **Custom provider backends**: `Providers: map[string]kit.ProviderFactory{"local": f}` (or `kit.WithProvider`) routes `local/<model>` to your factory. See `references/models-and-mcp.md`.
 
@@ -231,7 +231,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `NewAgent` | NewAgent creates a Kit using an ergonomic functional-options API. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewAgent) |
 | `NewIsolatedAgent` | NewIsolatedAgent is [NewAgent] with [Isolated] applied before opts. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewIsolatedAgent) |
 | `NoAgents` | NoAgents disables discovery of named agent definitions (built-ins and .agents/agents/ / .kit/agents/ / ~/.config/kit/agents/ files). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
-| `NoContextFiles` | NoContextFiles disables automatic loading of project context files (e.g. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `NoContextFiles` | NoContextFiles disables automatic loading of project context files (for example AGENTS.md). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `NoExtensions` | NoExtensions disables Yaegi extension loading entirely. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `NoSession` | In-memory session without file persistence. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `NoSkills` | Disable skill loading entirely (auto-discovery and explicit). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -248,7 +248,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `SessionPath` | Open a specific session file. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ShellMaxTimeout` | ShellMaxTimeout caps the maximum timeout (in seconds) a shell tool call may request via its timeout argument. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ShellTimeout` | ShellTimeout sets the default per-call timeout (in seconds) for the shell tool, applied when the model does not specify one. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
-| `Shell` | Shell is the shell the shell tool runs a command string through, plus its own leading arguments, e.g. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `Shell` | Shell is the shell the shell tool runs a command string through, plus its own leading arguments (for example bash or busybox ash). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SkillTrustPrompt` | SkillTrustPrompt is an optional callback invoked the first time Kit auto-discovers project-local skills (under <project>/.agents/skills or <project>/.kit/skills) in a directory that is not yet on the trust allowlist. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SkillsDir` | Scan this directory directly for skills. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SkillsDisable` | SkillsDisable names skills (by Name) to exclude from the model-facing catalog. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -276,7 +276,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `WithHTTPTransport` | WithHTTPTransport wraps the base HTTP transport of built-in providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) |
 | `WithMaxTokens` | WithMaxTokens sets the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) |
 | `WithModelMode` | WithModelMode selects a named mode for the selected model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) |
-| `WithModel` | WithModel sets the model in "provider/model" format (e.g. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
+| `WithModel` | WithModel sets the model in "provider/model" format (for example openai/gpt-4.1). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
 | `WithProviderAPIKey` | WithProviderAPIKey overrides the API key used to authenticate with the model provider. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) |
 | `WithProviderURL` | WithProviderURL overrides the provider endpoint URL. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) |
 | `WithProviderWire` | WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) |
@@ -299,7 +299,7 @@ Select with `Options.ModelMode` / `WithModelMode`, or `host.SetModelMode(ctx, na
 
 ## Code mode
 
-`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the live wrapped tool set, so nested calls still pass through hooks.
+`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the current tool set with hooks applied, so nested calls still pass through hooks.
 
 Zero option fields fall back to the `codemode` config section, then defaults:
 

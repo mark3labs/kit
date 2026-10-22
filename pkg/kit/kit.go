@@ -2400,7 +2400,10 @@ func (m *Kit) subagentDefaultTools() []Tool {
 }
 
 // Subagent runs a child agent with the supplied prompt and configuration.
-// The context controls the child run; check the returned error before using its result.
+// The context controls the child run unless it is already canceled on entry:
+// in that case Kit replaces it with context.Background() and the child may start,
+// bounded by cfg.Timeout (five minutes by default). Do not use pre-call
+// cancellation to prevent child work. Check the error before using the result.
 func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult, error) {
 	if cfg.Prompt == "" {
 		return nil, fmt.Errorf("subagent prompt is required")

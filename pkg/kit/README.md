@@ -14,7 +14,7 @@ Select with `Options.ModelMode` / `WithModelMode`, or `host.SetModelMode(ctx, na
 
 ## Code mode
 
-`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the live wrapped tool set, so nested calls still pass through hooks.
+`Options.CodeMode` points to `CodeModeOptions`. Code mode is default-on, but default enablement respects the resolved tool list and disabled core tools. Explicit `Enabled: true` can offer code mode with MCP-only tools; naming `codemode` in the core tool list selects it. `Disabled: true` takes precedence over enablement and config. For a custom `Tools` or `ExtraTools` set, create the tool with `NewCodeModeTool`, check its error, and add the returned tool. Kit supplies the current tool set with hooks applied, so nested calls still pass through hooks.
 
 Zero option fields fall back to the `codemode` config section, then defaults:
 
@@ -1025,7 +1025,7 @@ Safety rules:
 
 - Local tools run only after a step stream ends without error, so the failed
   step ran no tools. Completed steps and tool results are never repeated.
-- The failed step's partial output is discarded and is not saved to the session.
+- The failed step's partial output is excluded from normal model history and completed-step storage. A terminal failure can still save it as an `incomplete_output` transcript record (see below).
 - Only transient errors are resumed. Auth, validation, cancellation, deadline
   and tool errors are not. A failed session write stops resumes.
 - The `MaxSteps` limit applies to the whole turn, also across resumes.

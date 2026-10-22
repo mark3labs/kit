@@ -102,6 +102,7 @@ func sdkDeclarations(t *testing.T) (map[string]string, []string, []string) {
 	return exports, options, decisions
 }
 
+// sdkDoc reads a repository documentation file relative to the SDK package.
 func sdkDoc(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("../..", path))
@@ -111,6 +112,7 @@ func sdkDoc(t *testing.T, path string) string {
 	return string(b)
 }
 
+// sdkTokens collects exact inline-code symbol tokens without substring matching.
 func sdkTokens(text string) map[string]bool {
 	out := map[string]bool{}
 	for _, m := range regexp.MustCompile("`([A-Za-z][A-Za-z0-9_.]*)`").FindAllStringSubmatch(text, -1) {
@@ -119,6 +121,7 @@ func sdkTokens(text string) map[string]bool {
 	return out
 }
 
+// TestSDKSymbolTokens guards against prefix and receiver-name false positives.
 func TestSDKSymbolTokens(t *testing.T) {
 	tokens := sdkTokens("`PromptResult` and `Kit.Decide` and `Prompt`")
 	if tokens["Prom"] || tokens["Decide"] || !tokens["Prompt"] || !tokens["PromptResult"] || !tokens["Kit.Decide"] {
@@ -126,6 +129,7 @@ func TestSDKSymbolTokens(t *testing.T) {
 	}
 }
 
+// TestSDKDocumentation checks API discovery, guide coverage, examples and local links offline.
 func TestSDKDocumentation(t *testing.T) {
 	exports, options, decisions := sdkDeclarations(t)
 	index := sdkDoc(t, "www/pages/sdk/api-reference.md")

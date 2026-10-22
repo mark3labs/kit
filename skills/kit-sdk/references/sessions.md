@@ -160,7 +160,7 @@ Safety rules:
 
 - Local tools run only after a step stream ends without error, so the failed
   step ran no tools. Completed steps and tool results are never repeated.
-- The failed step's partial output is discarded and is not saved to the session.
+- The failed step's partial output is excluded from normal model history and completed-step storage. A terminal failure can still save it as an `incomplete_output` transcript record (see below).
 - Only transient errors are resumed. Auth, validation, cancellation, deadline
   and tool errors are not. A failed session write stops resumes.
 - The `MaxSteps` limit applies to the whole turn, also across resumes.
