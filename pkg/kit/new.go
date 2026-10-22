@@ -359,6 +359,11 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 			providerLoads = make([]extensions.LoadedExtension, len(loaded))
 			copy(providerLoads, loaded)
 			for i := range providerLoads {
+				for _, def := range providerLoads[i].Providers {
+					if !opts.inheritedResolver.Owns(def.ID) || opts.inheritedResolver.Owner(def.ID) != providerLoads[i].Path {
+						return nil, nil, fmt.Errorf("child extension %s introduces a different provider owner for %s", providerLoads[i].Path, def.ID)
+					}
+				}
 				providerLoads[i].Providers = nil
 			}
 		}

@@ -124,5 +124,11 @@ func PrepareProviderResolver(loaded []extensions.LoadedExtension) *models.Resolv
 			}
 		}
 	}
-	return models.NewResolver(entries, unknown)
+	resolver := models.NewResolver(entries, unknown)
+	for _, owner := range loaded {
+		for _, def := range owner.Providers {
+			resolver.SetOwner(def.ID, owner.Path)
+		}
+	}
+	return resolver
 }

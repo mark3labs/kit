@@ -12,6 +12,7 @@ import (
 type Resolver struct {
 	entries map[string]map[string]ModelInfo
 	unknown map[string]bool
+	owners  map[string]string
 }
 
 // NewResolver snapshots instance metadata. Unknown lookups do not populate lists.
@@ -29,6 +30,22 @@ func cloneModelInfo(info ModelInfo) ModelInfo {
 	info.InputModalities = slices.Clone(info.InputModalities)
 	info.ReasoningLevels = slices.Clone(info.ReasoningLevels)
 	return info
+}
+
+// SetOwner records a source identity before the resolver is published.
+func (r *Resolver) SetOwner(provider, path string) {
+	if r.owners == nil {
+		r.owners = map[string]string{}
+	}
+	r.owners[provider] = path
+}
+
+// Owner returns the registered source identity.
+func (r *Resolver) Owner(provider string) string {
+	if r == nil {
+		return ""
+	}
+	return r.owners[provider]
 }
 
 // Owns reports whether this generation declares the provider.

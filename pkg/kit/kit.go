@@ -3865,6 +3865,9 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 	}
 	var providerErrors []error
 	for _, owner := range owners {
+		if m.opts != nil && m.opts.inheritedResolver != nil {
+			break
+		} // Child agent closes only its own runtime.
 		if err := owner.CloseRuntimes(ctx); err != nil {
 			providerErrors = append(providerErrors, err)
 		}

@@ -48,6 +48,14 @@ func TestExtensionProviderGreetingThroughKit(t *testing.T) {
 			t.Fatalf("completion=%+v err=%v", response, err)
 		}
 	}
+	child, err := k.Subagent(ctx, SubagentConfig{Prompt: "hello", Model: "fake/echo", Tools: []Tool{}, NoSession: true})
+	if err != nil || child.Response != "Hello from a fake provider." {
+		t.Fatalf("child=%+v err=%v", child, err)
+	}
+	got, err = k.Prompt(ctx, "parent still works")
+	if err != nil || got != "Hello from a fake provider." {
+		t.Fatalf("parent after child=%q err=%v", got, err)
+	}
 	if !slices.Equal(before, RegisteredProviders()) {
 		t.Fatal("extension changed global provider factories")
 	}
