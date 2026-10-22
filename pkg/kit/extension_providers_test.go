@@ -84,4 +84,24 @@ func TestExtensionProviderToolRoundTrip(t *testing.T) {
 	if executions.Load() != 1 {
 		t.Fatalf("executions=%d", executions.Load())
 	}
+	calls, results := 0, 0
+	for _, msg := range k.GetStructuredMessages() {
+		for _, part := range msg.Parts {
+			switch item := part.(type) {
+			case ToolCall:
+				if item.ID != "add-call" || item.Input != `{"a":2,"b":3}` {
+					t.Fatalf("call=%+v", item)
+				}
+				calls++
+			case ToolResult:
+				if calls != 1 || item.ToolCallID != "add-call" || item.Content != "5" {
+					t.Fatalf("result=%+v calls=%d", item, calls)
+				}
+				results++
+			}
+		}
+	}
+	if calls != 1 || results != 1 {
+		t.Fatalf("stored calls=%d results=%d", calls, results)
+	}
 }
