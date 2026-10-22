@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/models"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var modelsAllFlag bool
+var modelsExtensionsFlag bool
 
 var modelsCmd = &cobra.Command{
 	Use:   "models [provider]",
@@ -36,10 +40,41 @@ Examples:
 
 func init() {
 	modelsCmd.Flags().BoolVar(&modelsAllFlag, "all", false, "show all providers in the database, not just fantasy-compatible ones")
+	modelsCmd.Flags().BoolVar(&modelsExtensionsFlag, "extensions", false, "execute trusted extension Init code and include its declared models")
 	rootCmd.AddCommand(modelsCmd)
 }
 
 func runModels(_ *cobra.Command, args []string) error {
+	if modelsExtensionsFlag && !viper.GetBool("no-extensions") {
+		loaded, err := extensions.LoadExtensionsScoped(viper.GetStringSlice("extension"), bareFlag)
+		if err != nil {
+			return err
+		}
+		if _, err := kitsetup.PrepareProviderFactories(loaded, nil); err != nil {
+			return err
+		}
+		entries := kitsetup.PrepareProviderResolver(loaded).List()
+		if len(args) == 1 {
+			if items, ok := entries[args[0]]; ok {
+				for _, id := range sortedModelIDs(items) {
+					fmt.Println(id)
+				}
+				return nil
+			}
+		}
+		if len(args) == 0 {
+			providers := make([]string, 0, len(entries))
+			for provider := range entries {
+				providers = append(providers, provider)
+			}
+			sort.Strings(providers)
+			for _, provider := range providers {
+				for _, id := range sortedModelIDs(entries[provider]) {
+					fmt.Printf("%s/%s\\n", provider, id)
+				}
+			}
+		}
+	}
 	if len(args) == 1 {
 		return printProvider(args[0])
 	}

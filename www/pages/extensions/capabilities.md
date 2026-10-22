@@ -6,6 +6,10 @@ ogImage: /og-image.png
 
 # Extension Capabilities
 
+## Model providers
+
+`api.RegisterProvider(ext.ProviderDef{...})` declares concrete create/stream callbacks and model metadata. Kit remains the sole tool executor. See [model providers](/extensions/providers) for protocol details and remaining integration work.
+
 ## Lifecycle events
 
 Extensions can hook into 31 lifecycle events:

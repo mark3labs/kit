@@ -63,8 +63,9 @@ func (TextContent) isPart() {}
 // Provider-specific metadata (signatures, etc.) is preserved for round-trip
 // fidelity when the conversation is sent back to the provider.
 type ReasoningContent struct {
-	Thinking  string `json:"thinking"`
-	Signature string `json:"signature,omitempty"` // Anthropic
+	Thinking  string       `json:"thinking"`
+	Signature string       `json:"signature,omitempty"` // Anthropic
+	Replay    []ReplayData `json:"replay,omitempty"`
 }
 
 func (ReasoningContent) isPart() {}
@@ -102,6 +103,7 @@ func (ToolResult) isPart() {}
 // bytes (not base64-encoded); serialization handles encoding. MediaType is a
 // MIME type such as "image/png" or "image/jpeg".
 type ImageContent struct {
+	Filename  string `json:"filename,omitempty"`
 	Data      []byte `json:"data"`
 	MediaType string `json:"media_type"`
 }
@@ -132,13 +134,15 @@ const (
 // carry text, reasoning, and multiple tool calls as discrete, typed blocks
 // rather than flattening everything into strings.
 type Message struct {
-	ID        string        `json:"id"`
-	Role      MessageRole   `json:"role"`
-	Parts     []ContentPart `json:"parts"`
-	Model     string        `json:"model,omitempty"`
-	Provider  string        `json:"provider,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ExtensionProvider string        `json:"extension_provider,omitempty"`
+	Replay            []ReplayData  `json:"replay,omitempty"`
+	ID                string        `json:"id"`
+	Role              MessageRole   `json:"role"`
+	Parts             []ContentPart `json:"parts"`
+	Model             string        `json:"model,omitempty"`
+	Provider          string        `json:"provider,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 // --- Typed accessors ---
@@ -311,6 +315,9 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 // mixed TextPart and ToolCallPart content. Tool-role messages produce
 // ToolResultPart entries.
 func (m *Message) ToLLMMessages() []fantasy.Message {
+	if m.ExtensionProvider != "" {
+		return orderedExtensionMessages(m)
+	}
 	switch m.Role {
 	case RoleAssistant:
 		var parts []fantasy.MessagePart
@@ -425,7 +432,15 @@ func FromLLMMessage(msg fantasy.Message) Message {
 		UpdatedAt: time.Now(),
 	}
 
+	if metadata := ExtensionOptions(msg.ProviderOptions); metadata != nil {
+		m.ExtensionProvider = metadata.Provider
+		m.Replay = metadata.Replay
+	}
 	for _, part := range msg.Content {
+		metadata := ExtensionOptions(part.Options())
+		if metadata != nil {
+			m.ExtensionProvider = metadata.Provider
+		}
 		switch p := part.(type) {
 		case fantasy.TextPart:
 			if p.Text != "" {
@@ -459,15 +474,19 @@ func FromLLMMessage(msg fantasy.Message) Message {
 			}
 			m.Parts = append(m.Parts, result)
 		case fantasy.ReasoningPart:
-			if p.Text != "" {
-				m.Parts = append(m.Parts, ReasoningContent{
-					Thinking: p.Text,
-				})
+			if p.Text != "" || metadata != nil {
+				content := ReasoningContent{Thinking: p.Text}
+				if metadata != nil {
+					content.Signature = metadata.Signature
+					content.Replay = metadata.Replay
+				}
+				m.Parts = append(m.Parts, content)
 			}
 		case fantasy.FilePart:
 			if len(p.Data) > 0 {
 				m.Parts = append(m.Parts, ImageContent{
 					Data:      p.Data,
+					Filename:  p.Filename,
 					MediaType: p.MediaType,
 				})
 			}

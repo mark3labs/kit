@@ -73,6 +73,7 @@ type startupSnapshot struct {
 // uiProviders holds read-only getters that the TUI polls to render extension
 // chrome and to refresh lists after hot-reload. None of these mutate state.
 type uiProviders struct {
+	getModelEntries      func() []ui.ModelEntry
 	getPromptTemplates   func() []*prompts.PromptTemplate
 	getSkillItems        func() []ui.SkillItem
 	getExtensionItems    func() []ui.ExtensionItem
@@ -281,8 +282,12 @@ func newRunApp(k *kit.Kit, cli *ui.CLI, mcpConfig *config.Config, modelName stri
 	if cli != nil {
 		usageTracker = cli.GetUsageTracker()
 	} else {
-		usageTracker = ui.CreateUsageTracker(viper.GetString("model"), k.IsOAuth())
-		ui.UpdateUsageTrackerForMode(usageTracker, viper.GetString("model"), k.CurrentModelMode(), k.IsOAuth())
+		if info := k.GetModelInfo(); info != nil {
+			usageTracker = ui.NewUsageTracker(info, kit.GetCurrentProvider(k.GetCurrentModel()), 80, k.IsOAuth())
+		}
+		if k.CurrentModelMode() != "" {
+			ui.UpdateUsageTrackerForMode(usageTracker, viper.GetString("model"), k.CurrentModelMode(), k.IsOAuth())
+		}
 	}
 	if usageTracker != nil {
 		appOpts.UsageTracker = usageTracker
@@ -500,6 +505,13 @@ func mcpResourceReaderForUI(k *kit.Kit) ui.MCPResourceReader {
 // buildUIProviders wires the read-only getters the TUI polls.
 func buildUIProviders(k *kit.Kit) uiProviders {
 	return uiProviders{
+		getModelEntries: func() []ui.ModelEntry {
+			entries := []ui.ModelEntry{}
+			for _, item := range k.GetAvailableModels() {
+				entries = append(entries, ui.ModelEntry{Provider: item.Provider, ModelID: item.ModelID, Name: item.Name, ContextLimit: item.ContextLimit, Reasoning: item.Reasoning, Available: modelEntryAvailable(k, item.Provider, item.ModelID)})
+			}
+			return entries
+		},
 		getPromptTemplates: func() []*prompts.PromptTemplate { return loadPromptTemplates(true) },
 		getSkillItems:      func() []ui.SkillItem { return reloadSkillItems(k) },
 		// getExtensionItems re-collects the loaded extension list, used by the
@@ -716,4 +728,13 @@ func startContentWatcher(ctx context.Context, appInstance *app.App) func() {
 	}
 	go contentWatcher.Start(ctx)
 	return func() { _ = contentWatcher.Close() }
+}
+
+func modelEntryAvailable(k *kit.Kit, provider, model string) bool {
+	if kit.GetProviderInfo(provider) != nil {
+		return kit.ValidateEnvironment(provider, "") == nil
+	}
+	// Extension auth callbacks are not invoked from the UI event loop. Until
+	// asynchronous status refresh completes, only no-auth providers are enabled.
+	return k.CheckModelAvailable(provider + "/" + model)
 }

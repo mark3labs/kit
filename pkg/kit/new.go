@@ -38,8 +38,9 @@ import (
 // resolvedConfig is the snapshot of instance-derived values that [New]
 // computes from the configuration store before any heavy I/O happens.
 type resolvedConfig struct {
-	providerConfig *models.ProviderConfig
-	modelString    string
+	preparedExtensions []extensions.LoadedExtension
+	providerConfig     *models.ProviderConfig
+	modelString        string
 
 	cwd          string
 	contextFiles []*ContextFile
@@ -346,6 +347,27 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 		return nil, nil, err
 	}
 	buildSystemPrompt(v, opts, rc)
+	rc.preparedExtensions = []extensions.LoadedExtension{}
+	if !opts.NoExtensions && !v.GetBool("no-extensions") {
+		loaded, err := extensions.LoadExtensionsScoped(v.GetStringSlice("extension"), opts.Bare)
+		if err != nil {
+			return nil, nil, fmt.Errorf("extension registration: %w", err)
+		}
+		rc.preparedExtensions = append(rc.preparedExtensions, loaded...)
+		providerLoads := loaded
+		if opts.inheritedResolver != nil {
+			providerLoads = make([]extensions.LoadedExtension, len(loaded))
+			copy(providerLoads, loaded)
+			for i := range providerLoads {
+				providerLoads[i].Providers = nil
+			}
+		}
+		factories, err := kitsetup.PrepareProviderFactories(providerLoads, providers)
+		if err != nil {
+			return nil, nil, err
+		}
+		providers = factories
+	}
 	if err := resolveModelConfig(v, opts, providers, rc); err != nil {
 		return nil, nil, err
 	}
@@ -407,6 +429,10 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 	// and per-model modelSettings[...].maxTokens can still win.
 	if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 		providerConfig.MaxTokens = sdkDefaultMaxTokens
+	}
+	providerConfig.Resolver = kitsetup.PrepareProviderResolver(rc.preparedExtensions)
+	if opts.inheritedResolver != nil {
+		providerConfig.Resolver = opts.inheritedResolver
 	}
 	providerConfig.ProviderFactories = providers
 	providerConfig.HTTPTransport = opts.HTTPTransport
@@ -545,6 +571,7 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		WorkDir:                 opts.WorkDir,
 		CoreToolOptions:         coreToolOpts,
 		ToolWrapper:             hookToolWrapper(hooks.beforeToolCall, hooks.afterToolResult),
+		PreparedExtensions:      rc.preparedExtensions,
 		ProviderConfig:          rc.providerConfig,
 		Debug:                   rc.debug,
 		DebugLogger:             opts.DebugLogger,

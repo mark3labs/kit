@@ -143,6 +143,9 @@ type ShortcutEntry struct {
 // loaded, and initialised. It holds the registered handlers and any custom
 // tools, commands, or tool renderers the extension provided.
 type LoadedExtension struct {
+	Owner               *ProviderOwner
+	Providers           []ProviderDef
+	RegistrationErrors  []error
 	Path                string
 	Handlers            map[EventType][]HandlerFunc
 	Tools               []ToolDef
@@ -571,7 +574,13 @@ func (r *Runner) RegisteredCommands() []CommandDef {
 
 // Extensions returns the loaded extensions for inspection (e.g. CLI list).
 func (r *Runner) Extensions() []LoadedExtension {
-	return r.extensions
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := slices.Clone(r.extensions)
+	for i := range result {
+		result[i].Providers = slices.Clone(result[i].Providers)
+	}
+	return result
 }
 
 // ---------------------------------------------------------------------------

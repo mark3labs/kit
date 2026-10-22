@@ -9,6 +9,7 @@ func NewTestAPI(ext *LoadedExtension) API {
 	}
 
 	return API{
+		registerProviderFn: ext.registerProvider,
 		onToolCall: func(h func(ToolCallEvent, Context) *ToolCallResult) {
 			reg(ToolCall, func(e Event, c Context) Result {
 				r := h(e.(ToolCallEvent), c)

@@ -68,12 +68,14 @@ func imageUnsupportedText(resp fantasy.ToolResponse, model string) string {
 // activeModel holds the model string of the active model. Tools read it while
 // they run, possibly in parallel with SetModel, so it is atomic.
 type activeModel struct {
-	v atomic.Pointer[string]
+	resolver atomic.Pointer[models.Resolver]
+	v        atomic.Pointer[string]
 }
 
 func newActiveModel(cfg *models.ProviderConfig) *activeModel {
 	m := &activeModel{}
 	if cfg != nil {
+		m.resolver.Store(cfg.Resolver)
 		m.set(cfg.ModelString)
 	}
 	return m
@@ -87,6 +89,10 @@ func (m *activeModel) imageInput() (bool, string) {
 	if p == nil || *p == "" {
 		return true, ""
 	}
+	provider, _, _ := models.ParseModelString(*p)
+	if m.resolver.Load().Owns(provider) {
+		return true, *p
+	} // Preserve input for explicit adapter validation.
 	return modelImageInput(*p), *p
 }
 

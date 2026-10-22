@@ -1338,6 +1338,7 @@ type API struct {
 	onMessageEnd              func(func(MessageEndEvent, Context))
 	onSessionStart            func(func(SessionStartEvent, Context))
 	onSessionShutdown         func(func(SessionShutdownEvent, Context))
+	registerProviderFn        func(ProviderDef)
 	registerToolFn            func(ToolDef)
 	registerCmdFn             func(CommandDef)
 	registerToolRendererFn    func(ToolRenderConfig)

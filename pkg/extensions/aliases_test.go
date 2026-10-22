@@ -17,6 +17,7 @@ import (
 var internalFiles = []string{
 	"events.go",
 	"api.go",
+	"providers.go",
 	"runner.go",
 	"subagent.go",
 }
@@ -28,6 +29,7 @@ var notExtensionFacing = map[string]bool{
 	// Runner bookkeeping: carries a live handler func, never constructed by
 	// a test.
 	"ShortcutEntry": true,
+	"ProviderOwner": true,
 }
 
 // TestEveryExtensionFacingTypeIsAliased fails when internal/extensions grows a

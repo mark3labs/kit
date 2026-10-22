@@ -8,6 +8,8 @@ ogImage: /og-image.png
 
 Extensions are Go source files interpreted at runtime via [Yaegi](https://github.com/traefik/yaegi). They can add custom tools, slash commands, widgets, keyboard shortcuts, and intercept lifecycle events — all without recompiling Kit.
 
+Callback-based [model providers](/extensions/providers) can also register instance-owned backends. See the guide for the current implementation status and lifecycle restrictions.
+
 ## Minimal extension
 
 ```go
