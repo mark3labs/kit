@@ -13,6 +13,12 @@
 
 # KIT (Knowledge Inference Tool)
 
+## SDK guides
+
+- [Decision API](https://go-kit.dev/sdk/decisions): typed probabilistic questions, not chat.
+- [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
+- [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
+
 A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
 
 ## Features
@@ -889,7 +895,6 @@ func main() {
 }
 ```
 
-
 ### HTTP request identity
 
 Kit-controlled HTTP requests use `User-Agent: KIT` by default. Set a per-instance
@@ -1529,3 +1534,7 @@ Contributions are welcome! Please see the [contribution guide](contribute/contri
 - [Discord](https://discord.gg/RqSS2NQVsY)
 - [GitHub Issues](https://github.com/mark3labs/kit/issues)
 - [Documentation](https://github.com/mark3labs/kit/wiki)
+
+### SDK configuration resolution
+
+File selection is separate from effective field precedence. An explicit SDK `ConfigFile` loads only that file; otherwise project config is preferred over home config. SDK generation/provider overrides win over environment, then configuration, per-model defaults and fallbacks. Stored credentials win over provider environment variables unless explicitly overridden. See [SDK option precedence](https://go-kit.dev/sdk/options#precedence).

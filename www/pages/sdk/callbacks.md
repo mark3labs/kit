@@ -137,7 +137,7 @@ The most powerful hook — fires between steps within a multi-step agent turn, a
 host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
     // h.StepNumber — zero-based step index within the turn
     // h.Messages   — current context window (includes any steering)
-    
+
     // Example: transform tool results with images into user messages
     modified := transformImageToolResults(h.Messages)
     return &kit.PrepareStepResult{Messages: modified}
@@ -169,7 +169,7 @@ kit.HookPriorityNormal = 50  // default
 kit.HookPriorityLow    = 100 // runs last
 ```
 
-Lower values run first. First non-nil result wins.
+Lower values run first. Interceptor hooks use the first non-nil result. `OnStepContext` is different: all decorators run and each receives the previous context.
 
 ## All event types
 
@@ -202,10 +202,11 @@ Lower values run first. First non-nil result wins.
 | `WarningsEvent` | `OnWarnings` | LLM provider returned warnings |
 | `SourceEvent` | `OnSource` | LLM referenced a source (e.g., web search) |
 | `ErrorEvent` | `OnError` | Agent-level error during streaming |
+| `StepResumeEvent` | `OnStepResume` | Failed streaming step will restart; discard failed-step deltas |
 | `RetryEvent` | `OnRetry` | LLM request retried after transient error |
 | `CompactionEvent` | `OnCompaction` | Conversation compacted (fires on success **and** failure — check `Err`) |
 | `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |
-| `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |
+| `PasswordPromptEvent` | `Subscribe` (generic only) | Sudo command needs password (respond via `ResponseCh`) |
 
 ### Compaction telemetry
 
@@ -248,3 +249,31 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 For retained history rather than live callbacks, use `SubagentRuns` or `GetSubagentRun`. To follow every run of the host as it changes, use `SubscribeSubagentRuns`. These snapshots include active and finished runs started by the LLM, extensions, or direct SDK calls. See [Retained run snapshots](/advanced/subagents#retained-run-snapshots) for limits and an API comparison. Existing live listeners are unchanged.
 
 `SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.
+
+## Provider request tracing
+
+Use `WithHTTPTransport` (or `Options.HTTPTransport`) to wrap the base transport
+of built-in providers. The wrapper receives requests after Kit applies its
+headers. It must return a non-nil `http.RoundTripper`. It passes to model changes,
+temporary completions, and subagents. Custom provider factories own their HTTP
+clients; this option does not wrap them, MCP, OAuth, or credential requests.
+
+Use `OnStepContext` to pass a step span or other context value to the provider
+request and that step's tools:
+
+The fragment assumes `host` and an application-owned comparable `stepKey`.
+
+```go
+host.OnStepContext(kit.HookPriorityNormal, func(h kit.StepContextHook) context.Context {
+    return context.WithValue(h.Context, stepKey, h.StepNumber)
+})
+```
+
+Every context hook runs in priority order. A nil result keeps the current
+context. Derive results from `h.Context` so turn cancellation still applies.
+Each step starts from the turn context, not the previous step context. A resumed
+step runs the hooks again with the same step number. `OnPrepareStep` keeps its
+existing first-non-nil-result behavior. Context hooks run after preparation and
+before `StepStartEvent`. Both `StepStartEvent.Model` and `StepFinishEvent.Model`
+report the `provider/model` that served the step, even if the configured model
+changes during the turn. Kit does not create spans or depend on a tracing SDK.

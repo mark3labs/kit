@@ -37,7 +37,7 @@ import (
 func main() {
     ctx := context.Background()
 
-    host, err := kit.New(ctx, nil) // nil = load .kit.yml (cwd) then ~/.kit.yml defaults
+    host, err := kit.New(ctx, nil) // nil = normal config-file discovery and field resolution
     if err != nil {
         log.Fatal(err)
     }
@@ -73,6 +73,7 @@ defer func() { _ = host.Close() }()
 | Intercept (read-write) | `host.OnBeforeToolCall(priority, fn)`, `OnAfterToolResult`, `OnBeforeTurn`, `OnPrepareStep`, `OnContextPrepare`, `OnBeforeCompact` | `references/hooks.md` |
 | Add capabilities | `kit.NewTool(name, desc, fn)`, `kit.TextResult`, built-in tool constructors and bundles | `references/tools.md` |
 | Persist conversations | `SessionPath`, `Continue`, `NoSession`, instance and package-level session methods | `references/sessions.md` |
+| Decision API | `kit.Decide`, `host.Decide`, `GetDecisionModels`, typed question builders | [references/decisions.md](references/decisions.md) |
 | Models and MCP | `host.SetModel`, model registry, custom provider backends (`kit.RegisterProvider`, `Options.Providers`), `AddMCPServer`, in-process servers, MCP OAuth | `references/models-and-mcp.md` |
 | Manage the context window | `EstimateContextTokens`, `Compact`, `AutoCompact`, `host.Subagent` | `references/context-compaction-subagents.md` |
 
@@ -107,7 +108,7 @@ host, _ := kit.New(ctx, &kit.Options{
 7. **Reactive compaction is always on.** A context-overflow error triggers one compact-and-replay. `AutoCompact: true` adds proactive compaction before turns that near the limit. If the replay still overflows, the turn fails with `kit.ErrContextOverflow`.
 8. **MCP OAuth is opt-in.** If `MCPAuthHandler` is nil, remote MCP servers that require OAuth fail with an authorization-required error. They do not open a browser silently.
 9. **No dependency-name leakage.** Use the `kit.LLM*` type aliases (`LLMMessage`, `LLMUsage`, ...) and `kit.ConvertToLLM*` helpers. Do not import the underlying LLM library into SDK-facing code.
-10. **Configuration precedence** is explicit `ConfigFile` → `.kit.yml` in cwd → `~/.kit.yml` → `KIT_*` env vars → provider env vars (`ANTHROPIC_API_KEY`, ...). `kit.New` handles this; call `kit.InitConfig` only for special cases.
+10. **Configuration file selection is not field precedence.** An explicit `ConfigFile` selects only that file; otherwise project config is preferred to home config. Effective generation/provider fields use explicit SDK values → environment → configuration → per-model/fallback values. Stored credentials beat provider environment variables unless explicitly overridden. See `references/configuration.md`. `kit.New` handles setup; use `kit.InitConfig` only for special cases.
 
 ---
 

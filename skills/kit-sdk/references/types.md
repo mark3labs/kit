@@ -77,3 +77,7 @@ msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message  → []LLMMessage
 msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage   → SDK Message
 ```
 
+
+## Complete public contract
+
+See the [public API index](https://go-kit.dev/sdk/api-reference) for exact declaration and receiver-method names, including all decision types and sentinels, `ModelMode`, `CodeModeOptions`, `StepResumeEvent`, and optional persistence interfaces. Alias members and exported fields are documented through their owning Go types.

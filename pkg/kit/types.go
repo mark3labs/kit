@@ -23,6 +23,7 @@ type Message = message.Message
 // MessageRole identifies the sender of a message (user, assistant, tool, system).
 type MessageRole = message.MessageRole
 
+// Message roles identify user, assistant, tool and system messages.
 const (
 	RoleUser      = message.RoleUser
 	RoleAssistant = message.RoleAssistant

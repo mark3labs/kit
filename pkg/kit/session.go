@@ -154,6 +154,7 @@ type BranchEntry struct {
 // EntryType identifies the kind of entry in the session tree.
 type EntryType string
 
+// Session entry types distinguish model history from transcript and metadata records.
 const (
 	EntryTypeMessage          EntryType = "message"
 	EntryTypeIncompleteOutput EntryType = "incomplete_output"
