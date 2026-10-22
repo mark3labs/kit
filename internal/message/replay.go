@@ -21,6 +21,8 @@ type ReplayData struct {
 // legacy built-in normalization.
 type ExtensionMetadata struct {
 	Provider  string       `json:"provider"`
+	BlockID   string       `json:"block_id,omitempty"`
+	Order     []string     `json:"order,omitempty"`
 	Signature string       `json:"signature,omitempty"`
 	Replay    []ReplayData `json:"replay,omitempty"`
 }
@@ -54,6 +56,7 @@ func ExtensionOptions(options fantasy.ProviderOptions) *ExtensionMetadata {
 	if value, ok := options["kit-extension"].(*ExtensionMetadata); ok {
 		copy := *value
 		copy.Replay = slices.Clone(value.Replay)
+		copy.Order = slices.Clone(value.Order)
 		return &copy
 	}
 	return nil

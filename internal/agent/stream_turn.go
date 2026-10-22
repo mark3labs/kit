@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -395,6 +396,17 @@ func (t *streamTurn) onStepFinish(step fantasy.StepResult) error {
 	// library. Carry the matching extension origin so persistence keeps IDs.
 	if metadata := message.ExtensionOptions(fantasy.ProviderOptions(step.ProviderMetadata)); metadata != nil {
 		for i := range step.Messages {
+			positions := map[string]int{}
+			for index, id := range metadata.Order {
+				positions[id] = index
+			}
+			slices.SortStableFunc(step.Messages[i].Content, func(a, b fantasy.MessagePart) int {
+				left, right := message.ExtensionOptions(a.Options()), message.ExtensionOptions(b.Options())
+				if left == nil || right == nil {
+					return 0
+				}
+				return positions[left.BlockID] - positions[right.BlockID]
+			})
 			step.Messages[i].ProviderOptions = message.CloneOptions(step.Messages[i].ProviderOptions)
 			if step.Messages[i].ProviderOptions == nil {
 				step.Messages[i].ProviderOptions = fantasy.ProviderOptions{}

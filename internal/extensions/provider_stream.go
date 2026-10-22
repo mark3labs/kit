@@ -66,6 +66,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 	var finish fantasy.FinishReason
 	var exposed bool
 	var finishMetadata fantasy.ProviderMetadata
+	var blockOrder []string
 	send := func(part fantasy.StreamPart) bool {
 		if !yield(part) {
 			setError(context.Canceled)
@@ -89,7 +90,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 		if finish != "" {
 			return protocol()
 		}
-		metadata := &message.ExtensionMetadata{Provider: request.Provider, Signature: event.Signature}
+		metadata := &message.ExtensionMetadata{Provider: request.Provider, Signature: event.Signature, BlockID: event.ID}
 		for _, replay := range event.Replay {
 			if replay.Version != 1 || replay.Provider != request.Provider || !json.Valid([]byte(replay.JSON)) {
 				setError(errors.New("unsupported extension replay metadata"))
@@ -106,6 +107,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 			return true
 		}
 		if event.Type == ProviderFinish {
+			metadata.Order = append([]string(nil), blockOrder...)
 			finishMetadata = options
 			for _, block := range blocks {
 				if block.open {
@@ -142,6 +144,7 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 			}
 			block = &providerBlock{kind: event.Type, name: event.ToolName, open: true}
 			blocks[event.ID] = block
+			blockOrder = append(blockOrder, event.ID)
 			switch event.Type {
 			case ProviderTextStart:
 				part.Type = fantasy.StreamPartTypeTextStart
