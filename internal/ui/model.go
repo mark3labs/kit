@@ -3067,6 +3067,8 @@ func (m *AppModel) resolveWidgetContent(w WidgetData, key string, containerWidth
 	return m.resolveWidgetContentSized(w, key, containerWidth, -1)
 }
 
+// resolveWidgetContentSized renders natural content at height -1 or fits the
+// body to the allocated fill rows, with dimensions included in cache lookup.
 func (m *AppModel) resolveWidgetContentSized(w WidgetData, key string, containerWidth, height int) (string, bool) {
 	width := widgetContentWidth(containerWidth, w.NoBorder)
 	if height == 0 {

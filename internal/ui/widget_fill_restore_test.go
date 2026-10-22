@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// TestFillWidgetActivityAndRestore checks activity rows and transcript anchoring.
 func TestFillWidgetActivityAndRestore(t *testing.T) {
 	for _, nav := range []bool{false, true} {
 		m, _, _ := newTestAppModel(nil)
@@ -57,6 +58,7 @@ func TestFillWidgetActivityAndRestore(t *testing.T) {
 	}
 }
 
+// TestSizedWidgetPrecedenceAndAnimation checks sized callbacks and clock demand.
 func TestSizedWidgetPrecedenceAndAnimation(t *testing.T) {
 	m := newTestModel()
 	w := WidgetData{FillHeight: true, RefreshHz: 10, Render: func(int) string { return "natural" }, RenderSized: func(w, h int) string { return "sized" }}

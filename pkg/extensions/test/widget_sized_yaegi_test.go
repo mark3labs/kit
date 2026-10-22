@@ -6,6 +6,7 @@ import (
 	"github.com/mark3labs/kit/pkg/extensions"
 )
 
+// TestRenderSizedCrossesYaegiBoundary checks dimensions and a later helper call.
 func TestRenderSizedCrossesYaegiBoundary(t *testing.T) {
 	h := New(t)
 	h.LoadString(`package main

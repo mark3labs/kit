@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// TestFillWidgetLayout checks row allocation, frame bounds and hidden mouse input.
 func TestFillWidgetLayout(t *testing.T) {
 	for _, chrome := range []bool{false, true} {
 		for _, output := range []string{"", "short", strings.Repeat("long\n", 100)} {
@@ -77,6 +78,7 @@ func TestFillWidgetLayout(t *testing.T) {
 	}
 }
 
+// TestFillWidgetSplitAndHeightCache checks shared rows and height-only cache misses.
 func TestFillWidgetSplitAndHeightCache(t *testing.T) {
 	m, _, _ := newTestAppModel(nil)
 	m.input = NewInputComponent(80, nil)

@@ -465,6 +465,7 @@ func openDefault(ctx ext.Context, path string) {
 // Rendering
 // ---------------------------------------------------------------------------
 
+// renderPanel draws the file tree within the allocated content dimensions.
 func renderPanel(width, height int) string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -556,6 +557,7 @@ func renderPanel(width, height int) string {
 // Focus / visibility
 // ---------------------------------------------------------------------------
 
+// widgetConfig reserves the transcript rows for the visible file tree.
 func widgetConfig() ext.WidgetConfig {
 	return ext.WidgetConfig{
 		ID:        widgetID,
@@ -786,5 +788,4 @@ func Init(api ext.API) {
 			return "", nil
 		},
 	})
-
 }
