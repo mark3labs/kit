@@ -237,6 +237,7 @@ func (p *providerAdapter) Generate(ctx context.Context, call fantasy.Call) (*fan
 		case fantasy.StreamPartTypeToolCall:
 			response.Content = append(response.Content, fantasy.ToolCallContent{ToolCallID: event.ID, ToolName: event.ToolCallName, Input: event.ToolCallInput, ProviderMetadata: event.ProviderMetadata})
 		case fantasy.StreamPartTypeFinish:
+			response.ProviderMetadata = event.ProviderMetadata
 			response.FinishReason = event.FinishReason
 			response.Usage = event.Usage
 		case fantasy.StreamPartTypeError:
