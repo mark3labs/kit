@@ -453,6 +453,11 @@ func (t *streamTurn) prepareStep(
 	stepCtx context.Context,
 	opts fantasy.PrepareStepFunctionOptions,
 ) (context.Context, fantasy.PrepareStepResult, error) {
+	if t.cb.OnStepContext != nil {
+		// The previous step may have ended its own deadline or cancellation.
+		// Preparation belongs to the next step, not that completed step.
+		stepCtx = t.ctx
+	}
 	hasSteering := t.steerCh != nil
 	hasPrepareStepHook := t.cb.OnPrepareStep != nil
 	if err := stepCtx.Err(); err != nil {

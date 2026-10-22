@@ -14,6 +14,7 @@ func TestStepContextIsolationAndResume(t *testing.T) {
 	defer cancel()
 	var steps []int
 	var contexts []context.Context
+	var cancelStep context.CancelFunc
 	calls := 0
 	model := &retryTestModel{stream: func(ctx context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
 		calls++
@@ -43,12 +44,18 @@ func TestStepContextIsolationAndResume(t *testing.T) {
 	a := &Agent{model: model, retryPolicy: resumeTestPolicy(1), coreTools: []fantasy.AgentTool{tool}, streamingEnabled: true}
 	a.rebuildFantasyAgent()
 	_, err := a.GenerateWithCallbacks(ctx, []fantasy.Message{fantasy.NewUserMessage("go")}, GenerateCallbacks{
+		OnStepFinish: func(_ int, _ bool, _ string, _ fantasy.Usage, _ string) {
+			cancelStep()
+		},
 		OnStepContext: func(base context.Context, step int, model string) context.Context {
 			if base.Value(key(0)) != nil {
 				t.Error("step inherited previous decoration")
 			}
 			steps = append(steps, step)
-			return context.WithValue(base, key(0), step)
+			decorated, cancel := context.WithCancel(base)
+			cancelStep = cancel
+			t.Cleanup(cancel)
+			return context.WithValue(decorated, key(0), step)
 		},
 	})
 	if err != nil {
