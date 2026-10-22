@@ -1085,8 +1085,9 @@ func (r *Runner) SaveStateToFile(path string) error {
 // disabled tools, custom event subscriptions). Option overrides are
 // preserved across reloads since they represent user intent.
 //
-// The caller is responsible for emitting SessionShutdown before calling
-// Reload and SessionStart after.
+// The caller validates the whole candidate first, retires old provider owners,
+// and emits SessionStart after publication. Provider owners can defer shutdown
+// until their last runtime closes; ordinary extensions shut down immediately.
 func (r *Runner) Reload(exts []LoadedExtension) {
 	// Build the new mutex slice before taking the lock; init() on a fresh
 	// reentrantMu cannot block.

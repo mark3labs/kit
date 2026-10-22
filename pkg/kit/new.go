@@ -23,20 +23,21 @@ import (
 // step of the original monolithic constructor, extracted without changing
 // order or behaviour:
 //
-//  1. resolveConfig — config snapshot, no heavy I/O:
+//  1. resolveConfig — config/resources and trusted extension discovery:
 //     a. newConfigStore       — pick the per-instance or process-global store
 //     b. loadConfigStore      — defaults, config file, env vars
 //     c. applyOptionOverrides — push Options fields into the store
 //     d. loadProjectResources — cwd, AGENTS.md, skills, named agents
 //     e. buildSystemPrompt    — base prompt + context + skills + environment
-//     f. resolveModelConfig   — provider config and scalar snapshots
+//     f. load extensions and validate instance provider definitions
+//     g. resolveModelConfig   — provider config and scalar snapshots
 //  2. resolveMCPConfig        — MCP servers, including in-process ones
 //  3. withSkillTool, buildAgentSetupOptions, then kitsetup.SetupAgent
 //  4. initSessionManager
 //  5. (*Kit).initExtensions
 
 // resolvedConfig is the snapshot of instance-derived values that [New]
-// computes from the configuration store before any heavy I/O happens.
+// computes before model/agent and MCP construction.
 type resolvedConfig struct {
 	preparedExtensions []extensions.LoadedExtension
 	providerConfig     *models.ProviderConfig
@@ -328,8 +329,8 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 }
 
 // resolveConfig builds the instance configuration store and snapshots every
-// instance-derived value New needs. It performs no network or subprocess
-// I/O; MCP and agent setup happen afterwards.
+// instance-derived value New needs. It executes trusted extension top-level
+// code and Init; MCP and model/agent setup happen afterwards.
 func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.Viper, *resolvedConfig, error) {
 	userAgent, err := httpclient.ResolveUserAgent(opts.UserAgent)
 	if err != nil {
