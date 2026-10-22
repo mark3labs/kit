@@ -64,6 +64,19 @@ func ClassifyProviderError(err error) error {
 		}
 	}
 
+	var extension interface{ ExtensionErrorCode() string }
+	if errors.As(err, &extension) {
+		switch extension.ExtensionErrorCode() {
+		case "auth":
+			return wrapSentinel(ErrAuth, err)
+		case "rate_limit":
+			return wrapSentinel(ErrRateLimit, err)
+		case "transport":
+			return wrapSentinel(ErrProviderUnavailable, err)
+		case "unsupported", "protocol", "invalid_request":
+			return wrapSentinel(ErrInvalidRequest, err)
+		}
+	}
 	if isRequestTooLarge(err) {
 		return wrapSentinel(ErrContextOverflow, err)
 	}
