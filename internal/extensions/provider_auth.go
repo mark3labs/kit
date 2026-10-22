@@ -9,10 +9,11 @@ import (
 // ProviderAuthCache holds only safe status, never credentials. One cache belongs
 // to one definition generation. Pending checks are deduplicated and bounded.
 type ProviderAuthCache struct {
-	mu      sync.Mutex
-	status  ProviderAuthResult
-	expires time.Time
-	pending bool
+	mu         sync.Mutex
+	status     ProviderAuthResult
+	expires    time.Time
+	pending    bool
+	generation uint64
 }
 
 // Status starts an asynchronous safe status check and returns unknown while it
@@ -34,6 +35,7 @@ func (c *ProviderAuthCache) Status(def ProviderDef, configured bool) ProviderAut
 	}
 	if !c.pending && def.Auth.Status != nil {
 		c.pending = true
+		generation := c.generation
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -57,8 +59,10 @@ func (c *ProviderAuthCache) Status(def ProviderDef, configured bool) ProviderAut
 				result.Status = ProviderAuthUnknown
 			}
 			c.mu.Lock()
-			c.status = result
-			c.expires = time.Now().Add(30 * time.Second)
+			if c.generation == generation {
+				c.status = result
+				c.expires = time.Now().Add(30 * time.Second)
+			}
 			c.pending = false
 			c.mu.Unlock()
 		}()
@@ -67,7 +71,12 @@ func (c *ProviderAuthCache) Status(def ProviderDef, configured bool) ProviderAut
 }
 
 // Refresh invalidates status without starting overlapping callbacks.
-func (c *ProviderAuthCache) Refresh() { c.mu.Lock(); c.expires = time.Time{}; c.mu.Unlock() }
+func (c *ProviderAuthCache) Refresh() {
+	c.mu.Lock()
+	c.generation++
+	c.expires = time.Time{}
+	c.mu.Unlock()
+}
 
 // AuthStatus queries generation-scoped safe availability without generation.
 func (def ProviderDef) AuthStatus(configured bool) ProviderAuthResult {

@@ -62,6 +62,26 @@ func TestProviderStreamProtocol(t *testing.T) {
 	}
 }
 
+func TestProviderStreamConcurrentEmitRejected(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	runtime := ProviderRuntime{Stream: func(_ ProviderRequest, emit func(ProviderEvent) bool) ProviderResult {
+		done := make(chan struct{})
+		go func() { defer close(done); emit(ProviderEvent{Type: ProviderTextStart, ID: "one"}) }()
+		<-entered
+		if emit(ProviderEvent{Type: ProviderTextStart, ID: "two"}) {
+			t.Error("concurrent emit accepted")
+		}
+		close(release)
+		<-done
+		return ProviderResult{}
+	}}
+	err := runProviderStream(context.Background(), runtime, ProviderRequest{}, func(fantasy.StreamPart) bool { close(entered); <-release; return true })
+	if err == nil {
+		t.Fatal("concurrent emit did not fail")
+	}
+}
+
 func TestProviderStreamConsumerStopCancelsDone(t *testing.T) {
 	observed := false
 	runtime := ProviderRuntime{Stream: func(req ProviderRequest, emit func(ProviderEvent) bool) ProviderResult {
