@@ -651,6 +651,64 @@ host.SetContextFiles(activeContextForUser)
 Readers (`GetSkills`, `GetContextFiles`) return snapshots, and every mutator
 is safe to call concurrently from multiple goroutines.
 
+### Decision Models
+
+Decision models (TypeSafe Jev, Cloudflare Clef, Perplexity Decider, Inception
+Mercury Decide, Microsoft Decision-1, Liquid d1 and others) answer typed
+questions about a state with probabilities instead of generated text. Use them
+to classify, route, score or gate actions. `Decide` sends one request with any
+number of boolean, choice and score questions:
+
+```go
+res, err := host.Decide(ctx, kit.DecisionRequest{
+    Model: "openrouter/typesafe/jev-1.14",
+    State: kit.DecisionState{
+        Text: "My card was charged twice for one order.",
+        // Optional: images for models that accept them.
+        Images: []kit.DecisionImage{{MediaType: "image/png", Data: screenshot}},
+    },
+    Questions: []kit.DecisionQuestion{
+        kit.BooleanQuestion("refund", "Does the customer ask for a refund?"),
+        kit.ChoiceQuestion("team", "Which team should handle this ticket?",
+            kit.DecisionOption{Name: "billing", Description: "Payments and refunds"},
+            kit.DecisionOption{Name: "technical"}, // the name describes itself
+        ),
+        kit.ScoreQuestion("urgency", "How urgent is this ticket?", "low", "medium", "high"),
+    },
+})
+if err != nil {
+    return err
+}
+team, err := res.Choice("team") // errors on a wrong type, missing answer or refusal
+p, _ := team.Prob("billing")    // per-option probability, in question order
+refund, _ := res.Boolean("refund")
+fmt.Println(team.Choice, p, refund.Probability, team.Confidence)
+```
+
+Kit finds decision models in the model database (models.dev entries of type
+`decision`; run `kit update-models` to refresh it) and selects the wire
+protocol from the same data, so the request shape is the same for every host.
+`kit.GetDecisionModels()` lists them with their wire, image support, context
+limit and input price.
+
+| Wire | Hosts | Images |
+|---|---|---|
+| `systemone` | TypeSafe (`typesafe/…`), OpenRouter, OpenCode, NanoGPT, Melious, Vivgrid, GreenPT, Ollama Cloud, local Ollama (`ollama/…`) | multipart assets; OpenRouter `image_url` parts; Ollama inline base64 |
+| `workers-ai` | Cloudflare Workers AI (`cloudflare-workers-ai/@cf/cloudflare/clef`) | data URLs, at most 4 |
+| `gateway` | Vercel AI Gateway (`vercel/typesafe-ai/jev`) | file state parts |
+
+Images must be PNG or JPEG (Cloudflare and Ollama also accept WebP). Kit
+rejects images before the request when the catalog says the model has no image
+input. Jev rejects images smaller than about 300 pixels per side.
+
+API keys come from stored credentials or the environment variables of the
+provider (`OPENROUTER_API_KEY`, `TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`,
+`CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`, …). `Kit.Decide` uses the
+Kit's HTTP transport (`WithHTTPTransport`) and does not change the chat model;
+the package-level `kit.Decide` works without a Kit. Requests are validated
+before they are sent, and rate limits and transient failures are retried twice.
+A decision model cannot chat: `SetModel` returns `ErrDecisionModelNotChat`.
+
 ## Re-exported Types
 
 The SDK re-exports message/session/MCP types so you don't need direct internal imports. Agent-configuration types are Kit-owned (not aliases) and use only SDK types in their signatures, so consumers never need to import the underlying LLM-provider package.
@@ -753,6 +811,9 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
   (system message, model, thinking level, provider credentials, extra tools)
 - `PromptResultWithOptions(ctx, message, opts)` - Per-call options variant that
   returns the full TurnResult
+- `Decide(ctx, req)` - Ask a decision model typed boolean/choice/score
+  questions about a state (also `kit.Decide` without a Kit; list models with
+  `kit.GetDecisionModels()`)
 - `Steer(ctx, instruction)` - System-level steering
 - `InjectSteer(message)` / `InjectSteerWithFiles(message, files)` - Queue a
   mid-turn steering message (injected between steps while a turn is active;

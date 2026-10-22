@@ -19,8 +19,11 @@ var embeddedModelsJSON []byte
 
 // ModelInfo represents information about a specific model.
 type ModelInfo struct {
-	ID         string
-	Name       string
+	ID   string
+	Name string
+	// Type is the catalog model kind: ModelTypeDecision, or empty for chat
+	// models.
+	Type       string
 	Family     string // Model family (e.g., "claude", "gpt", "gemini")
 	Attachment bool
 	// InputModalities lists the input types the model accepts, such as
@@ -32,6 +35,7 @@ type ModelInfo struct {
 	Cost            Cost
 	Limit           Limit
 	ProviderNPM     string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	ProviderAPI     string // Model-specific base URL from the catalog (e.g. Cloudflare /ai/run)
 	BaseURL         string // Per-model base URL override (custom models only)
 	APIKey          string // Per-model API key override (custom models only)
 	APIModelName    string // Per-model API model name override (custom models only)
@@ -351,7 +355,15 @@ type ProviderInfo struct {
 	Region  string
 	Project string
 	Models  map[string]ModelInfo
+	// DecisionModels holds the provider's catalog entries of type
+	// "decision". They are kept apart from Models so that chat model lists,
+	// suggestions and validation never offer a model that cannot chat.
+	DecisionModels map[string]ModelInfo
 }
+
+// ModelTypeDecision is the catalog type of decision models: models that
+// answer typed questions with probabilities instead of generating text.
+const ModelTypeDecision = "decision"
 
 // ModelsRegistry provides validation and information about models.
 // It maintains a registry of all supported LLM providers and their models,
@@ -437,10 +449,12 @@ func buildFromModelsDB() map[string]ProviderInfo {
 
 	for providerID, dp := range dbProviders {
 		modelsMap := make(map[string]ModelInfo, len(dp.Models))
+		var decisionModels map[string]ModelInfo
 		for modelID, dm := range dp.Models {
-			providerNPM := ""
+			providerNPM, providerAPI := "", ""
 			if dm.Provider != nil {
 				providerNPM = dm.Provider.NPM
+				providerAPI = dm.Provider.API
 			}
 			reasoningLevels, reasoningGraded := reasoningFrom(dm.ReasoningOptions)
 			modes := make([]ModelMode, 0, len(dm.Experimental.Modes))
@@ -458,9 +472,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				// listed" stays distinct from "no modalities block".
 				inputModalities = append([]string{}, dm.Modalities.Input...)
 			}
-			modelsMap[modelID] = ModelInfo{
+			info := ModelInfo{
 				ID:              dm.ID,
 				Name:            dm.Name,
+				Type:            dm.Type,
 				Family:          dm.Family,
 				Attachment:      dm.Attachment,
 				InputModalities: inputModalities,
@@ -472,20 +487,30 @@ func buildFromModelsDB() map[string]ProviderInfo {
 					Output:  dm.Limit.Output,
 				},
 				ProviderNPM:       providerNPM,
+				ProviderAPI:       providerAPI,
 				Status:            dm.Status,
 				ReasoningLevels:   reasoningLevels,
 				ReasoningIsGraded: reasoningGraded,
 				Modes:             modes,
 			}
+			if dm.Type == ModelTypeDecision {
+				if decisionModels == nil {
+					decisionModels = make(map[string]ModelInfo)
+				}
+				decisionModels[modelID] = info
+				continue
+			}
+			modelsMap[modelID] = info
 		}
 
 		providers[providerID] = ProviderInfo{
-			ID:     providerID,
-			Env:    dp.Env,
-			NPM:    dp.NPM,
-			API:    dp.API,
-			Name:   dp.Name,
-			Models: modelsMap,
+			ID:             providerID,
+			Env:            dp.Env,
+			NPM:            dp.NPM,
+			API:            dp.API,
+			Name:           dp.Name,
+			Models:         modelsMap,
+			DecisionModels: decisionModels,
 		}
 	}
 
@@ -584,6 +609,22 @@ func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 		}
 	}
 
+	return &modelInfo
+}
+
+// LookupDecisionModel returns the catalog entry of a decision model, or nil
+// when the provider or model is unknown. Decision models are not returned by
+// LookupModel.
+func (r *ModelsRegistry) LookupDecisionModel(provider, modelID string) *ModelInfo {
+	provider = catalogProviderID(provider)
+	providerInfo, exists := r.providers[provider]
+	if !exists {
+		return nil
+	}
+	modelInfo, exists := providerInfo.DecisionModels[modelID]
+	if !exists {
+		return nil
+	}
 	return &modelInfo
 }
 

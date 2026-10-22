@@ -16,7 +16,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultModelsURL = "https://models.dev/api.json"
+// defaultModelsURL asks for every model type. The plain api.json leaves out
+// some types, such as decision models.
+const defaultModelsURL = "https://models.dev/api.json?type=all"
 
 var updateModelsCmd = &cobra.Command{
 	Use:   "update-models [source]",
@@ -34,7 +36,7 @@ Sources:
 
 Examples:
   kit update-models
-  kit update-models https://models.dev/api.json
+  kit update-models "https://models.dev/api.json?type=all"
   kit update-models /path/to/models.json
   kit update-models embedded`,
 	Args: cobra.MaximumNArgs(1),
