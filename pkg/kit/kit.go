@@ -3870,6 +3870,9 @@ func (m *Kit) CloseContext(ctx context.Context) error {
 			break
 		} // Child agent closes only its own runtime.
 		if err := owner.CloseRuntimes(ctx); err != nil {
+			if strings.Contains(err.Error(), "own callback") {
+				return err
+			}
 			providerErrors = append(providerErrors, err)
 		}
 	}

@@ -96,17 +96,18 @@ func (o *ProviderOwner) CloseRuntimes(ctx context.Context) error {
 		return nil
 	}
 	o.mu.Lock()
+	for runtime := range o.runtimes {
+		if runtime.callbackGID.Load() == goroutineID() {
+			o.mu.Unlock()
+			return errors.New("cannot shut down provider generation from its own callback")
+		}
+	}
 	o.retired = true
 	runtimes := make([]*providerAdapter, 0, len(o.runtimes))
 	for runtime := range o.runtimes {
 		runtimes = append(runtimes, runtime)
 	}
 	o.mu.Unlock()
-	for _, runtime := range runtimes {
-		if runtime.callbackGID.Load() == goroutineID() {
-			return errors.New("cannot shut down provider generation from its own callback")
-		}
-	}
 	for _, runtime := range runtimes {
 		runtime.cancel()
 	}
