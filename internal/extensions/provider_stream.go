@@ -91,6 +91,24 @@ func runProviderStream(ctx context.Context, runtime ProviderRuntime, request Pro
 		if finish != "" {
 			return protocol()
 		}
+		if event.Signature != "" && event.Type != ProviderReasoningEnd {
+			return protocol()
+		}
+		if len(event.Replay) > 0 && event.Type != ProviderTextEnd && event.Type != ProviderReasoningEnd && event.Type != ProviderToolEnd && event.Type != ProviderFinish {
+			return protocol()
+		}
+		if event.ToolName != "" && event.Type != ProviderToolStart {
+			return protocol()
+		}
+		if event.FinishReason != "" && event.Type != ProviderFinish {
+			return protocol()
+		}
+		if event.Usage != (ProviderUsage{}) && event.Type != ProviderUsageEvent {
+			return protocol()
+		}
+		if (event.Type == ProviderUsageEvent || event.Type == ProviderFinish) && (event.ID != "" || event.Delta != "") {
+			return protocol()
+		}
 		metadata := &message.ExtensionMetadata{Provider: request.Provider, Signature: event.Signature, BlockID: event.ID}
 		for _, replay := range event.Replay {
 			if replay.Version != 1 || replay.Provider != request.Provider || !json.Valid([]byte(replay.JSON)) {
