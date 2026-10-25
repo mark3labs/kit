@@ -1,6 +1,39 @@
 package kit
 
-import "github.com/mark3labs/kit/internal/models"
+import (
+	"context"
+
+	"github.com/mark3labs/kit/internal/models"
+)
+
+// UpdateModelsOptions selects a URL, local JSON file, or "embedded" reset.
+// Empty Source uses KIT_MODELS_URL, or https://models.dev/api.json?type=all.
+type UpdateModelsOptions = models.UpdateModelsOptions
+
+// UpdateModelsStatus describes a successful catalog update outcome.
+type UpdateModelsStatus = models.UpdateModelsStatus
+
+const (
+	// UpdateModelsStatusUpdated means the imported catalog was stored.
+	UpdateModelsStatusUpdated = models.UpdateModelsStatusUpdated
+	// UpdateModelsStatusNotModified means the server confirmed the cached snapshot.
+	UpdateModelsStatusNotModified = models.UpdateModelsStatusNotModified
+	// UpdateModelsStatusReset means the cache is absent.
+	UpdateModelsStatusReset = models.UpdateModelsStatusReset
+)
+
+// UpdateModelsResult reports catalog counts, including non-chat models, not
+// merged registry counts. Reset counts are zero (not applicable).
+type UpdateModelsResult = models.UpdateModelsResult
+
+// UpdateModels updates shared model storage without a Kit or credentials and
+// without progress output. Call before first registry use or restart to use new
+// data: existing registries do not reload. ctx must be non-nil. HTTP operations
+// have a 30-second bound; earlier caller deadlines win. Cancellation is checked
+// before disk commit but cannot undo a successful replacement or reset.
+func UpdateModels(ctx context.Context, opts UpdateModelsOptions) (UpdateModelsResult, error) {
+	return models.UpdateModels(ctx, opts)
+}
 
 // LookupModel returns information about a model, or nil if unknown.
 func LookupModel(provider, modelID string) *ModelInfo {
