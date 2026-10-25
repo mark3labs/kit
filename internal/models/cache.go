@@ -3,11 +3,14 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
+	"time"
 )
 
 // cacheFile is the file name for the cached provider data.
@@ -181,10 +184,35 @@ func replaceCache(ctx context.Context, path string, data []byte, ops cacheFileOp
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := ops.rename(file.Name(), path); err != nil {
+	if err := renameCache(ctx, file.Name(), path, ops.rename, func(err error) bool {
+		// Windows readers can temporarily deny delete sharing to MoveFileEx.
+		return runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(32))
+	}); err != nil {
 		return fmt.Errorf("replace cache: %w", err)
 	}
 	return nil
+}
+
+// renameCache retries only transient sharing failures, without deleting the old
+// snapshot. The wait is bounded and caller cancellation wins before each attempt.
+func renameCache(ctx context.Context, from, to string, rename func(string, string) error, retryable func(error) bool) error {
+	for attempt := range 20 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := rename(from, to)
+		if err == nil || !retryable(err) || attempt == 19 {
+			return err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	panic("unreachable")
 }
 
 // RemoveCachedProviders deletes the cache file, causing the registry to

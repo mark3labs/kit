@@ -5,13 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/spf13/cobra"
-	"net/http/httptest"
-	"testing"
 
 	"github.com/mark3labs/kit/internal/models"
 )

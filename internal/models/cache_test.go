@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -42,6 +43,54 @@ func (f failingCacheFile) Chmod(mode os.FileMode) error {
 		return f.err
 	}
 	return f.File.Chmod(mode)
+}
+
+func TestCacheRenameRetry(t *testing.T) {
+	failure := errors.New("sharing violation")
+	for _, tc := range []struct {
+		name          string
+		failures      int
+		retry, cancel bool
+		wantCalls     int
+	}{
+		{"transient", 2, true, false, 3},
+		{"bounded", 100, true, false, 20},
+		{"permanent", 1, false, false, 1},
+		{"cancelled", 1, true, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			calls := 0
+			err := renameCache(ctx, "old", "new", func(from, to string) error {
+				calls++
+				if tc.cancel {
+					cancel()
+				}
+				if calls <= tc.failures {
+					return failure
+				}
+				return nil
+			}, func(err error) bool { return tc.retry && errors.Is(err, failure) })
+			if calls != tc.wantCalls {
+				t.Fatalf("calls = %d", calls)
+			}
+			switch {
+			case tc.cancel:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal(err)
+				}
+			case tc.name == "transient":
+				if err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if !errors.Is(err, failure) {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 func TestAtomicCacheFailures(t *testing.T) {
@@ -143,7 +192,8 @@ func TestAtomicCacheReaders(t *testing.T) {
 	close(stop)
 	wg.Wait()
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o644 {
+	// Windows exposes only the writable bit through Chmod, not Unix permissions.
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o644) {
 		t.Fatalf("permissions: %v %v", info, err)
 	}
 }
