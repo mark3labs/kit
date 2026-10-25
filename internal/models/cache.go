@@ -1,8 +1,10 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,9 +39,10 @@ const cacheSchemaVersion = 3
 type cacheEnvelope struct {
 	// Version is the schema the cache was written with. Absent (zero) in
 	// caches written before versioning was introduced.
-	Version   int                         `json:"version,omitempty"`
-	ETag      string                      `json:"etag,omitempty"`
-	Providers map[string]modelsDBProvider `json:"providers"`
+	Version           int                         `json:"version,omitempty"`
+	ETag              string                      `json:"etag,omitempty"`
+	SourceFingerprint string                      `json:"source_fingerprint,omitempty"`
+	Providers         map[string]modelsDBProvider `json:"providers"`
 }
 
 // dataDir returns the kit data directory following XDG Base Directory spec.
@@ -82,65 +85,123 @@ func cachePath() (string, error) {
 // next `kit update-models` to make an unconditional fetch, so the cache is
 // rewritten in full instead of being confirmed as "not modified".
 func LoadCachedProviders() (map[string]modelsDBProvider, string) {
+	env := loadCachedEnvelope()
+	return env.Providers, env.ETag
+}
+
+func loadCachedEnvelope() cacheEnvelope {
 	path, err := cachePath()
 	if err != nil {
-		return nil, ""
+		return cacheEnvelope{}
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, ""
+		return cacheEnvelope{}
 	}
-
+	providers, err := decodeModels(data)
+	if err != nil {
+		return cacheEnvelope{}
+	}
 	var env cacheEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, ""
+	if err := json.Unmarshal(data, &env); err != nil || env.Version != cacheSchemaVersion {
+		return cacheEnvelope{}
 	}
-
-	if env.Version != cacheSchemaVersion {
-		return nil, ""
-	}
-
-	if len(env.Providers) == 0 {
-		return nil, ""
-	}
-
-	return env.Providers, env.ETag
+	env.Providers = providers
+	return env
 }
 
 // StoreCachedProviders writes provider data to the cache file on disk.
 func StoreCachedProviders(providers map[string]modelsDBProvider, etag string) error {
-	path, err := cachePath()
-	if err != nil {
+	return storeCachedEnvelope(context.Background(), cacheEnvelope{Version: cacheSchemaVersion, ETag: etag, Providers: providers})
+}
+
+func storeCachedEnvelope(ctx context.Context, env cacheEnvelope) error {
+	if err := validateCatalog(env.Providers); err != nil {
 		return err
 	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	env := cacheEnvelope{
-		Version:   cacheSchemaVersion,
-		ETag:      etag,
-		Providers: providers,
-	}
-
 	data, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("failed to marshal provider data: %w", err)
 	}
+	path, err := cachePath()
+	if err != nil {
+		return err
+	}
+	return replaceCache(ctx, path, data, cacheFileOps{create: func(dir string) (cacheTempFile, error) { return os.CreateTemp(dir, ".providers-*") }, rename: os.Rename})
+}
 
-	return os.WriteFile(path, data, 0o644)
+type cacheTempFile interface {
+	io.Writer
+	Name() string
+	Chmod(os.FileMode) error
+	Sync() error
+	Close() error
+}
+
+type cacheFileOps struct {
+	create func(string) (cacheTempFile, error)
+	rename func(string, string) error
+}
+
+// replaceCache has one commit point: rename. Never delete the destination as a fallback.
+func replaceCache(ctx context.Context, path string, data []byte, ops cacheFileOps) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+	file, err := ops.create(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("create temporary cache: %w", err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = file.Close()
+		}
+		_ = os.Remove(file.Name())
+	}()
+	if n, err := file.Write(data); err != nil {
+		return fmt.Errorf("write cache: %w", err)
+	} else if n != len(data) {
+		return fmt.Errorf("write cache: %w", io.ErrShortWrite)
+	}
+	if err := file.Chmod(0o644); err != nil {
+		return fmt.Errorf("set cache permissions: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync cache: %w", err)
+	}
+	err = file.Close()
+	closed = true
+	if err != nil {
+		return fmt.Errorf("close cache: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := ops.rename(file.Name(), path); err != nil {
+		return fmt.Errorf("replace cache: %w", err)
+	}
+	return nil
 }
 
 // RemoveCachedProviders deletes the cache file, causing the registry to
 // fall back to the embedded model database on next load.
 func RemoveCachedProviders() error {
+	return removeCachedProviders(context.Background())
+}
+
+func removeCachedProviders(ctx context.Context) error {
 	path, err := cachePath()
 	if err != nil {
 		return err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}

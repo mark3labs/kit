@@ -6,6 +6,64 @@
 - [Authentication](https://go-kit.dev/sdk/authentication): credential resolution and host-controlled login.
 - [Public API index](https://go-kit.dev/sdk/api-reference): every public declaration, with Go reference links.
 
+## Update the model database
+
+`kit.UpdateModels` is a standalone, silent operation. It needs no Kit instance or
+provider credentials. It shares catalog storage with `kit update-models`.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    switch result.Status {
+    case kit.UpdateModelsStatusUpdated, kit.UpdateModelsStatusNotModified:
+        fmt.Printf("%s: %d providers, %d models\n", result.Status, result.ProviderCount, result.ModelCount)
+    case kit.UpdateModelsStatusReset:
+        fmt.Println("Using the embedded catalog")
+    }
+}
+```
+
+Zero-value options fetch `KIT_MODELS_URL` when non-empty, otherwise
+`https://models.dev/api.json?type=all`. The environment override must be an
+HTTP(S) URL with a host. An explicit source takes precedence:
+
+```go
+result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "https://example.com/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "/path/to/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "embedded"})
+```
+
+Files accept a raw models.dev catalog or a current-version cache envelope.
+Counts describe the imported catalog, including non-chat models, not the merged
+registry. `not_modified` counts describe the validated cached snapshot. Reset
+counts are zero and not applicable. Errors return a zero result.
+
+Pass a non-nil context. HTTP work has a 30-second timeout; an earlier caller
+deadline wins. Cancellation is checked before the disk commit, also for file
+imports and reset. Filesystem calls are not interruptible, and cancellation
+cannot undo a committed replacement or reset. Cache replacement is atomic;
+concurrent successful updates use the last successful replacement.
+
+There is no live reload. Call before the first registry query or Kit creation,
+or restart the application to use new data. Existing registries remain unchanged;
+new registries merge the cached catalog over the embedded catalog.
+
 ## Model modes
 
 `ModelMode` describes catalog modes, including `Experimental`, `Supported`, `UnsupportedReason`, and estimated input/output USD per million tokens. `host.ModelModes()` includes unavailable modes; `host.SupportedModelModes()` filters them. Query these methods rather than assuming every model offers a fixed mode.

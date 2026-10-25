@@ -8,7 +8,7 @@ import (
 
 // TestEffortCatalogCachePreservesProviderIdentity checks cached per-provider effort lists.
 func TestEffortCatalogCachePreservesProviderIdentity(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	var providers map[string]modelsDBProvider
 	fixture := `{"fixture-a":{"id":"fixture-a","models":{"shared":{"id":"shared","reasoning":true,"reasoning_options":[{"type":"effort","values":["low",null,"","xhigh","Future"]},{"type":"effort","values":["xhigh","max"]},{"type":"toggle"}]}}},"fixture-b":{"id":"fixture-b","models":{"shared":{"id":"shared","reasoning":true,"reasoning_options":[{"type":"budget_tokens","min":1,"max":100},{"type":"effort","values":["none","medium"]}]}}}}`
 	if err := json.Unmarshal([]byte(fixture), &providers); err != nil {

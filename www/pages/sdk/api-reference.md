@@ -529,6 +529,14 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 
 ## Models, providers and MCP
 
+- [`UpdateModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModels) — Update shared model storage without a Kit instance or credentials; does not reload existing registries.
+- [`UpdateModelsOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsOptions) — Select the default source, an HTTP(S) URL, a local file, or `embedded` reset.
+- [`UpdateModelsResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsResult) — Status and catalog provider/model counts, including non-chat models; reset counts are not applicable.
+- [`UpdateModelsStatus`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatus) — Successful update outcome.
+- [`UpdateModelsStatusUpdated`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusUpdated) — A new catalog was stored (`updated`).
+- [`UpdateModelsStatusNotModified`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusNotModified) — The server confirmed the cached snapshot (`not_modified`).
+- [`UpdateModelsStatusReset`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusReset) — The cache is absent (`reset`).
+
 - [`ErrMCPTasksListUnsupported`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrMCPTasksListUnsupported) — ErrMCPTasksListUnsupported reports that an MCP server will not answer a task-listing request.
 - [`ErrUnsupportedModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnsupportedModelMode) — ErrUnsupportedModelMode means that the active model does not support a mode.
 - [`GetLLMProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetLLMProviders) — GetLLMProviders returns provider IDs that have LLM support, either through a native provider or via openaicompat auto-routing.
