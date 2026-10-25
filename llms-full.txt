@@ -5544,6 +5544,14 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 
 ## Models, providers and MCP
 
+- [`UpdateModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModels) — Update shared model storage without a Kit instance or credentials; does not reload existing registries.
+- [`UpdateModelsOptions`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsOptions) — Select the default source, an HTTP(S) URL, a local file, or `embedded` reset.
+- [`UpdateModelsResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsResult) — Status and catalog provider/model counts, including non-chat models; reset counts are not applicable.
+- [`UpdateModelsStatus`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatus) — Successful update outcome.
+- [`UpdateModelsStatusUpdated`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusUpdated) — A new catalog was stored (`updated`).
+- [`UpdateModelsStatusNotModified`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusNotModified) — The server confirmed the cached snapshot (`not_modified`).
+- [`UpdateModelsStatusReset`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UpdateModelsStatusReset) — The cache is absent (`reset`).
+
 - [`ErrMCPTasksListUnsupported`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrMCPTasksListUnsupported) — ErrMCPTasksListUnsupported reports that an MCP server will not answer a task-listing request.
 - [`ErrUnsupportedModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnsupportedModelMode) — ErrUnsupportedModelMode means that the active model does not support a mode.
 - [`GetLLMProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetLLMProviders) — GetLLMProviders returns provider IDs that have LLM support, either through a native provider or via openaicompat auto-routing.
@@ -6920,6 +6928,64 @@ The `pkg/kit` package lets you embed Kit as a library in your Go applications.
 ```bash
 go get github.com/mark3labs/kit/pkg/kit
 ```
+
+## Update the model database
+
+Use `kit.UpdateModels` without a Kit instance or provider credentials. The API
+is silent and uses the same shared storage as `kit update-models`.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    switch result.Status {
+    case kit.UpdateModelsStatusUpdated, kit.UpdateModelsStatusNotModified:
+        fmt.Printf("%s: %d providers, %d models\n", result.Status, result.ProviderCount, result.ModelCount)
+    case kit.UpdateModelsStatusReset:
+        fmt.Println("Using the embedded catalog")
+    }
+}
+```
+
+Zero-value options use non-empty `KIT_MODELS_URL`, otherwise
+`https://models.dev/api.json?type=all`. The environment override must be an
+HTTP(S) URL with a host. Explicit sources override the environment:
+
+```go
+result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "https://example.com/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "/path/to/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "embedded"})
+```
+
+File imports accept a raw models.dev catalog or a current-version cache envelope.
+Counts describe the imported catalog, including non-chat models, not the total
+merged registry. `not_modified` counts describe the validated cached snapshot.
+Reset counts are zero (not applicable). Errors return a zero result.
+
+Use a non-nil caller context for cancellation. HTTP work has a 30-second bound;
+an earlier caller deadline wins. Cancellation is checked before disk commit,
+also for file imports and reset. Filesystem calls are not interruptible and a
+successful replacement or reset cannot be undone by cancellation. Replacement
+is atomic; concurrent successful updates use the last successful replacement.
+
+**No live reload:** call before the first registry use or restart to use the new
+data. Existing registries remain unchanged. New registries merge cached data over
+the embedded catalog.
 
 ## Basic usage
 

@@ -8,6 +8,52 @@ var e={frontmatter:{title:`Go SDK`,description:`Embed Kit in your Go application
 <p>The <code>pkg/kit</code> package lets you embed Kit as a library in your Go applications.</p>
 <h2 id="installation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#installation"><span class="icon icon-link"></span></a>Installation</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> get</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github.com/mark3labs/kit/pkg/kit</span></span></code></pre>
+<h2 id="update-the-model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#update-the-model-database"><span class="icon icon-link"></span></a>Update the model database</h2>
+<p>Use <code>kit.UpdateModels</code> without a Kit instance or provider credentials. The API
+is silent and uses the same shared storage as <code>kit update-models</code>.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">package</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> main</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">context</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">fmt</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">log</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">time</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> main</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx, cancel </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> context.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithTimeout</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(context.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Background</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">10</span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8">time.Second)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    defer</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> cancel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModelsOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Fatal</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.Status {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.UpdateModelsStatusUpdated, kit.UpdateModelsStatusNotModified:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> providers, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, result.Status, result.ProviderCount, result.ModelCount)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.UpdateModelsStatusReset:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Using the embedded catalog"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Zero-value options use non-empty <code>KIT_MODELS_URL</code>, otherwise
+<code>https://models.dev/api.json?type=all</code>. The environment override must be an
+HTTP(S) URL with a host. Explicit sources override the environment:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModelsOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Source: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://example.com/models.json"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModelsOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Source: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/models.json"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">UpdateModelsOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Source: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"embedded"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>File imports accept a raw models.dev catalog or a current-version cache envelope.
+Counts describe the imported catalog, including non-chat models, not the total
+merged registry. <code>not_modified</code> counts describe the validated cached snapshot.
+Reset counts are zero (not applicable). Errors return a zero result.</p>
+<p>Use a non-nil caller context for cancellation. HTTP work has a 30-second bound;
+an earlier caller deadline wins. Cancellation is checked before disk commit,
+also for file imports and reset. Filesystem calls are not interruptible and a
+successful replacement or reset cannot be undone by cancellation. Replacement
+is atomic; concurrent successful updates use the last successful replacement.</p>
+<p><strong>No live reload:</strong> call before the first registry use or restart to use the new
+data. Existing registries remain unchanged. New registries merge cached data over
+the embedded catalog.</p>
 <h2 id="basic-usage"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#basic-usage"><span class="icon icon-link"></span></a>Basic usage</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">package</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> main</span></span>
 <span class="line"></span>
@@ -1008,7 +1054,7 @@ prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
 <p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>
-<p>Model modes and code mode are described in <a href="/sdk/options#model-modes">SDK options</a>. Isolation switches are not an OS sandbox.</p>`,headings:[{depth:2,text:`SDK guides`,id:`sdk-guides`},{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Isolated agents`,id:`isolated-agents`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
+<p>Model modes and code mode are described in <a href="/sdk/options#model-modes">SDK options</a>. Isolation switches are not an OS sandbox.</p>`,headings:[{depth:2,text:`SDK guides`,id:`sdk-guides`},{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Update the model database`,id:`update-the-model-database`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Isolated agents`,id:`isolated-agents`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
 # Go SDK
 
 ## SDK guides
@@ -1024,6 +1070,64 @@ The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
 \`\`\`bash
 go get github.com/mark3labs/kit/pkg/kit
 \`\`\`
+
+## Update the model database
+
+Use \`kit.UpdateModels\` without a Kit instance or provider credentials. The API
+is silent and uses the same shared storage as \`kit update-models\`.
+
+\`\`\`go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    switch result.Status {
+    case kit.UpdateModelsStatusUpdated, kit.UpdateModelsStatusNotModified:
+        fmt.Printf("%s: %d providers, %d models\\n", result.Status, result.ProviderCount, result.ModelCount)
+    case kit.UpdateModelsStatusReset:
+        fmt.Println("Using the embedded catalog")
+    }
+}
+\`\`\`
+
+Zero-value options use non-empty \`KIT_MODELS_URL\`, otherwise
+\`https://models.dev/api.json?type=all\`. The environment override must be an
+HTTP(S) URL with a host. Explicit sources override the environment:
+
+\`\`\`go
+result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "https://example.com/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "/path/to/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "embedded"})
+\`\`\`
+
+File imports accept a raw models.dev catalog or a current-version cache envelope.
+Counts describe the imported catalog, including non-chat models, not the total
+merged registry. \`not_modified\` counts describe the validated cached snapshot.
+Reset counts are zero (not applicable). Errors return a zero result.
+
+Use a non-nil caller context for cancellation. HTTP work has a 30-second bound;
+an earlier caller deadline wins. Cancellation is checked before disk commit,
+also for file imports and reset. Filesystem calls are not interruptible and a
+successful replacement or reset cannot be undone by cancellation. Replacement
+is atomic; concurrent successful updates use the last successful replacement.
+
+**No live reload:** call before the first registry use or restart to use the new
+data. Existing registries remain unchanged. New registries merge cached data over
+the embedded catalog.
 
 ## Basic usage
 

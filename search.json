@@ -445,7 +445,7 @@
         "Tools and code mode"
       ],
       "tags": [],
-      "wordCount": 9347
+      "wordCount": 9430
     },
     {
       "id": "sdk/authentication",
@@ -542,6 +542,7 @@
       "headings": [
         "SDK guides",
         "Installation",
+        "Update the model database",
         "Basic usage",
         "Functional options (NewAgent)",
         "When to use which",
@@ -575,7 +576,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5249
+      "wordCount": 5504
     },
     {
       "id": "sdk/sessions",

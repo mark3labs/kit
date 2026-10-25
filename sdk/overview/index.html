@@ -6,7 +6,7 @@
 <title>Go SDK | Kit</title>
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BzU3KYGw.js"></script>
+<script type="module" src="/assets/index-CpYY1dQe.js"></script>
 <link rel="canonical" href="https://go-kit.dev/sdk/overview" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -44,6 +44,64 @@ The `pkg/kit` package lets you embed Kit as a library in your Go applications.
 ```bash
 go get github.com/mark3labs/kit/pkg/kit
 ```
+
+## Update the model database
+
+Use `kit.UpdateModels` without a Kit instance or provider credentials. The API
+is silent and uses the same shared storage as `kit update-models`.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    switch result.Status {
+    case kit.UpdateModelsStatusUpdated, kit.UpdateModelsStatusNotModified:
+        fmt.Printf("%s: %d providers, %d models\n", result.Status, result.ProviderCount, result.ModelCount)
+    case kit.UpdateModelsStatusReset:
+        fmt.Println("Using the embedded catalog")
+    }
+}
+```
+
+Zero-value options use non-empty `KIT_MODELS_URL`, otherwise
+`https://models.dev/api.json?type=all`. The environment override must be an
+HTTP(S) URL with a host. Explicit sources override the environment:
+
+```go
+result, err := kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "https://example.com/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "/path/to/models.json"})
+result, err = kit.UpdateModels(ctx, kit.UpdateModelsOptions{Source: "embedded"})
+```
+
+File imports accept a raw models.dev catalog or a current-version cache envelope.
+Counts describe the imported catalog, including non-chat models, not the total
+merged registry. `not_modified` counts describe the validated cached snapshot.
+Reset counts are zero (not applicable). Errors return a zero result.
+
+Use a non-nil caller context for cancellation. HTTP work has a 30-second bound;
+an earlier caller deadline wins. Cancellation is checked before disk commit,
+also for file imports and reset. Filesystem calls are not interruptible and a
+successful replacement or reset cannot be undone by cancellation. Replacement
+is atomic; concurrent successful updates use the last successful replacement.
+
+**No live reload:** call before the first registry use or restart to use the new
+data. Existing registries remain unchanged. New registries merge cached data over
+the embedded catalog.
 
 ## Basic usage
 
