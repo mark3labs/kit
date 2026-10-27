@@ -61,10 +61,13 @@ type MockContext struct {
 	PromptMultiSelectResult extensions.PromptMultiSelectResult
 
 	// Decide. DecisionModel is the configured default that GetDecisionModel
+	// returns, and DecisionModels is the list that GetDecisionModels
 	// returns. Decide records each request with its model resolved and
-	// returns DecideResult and DecideErr; like Kit, it fails with
-	// ErrNoDecisionModel when the request and DecisionModel are both empty.
+	// returns DecideResult and DecideErr; like Kit, it fails with an error
+	// that wraps ErrNoDecisionModel and ErrInvalidDecisionRequest when the
+	// request and DecisionModel are both empty.
 	DecisionModel  string
+	DecisionModels []extensions.DecisionModelInfo
 	DecideResult   extensions.DecisionResult
 	DecideErr      error
 	DecideRequests []extensions.DecisionRequest
@@ -130,6 +133,7 @@ func (m *MockContext) ToContext() extensions.Context {
 		Complete:          m.complete,
 		Decide:            m.decide,
 		GetDecisionModel:  m.getDecisionModel,
+		GetDecisionModels: m.getDecisionModels,
 		SuspendTUI:        m.suspendTUI,
 		RenderMessage:     m.renderMessage,
 		RegisterTheme:     m.registerTheme,
@@ -362,6 +366,12 @@ func (m *MockContext) getDecisionModel() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.DecisionModel
+}
+
+func (m *MockContext) getDecisionModels() []extensions.DecisionModelInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.DecisionModels
 }
 
 func (m *MockContext) suspendTUI(callback func()) error {

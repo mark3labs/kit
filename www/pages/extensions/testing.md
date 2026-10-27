@@ -303,7 +303,7 @@ func TestWithPrompts(t *testing.T) {
 
 ### Testing with Decision Models
 
-The mock context answers `ctx.Decide` without a network call. Set `DecisionModel` to the value that `ctx.GetDecisionModel()` returns, and `DecideResult` / `DecideErr` to the value that `ctx.Decide` returns. `DecideRequests` records each request, with the model resolved. Like Kit, the mock returns an error that wraps `ErrNoDecisionModel` when the request and `DecisionModel` are both empty.
+The mock context answers `ctx.Decide` without a network call. Set `DecisionModel` to the value that `ctx.GetDecisionModel()` returns, and `DecideResult` / `DecideErr` to the value that `ctx.Decide` returns. `DecideRequests` records each request, with the model resolved. `DecisionModels` is the list that `ctx.GetDecisionModels()` returns. Like Kit, the mock returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest` when the request and `DecisionModel` are both empty; check them with `errors.Is`, not `==`.
 
 ```go
 func TestDecisionGate(t *testing.T) {

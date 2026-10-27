@@ -112,3 +112,44 @@ func TestDecideNoModelFromYaegi(t *testing.T) {
 		t.Fatalf("prints = %q, want %q", prints, want)
 	}
 }
+
+// TestDecisionModelsFromMock checks that the mock wires GetDecisionModels,
+// both for a direct call and from interpreted code.
+func TestDecisionModelsFromMock(t *testing.T) {
+	h := New(t)
+	h.LoadString(`package main
+
+import (
+	"fmt"
+
+	"kit/ext"
+)
+
+func Init(api ext.API) {
+	api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+		for _, m := range ctx.GetDecisionModels() {
+			ctx.Print(fmt.Sprintf("%s wire=%s images=%v", m.Model, m.Wire, m.AcceptsImages))
+		}
+	})
+}
+`, "models.go")
+
+	mock := h.Context()
+	if got := mock.ToContext().GetDecisionModels(); got != nil {
+		t.Fatalf("empty mock: GetDecisionModels = %v, want nil", got)
+	}
+	mock.DecisionModels = []extensions.DecisionModelInfo{
+		{Model: "openrouter/typesafe/jev-1.14", Wire: "systemone", AcceptsImages: true},
+	}
+	if got := mock.ToContext().GetDecisionModels(); len(got) != 1 || got[0].Wire != "systemone" {
+		t.Fatalf("GetDecisionModels = %v", got)
+	}
+
+	if _, err := h.Emit(extensions.SessionStartEvent{SessionID: "test"}); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	want := "openrouter/typesafe/jev-1.14 wire=systemone images=true"
+	if prints := mock.GetPrints(); len(prints) != 1 || prints[0] != want {
+		t.Fatalf("prints = %q, want [%q]", prints, want)
+	}
+}
