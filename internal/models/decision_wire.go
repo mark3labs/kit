@@ -210,6 +210,41 @@ func (r *ModelsRegistry) DecisionWireFor(provider, modelID string) (DecisionWire
 	return wire, ok
 }
 
+// ValidateDecisionModel reports whether modelString names a decision model
+// that Kit can call. It reads only the model database and does not resolve
+// credentials or endpoints.
+func ValidateDecisionModel(modelString string) error {
+	provider, modelName, err := ParseModelString(modelString)
+	if err != nil {
+		return err
+	}
+	registry := GetGlobalRegistry()
+	providerID := catalogProviderID(provider)
+	if err := checkDecisionCatalog(registry, providerID, modelName, modelString); err != nil {
+		return err
+	}
+	if _, ok := registry.DecisionWireFor(providerID, modelName); !ok {
+		return fmt.Errorf("%w: %s", ErrUnknownDecisionWire, modelString)
+	}
+	return nil
+}
+
+// checkDecisionCatalog returns ErrNotDecisionModel when the catalog has no
+// decision model providerID/modelName and no provider override accepts any
+// model.
+func checkDecisionCatalog(registry *ModelsRegistry, providerID, modelName, modelString string) error {
+	if registry.LookupDecisionModel(providerID, modelName) != nil {
+		return nil
+	}
+	if o, ok := decisionProviderOverrides[providerID]; ok && o.AnyModel {
+		return nil
+	}
+	if registry.LookupModel(providerID, modelName) != nil {
+		return fmt.Errorf("%w: %s is a chat model", ErrNotDecisionModel, modelString)
+	}
+	return fmt.Errorf("%w: %s is not in the model database as a decision model (run 'kit update-models' to refresh it)", ErrNotDecisionModel, modelString)
+}
+
 // ResolveDecisionEndpoint resolves config.ModelString to the endpoint of a
 // decision model. The wire comes from a provider override, else from the
 // effective catalog npm package (per-model first, then provider). The base
@@ -232,11 +267,8 @@ func ResolveDecisionEndpoint(config *ProviderConfig) (*DecisionEndpoint, error) 
 	providerInfo := registry.GetProviderInfo(providerID)
 	info := registry.LookupDecisionModel(providerID, modelName)
 
-	if info == nil && (!hasOverride || !override.AnyModel) {
-		if registry.LookupModel(providerID, modelName) != nil {
-			return nil, fmt.Errorf("%w: %s is a chat model", ErrNotDecisionModel, config.ModelString)
-		}
-		return nil, fmt.Errorf("%w: %s is not in the model database as a decision model (run 'kit update-models' to refresh it)", ErrNotDecisionModel, config.ModelString)
+	if err := checkDecisionCatalog(registry, providerID, modelName, config.ModelString); err != nil {
+		return nil, err
 	}
 
 	wire, ok := registry.DecisionWireFor(providerID, modelName)

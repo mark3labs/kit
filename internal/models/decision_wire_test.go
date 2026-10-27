@@ -167,3 +167,22 @@ func TestResolveDecisionEndpointOverrides(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateDecisionModel(t *testing.T) {
+	// It reads only the model database, so a missing API key is no error.
+	isolateCredentials(t)
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	if err := ValidateDecisionModel("openrouter/typesafe/jev-1.14"); err != nil {
+		t.Errorf("decision model: error = %v", err)
+	}
+	if err := ValidateDecisionModel("anthropic/claude-sonnet-4-6"); !errors.Is(err, ErrNotDecisionModel) {
+		t.Errorf("chat model: error = %v, want ErrNotDecisionModel", err)
+	}
+	if err := ValidateDecisionModel("cloudflare-ai-gateway/typesafe/jev"); !errors.Is(err, ErrUnknownDecisionWire) {
+		t.Errorf("cloudflare-ai-gateway: error = %v, want ErrUnknownDecisionWire", err)
+	}
+	if err := ValidateDecisionModel("no-slash"); err == nil {
+		t.Error("bad model string: error = nil")
+	}
+}

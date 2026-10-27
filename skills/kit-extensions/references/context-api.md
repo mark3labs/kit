@@ -337,6 +337,39 @@ resp, err := ctx.Complete(ext.CompleteRequest{
 // resp.Text, resp.InputTokens, resp.OutputTokens, resp.Model
 ```
 
+### Decision Models
+
+Ask a decision model typed questions; answers are probabilities, not text.
+Leave `Model` empty to use the user's `decision-model` config, and tell the
+user to set it when `ctx.GetDecisionModel()` is empty. Chat models cannot
+answer decision requests.
+
+```go
+// Complain early when no default is set.
+if ctx.GetDecisionModel() == "" {
+    ctx.PrintError("my-ext: set decision-model in your kit config")
+}
+
+res, err := ctx.Decide(ext.DecisionRequest{
+    Model: "", // empty = the configured decision-model
+    State: ext.DecisionState{Text: command},
+    Questions: []ext.DecisionQuestion{
+        ext.BooleanQuestion("destructive", "Does this command delete or overwrite data?"),
+        ext.ChoiceQuestion("route", "Which team owns this?",
+            ext.DecisionOption{Name: "ops"}, ext.DecisionOption{Name: "dev"}),
+        ext.ScoreQuestion("risk", "How risky is it?", "low", "medium", "high"),
+    },
+})
+if errors.Is(err, ext.ErrNoDecisionModel) { /* no model in request or config */ }
+a, err := res.Boolean("destructive") // also res.Choice, res.Score
+// a.Probability, a.Choice, a.Score, a.Level, a.Prob("ops")
+```
+
+`ctx.GetDecisionModels()` returns `[]ext.DecisionModelInfo` (Model, Provider,
+ID, Name, Wire, AcceptsImages, ContextLimit, InputCostPerMTok). Sentinels:
+`ErrNoDecisionModel`, `ErrInvalidDecisionRequest`, `ErrInvalidDecisionResponse`,
+`ErrDecisionRefused`, `ErrNoDecisionAnswer`, `ErrWrongDecisionAnswerType`.
+
 ### TUI Suspension
 
 Temporarily release the terminal for interactive subprocesses:

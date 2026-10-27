@@ -107,3 +107,57 @@ func TestGetDecisionModels(t *testing.T) {
 		t.Error("openrouter/typesafe/jev-1.14 is not listed")
 	}
 }
+
+func TestKitDecideUsesConfiguredDecisionModel(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("OPENROUTER_API_KEY", "or-key")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"model":"jev-1.14.0","answers":{"ok":{"type":"noul","noul":0.9}},"usage":{"input_tokens":10,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+
+	var calls atomic.Int32
+	var path atomic.Value
+	opts := &Options{Model: "custom/test", ProviderURL: "http://unused.test/v1", ProviderAPIKey: "fake", Bare: true}
+	WithDecisionModel("openrouter/typesafe/jev-1.14")(opts)
+	WithHTTPTransport(func(base http.RoundTripper) http.RoundTripper {
+		return redirectTransport{base: base, target: target, calls: &calls, path: &path}
+	})(opts)
+	k := newProviderTestKit(t, opts)
+
+	if got := k.GetDecisionModel(); got != "openrouter/typesafe/jev-1.14" {
+		t.Fatalf("GetDecisionModel = %q", got)
+	}
+	req := DecisionRequest{
+		State:     DecisionState{Text: "all tests pass"},
+		Questions: []DecisionQuestion{BooleanQuestion("ok", "Did the build pass?")},
+	}
+	if _, err := k.Decide(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := path.Load(); got != "openrouter.ai/api/v1/systemone" {
+		t.Errorf("request went to %v, want openrouter.ai/api/v1/systemone", got)
+	}
+
+	// The value is live: clearing it makes Decide fail with no request sent.
+	k.v.Set("decision-model", "")
+	_, err := k.Decide(context.Background(), req)
+	if !errors.Is(err, ErrNoDecisionModel) || !errors.Is(err, ErrInvalidDecisionRequest) {
+		t.Errorf("no model: error = %v, want ErrNoDecisionModel and ErrInvalidDecisionRequest", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("transport calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestDecideWithoutModelIsErrNoDecisionModel(t *testing.T) {
+	_, err := Decide(context.Background(), DecisionRequest{
+		State:     DecisionState{Text: "x"},
+		Questions: []DecisionQuestion{BooleanQuestion("ok", "ok?")},
+	})
+	if !errors.Is(err, ErrNoDecisionModel) {
+		t.Errorf("error = %v, want ErrNoDecisionModel", err)
+	}
+}

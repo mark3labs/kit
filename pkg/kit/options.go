@@ -49,6 +49,11 @@ func NewAgent(ctx context.Context, opts ...Option) (*Kit, error) {
 // (e.g. "anthropic/claude-sonnet-4-5-20250929").
 func WithModel(m string) Option { return func(o *Options) { o.Model = m } }
 
+// WithDecisionModel sets the default decision model in "provider/model"
+// format (e.g. "openrouter/typesafe/jev-1.14"). Kit.Decide and extensions
+// use it when a request names no model.
+func WithDecisionModel(m string) Option { return func(o *Options) { o.DecisionModel = m } }
+
 // WithSystemPrompt sets the system prompt. The value may be inline text or a
 // path to a file whose contents are loaded as the prompt.
 func WithSystemPrompt(p string) Option { return func(o *Options) { o.SystemPrompt = p } }

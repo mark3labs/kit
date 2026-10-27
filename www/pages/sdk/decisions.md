@@ -16,6 +16,8 @@ Decision models classify, route, score and provide probabilistic gates. They ret
 
 `Decide` (`kit.Decide(ctx, req)`) needs no Kit instance. It resolves stored credentials or provider environment variables with default transport settings, without an instance transport wrapper. `Kit.Decide` uses the instance HTTP transport and TLS setting, and endpoint/API-key overrides when they apply to the requested model. It does not switch the chat model or append a normal agent turn to its session. See [authentication](/sdk/authentication) and [transport tracing](/sdk/callbacks#provider-request-tracing).
 
+When `DecisionRequest.Model` is empty, `Kit.Decide` uses the default decision model: `Options.DecisionModel` / `WithDecisionModel`, the `--decision-model` flag, `KIT_DECISION_MODEL` or `decision-model` in `.kit.yml`. `Kit.GetDecisionModel` returns it, and Kit reads it on each call. When no model is set, `Decide` returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest`. The standalone `kit.Decide` reads no config, so its request must name a model. At startup Kit writes a warning to stderr when the configured value is not a decision model that it can call.
+
 A decision model cannot serve as an agent chat model. Selecting one with `SetModel` returns `ErrDecisionModelNotChat`.
 
 ## Build a request
@@ -101,6 +103,7 @@ Use `errors.Is` for wrapped sentinels:
 | `ErrDecisionModelNotChat` | Use Decide instead of chat/SetModel. |
 | `ErrUnknownDecisionWire` | Select an entry with a supported wire. |
 | `ErrInvalidDecisionRequest` | Correct validation failures; nothing was sent. |
+| `ErrNoDecisionModel` | Set `DecisionRequest.Model` or the `decision-model` config; nothing was sent. |
 | `ErrInvalidDecisionResponse` | Treat mismatched, missing or malformed answers as failure. |
 | `ErrDecisionRefused` | A typed accessor found a refused answer; use an explicit host fallback. |
 | `ErrNoDecisionAnswer` | Check the question ID. |

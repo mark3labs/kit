@@ -110,6 +110,27 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
 			return kitInstance.ExecuteCompletion(context.Background(), req)
 		},
+		Decide: func(req extensions.DecisionRequest) (extensions.DecisionResult, error) {
+			res, err := kitInstance.Decide(context.Background(), kit.DecisionRequest{
+				Model:           req.Model,
+				State:           req.State,
+				Questions:       req.Questions,
+				ProviderOptions: req.ProviderOptions,
+			})
+			if err != nil {
+				return extensions.DecisionResult{}, err
+			}
+			return *res, nil
+		},
+		GetDecisionModel: kitInstance.GetDecisionModel,
+		GetDecisionModels: func() []extensions.DecisionModelInfo {
+			infos := kit.GetDecisionModels()
+			out := make([]extensions.DecisionModelInfo, len(infos))
+			for i, m := range infos {
+				out[i] = extensions.DecisionModelInfo(m)
+			}
+			return out
+		},
 		SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
 			return SpawnSubagent(ctx, kitInstance, config)
 		},

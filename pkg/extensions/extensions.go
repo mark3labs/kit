@@ -272,6 +272,73 @@ type CompleteRequest = internalext.CompleteRequest
 // standalone completion call.
 type CompleteResponse = internalext.CompleteResponse
 
+// DecisionRequest configures a ctx.Decide call. An empty Model uses the
+// configured decision-model.
+type DecisionRequest = internalext.DecisionRequest
+
+// DecisionQuestion is one typed decision question.
+type DecisionQuestion = internalext.DecisionQuestion
+
+// DecisionQuestionType is the kind of a decision question.
+type DecisionQuestionType = internalext.DecisionQuestionType
+
+// DecisionOption is one answer of a choice question.
+type DecisionOption = internalext.DecisionOption
+
+// DecisionState is what the decision questions are about.
+type DecisionState = internalext.DecisionState
+
+// DecisionImage is an image attached to a DecisionState.
+type DecisionImage = internalext.DecisionImage
+
+// DecisionResult is the result of ctx.Decide.
+type DecisionResult = internalext.DecisionResult
+
+// DecisionAnswer is the normalized answer to one decision question.
+type DecisionAnswer = internalext.DecisionAnswer
+
+// DecisionProbability is the probability of one option or level.
+type DecisionProbability = internalext.DecisionProbability
+
+// DecisionUsage is the token usage of one decision request.
+type DecisionUsage = internalext.DecisionUsage
+
+// DecisionModelInfo describes one decision model of the model database.
+type DecisionModelInfo = internalext.DecisionModelInfo
+
+// Decision question types.
+const (
+	DecisionBoolean = internalext.DecisionBoolean
+	DecisionChoice  = internalext.DecisionChoice
+	DecisionScore   = internalext.DecisionScore
+)
+
+// Decision errors returned by ctx.Decide and the answer accessors.
+var (
+	ErrNoDecisionModel         = internalext.ErrNoDecisionModel
+	ErrInvalidDecisionRequest  = internalext.ErrInvalidDecisionRequest
+	ErrInvalidDecisionResponse = internalext.ErrInvalidDecisionResponse
+	ErrDecisionRefused         = internalext.ErrDecisionRefused
+	ErrNoDecisionAnswer        = internalext.ErrNoDecisionAnswer
+	ErrWrongDecisionAnswerType = internalext.ErrWrongDecisionAnswerType
+)
+
+// BooleanQuestion returns a question that is answered with P(true).
+func BooleanQuestion(id, instructions string) DecisionQuestion {
+	return internalext.BooleanQuestion(id, instructions)
+}
+
+// ChoiceQuestion returns a question that is answered with one of options.
+func ChoiceQuestion(id, instructions string, options ...DecisionOption) DecisionQuestion {
+	return internalext.ChoiceQuestion(id, instructions, options...)
+}
+
+// ScoreQuestion returns a question that is answered with a position on the
+// scale of levels, lowest first.
+func ScoreQuestion(id, instructions string, levels ...string) DecisionQuestion {
+	return internalext.ScoreQuestion(id, instructions, levels...)
+}
+
 // StatusBarEntry represents a keyed entry in the TUI status bar. Extensions
 // can set multiple independent entries that render alongside the built-in
 // model name and token usage display.

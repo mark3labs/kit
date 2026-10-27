@@ -142,6 +142,9 @@ func applyOptionOverrides(v *viper.Viper, opts *Options) {
 	if opts.Model != "" {
 		v.Set("model", opts.Model)
 	}
+	if opts.DecisionModel != "" {
+		v.Set("decision-model", opts.DecisionModel)
+	}
 	if opts.SystemPrompt != "" {
 		v.Set("system-prompt", opts.SystemPrompt)
 	}
@@ -340,6 +343,13 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 	}
 	applyOptionOverrides(v, opts)
 	v.Set("internal-user-agent", userAgent)
+	// A warning, not an error: the model database can be out of date, and
+	// Decide reports the same problem when it is called.
+	if dm := v.GetString("decision-model"); dm != "" && !opts.Quiet {
+		if err := models.ValidateDecisionModel(dm); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: decision-model: %v\n", err)
+		}
+	}
 
 	rc := &resolvedConfig{}
 	if err := loadProjectResources(v, opts, rc); err != nil {

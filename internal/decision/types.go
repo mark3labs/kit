@@ -22,6 +22,10 @@ var (
 	// returns it before it sends anything.
 	ErrInvalidRequest = errors.New("invalid decision request")
 
+	// ErrNoModel indicates that neither the request nor the configuration
+	// names a decision model.
+	ErrNoModel = errors.New("no decision model")
+
 	// ErrInvalidResponse indicates an answer set that does not match the
 	// questions: a missing answer, a wrong type or an unknown option.
 	ErrInvalidResponse = errors.New("invalid decision response")
