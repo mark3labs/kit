@@ -114,23 +114,22 @@ func TestDecideGateExample(t *testing.T) {
 
 	// Fail closed: a missing answer, a wrong answer type or a failed call
 	// asks the user, and the mock prompt answers no.
-	unusable := map[string]func(){
-		"missing answer": func() { mock.DecideResult = extensions.DecisionResult{} },
-		"wrong type": func() {
-			mock.DecideResult = extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
-				{ID: "destructive", Type: extensions.DecisionScore},
-			}}
-		},
-		"call failed": func() {
-			mock.DecideResult = extensions.DecisionResult{}
-			mock.DecideErr = errors.New("provider unavailable")
-		},
+	unusable := []struct {
+		name   string
+		result extensions.DecisionResult
+		err    error
+	}{
+		{name: "missing answer"},
+		{name: "wrong type", result: extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+			{ID: "destructive", Type: extensions.DecisionScore},
+		}}},
+		{name: "call failed", err: errors.New("provider unavailable")},
 	}
-	for name, set := range unusable {
-		set()
+	for _, c := range unusable {
+		mock.DecideResult, mock.DecideErr = c.result, c.err
 		result, err = harness.Emit(call)
 		if err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatalf("%s: %v", c.name, err)
 		}
 		AssertBlocked(t, result, "User denied execution of command: rm -rf build")
 	}
