@@ -1,6 +1,7 @@
 package test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mark3labs/kit/pkg/extensions"
@@ -111,8 +112,31 @@ func TestDecideGateExample(t *testing.T) {
 	}
 	AssertBlocked(t, result, "User denied execution of command: rm -rf build")
 
-	if n := len(mock.DecideRequests); n != 2 {
-		t.Fatalf("got %d Decide requests, want 2", n)
+	// Fail closed: a missing answer, a wrong answer type or a failed call
+	// asks the user, and the mock prompt answers no.
+	unusable := map[string]func(){
+		"missing answer": func() { mock.DecideResult = extensions.DecisionResult{} },
+		"wrong type": func() {
+			mock.DecideResult = extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+				{ID: "destructive", Type: extensions.DecisionScore},
+			}}
+		},
+		"call failed": func() {
+			mock.DecideResult = extensions.DecisionResult{}
+			mock.DecideErr = errors.New("provider unavailable")
+		},
+	}
+	for name, set := range unusable {
+		set()
+		result, err = harness.Emit(call)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		AssertBlocked(t, result, "User denied execution of command: rm -rf build")
+	}
+
+	if n := len(mock.DecideRequests); n != 5 {
+		t.Fatalf("got %d Decide requests, want 5", n)
 	}
 	if got := mock.DecideRequests[0].State.Text; got != "rm -rf build" {
 		t.Errorf("State.Text = %q", got)

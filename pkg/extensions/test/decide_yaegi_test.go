@@ -153,3 +153,15 @@ func Init(api ext.API) {
 		t.Fatalf("prints = %q, want [%q]", prints, want)
 	}
 }
+
+// TestDecisionModelsMockReturnsCopy checks that editing the result of
+// GetDecisionModels does not change the mock's list, as in Kit.
+func TestDecisionModelsMockReturnsCopy(t *testing.T) {
+	mock := NewMockContext()
+	mock.DecisionModels = []extensions.DecisionModelInfo{{Model: "a/b"}}
+	ctx := mock.ToContext()
+	ctx.GetDecisionModels()[0].Model = "changed"
+	if got := ctx.GetDecisionModels()[0].Model; got != "a/b" {
+		t.Errorf("second call Model = %q, want a/b", got)
+	}
+}

@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/mark3labs/kit/pkg/extensions"
@@ -371,7 +372,9 @@ func (m *MockContext) getDecisionModel() string {
 func (m *MockContext) getDecisionModels() []extensions.DecisionModelInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.DecisionModels
+	// A copy, like Kit: a caller that sorts or edits the result must not
+	// change later results.
+	return slices.Clone(m.DecisionModels)
 }
 
 func (m *MockContext) suspendTUI(callback func()) error {
