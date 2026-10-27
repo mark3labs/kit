@@ -29,6 +29,46 @@ api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
 })
 ```
 
+### Pattern: Decision Model Gate
+
+Ask a decision model whether a tool call is risky, and get a probability instead of text. Do not hard-code a model: leave `Model` empty so `ctx.Decide` uses the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`), and tell the user once when it is not set. Fail closed: when there is no model, no answer or an error, ask the user. A decision model can be wrong, so this is not a security boundary either. Full example: `examples/extensions/decide-gate.go`.
+
+```go
+api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    if ctx.GetDecisionModel() == "" {
+        ctx.PrintError("my-gate: set decision-model in your kit config")
+    }
+})
+
+api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
+    if tc.ToolName != "shell" {
+        return nil
+    }
+    var input struct{ Command string `json:"command"` }
+    if err := json.Unmarshal([]byte(tc.Input), &input); err != nil {
+        return &ext.ToolCallResult{Block: true, Reason: "unreadable shell input: " + err.Error()}
+    }
+    res, err := ctx.Decide(ext.DecisionRequest{
+        State: ext.DecisionState{Text: input.Command},
+        Questions: []ext.DecisionQuestion{
+            ext.BooleanQuestion("destructive", "Can this command delete or overwrite data?"),
+        },
+    })
+    if err == nil {
+        if a, aerr := res.Boolean("destructive"); aerr == nil && a.Probability < 0.5 {
+            return nil // probably safe
+        }
+    }
+    // Probably destructive, no model (errors.Is(err, ext.ErrNoDecisionModel)),
+    // or the call failed: ask the user.
+    r := ctx.PromptConfirm(ext.PromptConfirmConfig{Message: "Allow: " + input.Command + "?"})
+    if r.Cancelled || !r.Value {
+        return &ext.ToolCallResult{Block: true, Reason: "User denied: " + input.Command}
+    }
+    return nil
+})
+```
+
 ### Pattern: System Prompt Injection
 
 Augment the agent's behavior by injecting instructions:

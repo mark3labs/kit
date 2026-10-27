@@ -57,7 +57,7 @@ The `Init` function receives an `ext.API` object for registering handlers, and e
 
 - **`api.On*`** — subscribe to one of 31 lifecycle events (`OnSessionStart`, `OnToolCall`, `OnAgentEnd`, ...). See `references/lifecycle-events.md`.
 - **`api.RegisterTool` / `RegisterCommand` / `RegisterShortcut` / `RegisterOption`** — add LLM tools, `/slash` commands, key bindings, and config options. See `references/tools-commands-shortcuts.md`.
-- **`ctx.*`** — runtime capabilities: print output, inject messages, widgets, header/footer, prompts, overlays, editor interceptor, session data/state, model and tool management, LLM completions, themes. See `references/context-api.md`.
+- **`ctx.*`** — runtime capabilities: print output, inject messages, widgets, header/footer, prompts, overlays, editor interceptor, session data/state, model and tool management, LLM completions, decision models (`ctx.Decide`: typed questions answered with probabilities), themes. See `references/context-api.md`.
 - **`api.RegisterToolRenderer` / `api.RegisterMessageRenderer`** — custom rendering of tool calls and messages. See `references/renderers.md`.
 
 ## Minimal Working Example
@@ -169,10 +169,10 @@ Read the file that matches the task. Paths are relative to this skill's root dir
 |------|--------------------------|
 | `references/lifecycle-events.md` | The full list of all 31 events (session, agent turn, tool, tool-call streaming, input, streaming, model, UI, context filtering, session control, custom events), their fields, and return types. |
 | `references/tools-commands-shortcuts.md` | Registering tools (including `ExecuteWithContext` with cancellation/progress), slash commands with tab-completion, keyboard shortcuts (key-name normalization and reserved keys), and options. |
-| `references/context-api.md` | The complete `ext.Context` API: output, message injection, widgets, header/footer, status bar, prompts, overlays, editor interceptor, terminal size, thinking level, UI visibility, session data/state, model and tool management, LLM completions, TUI suspension, themes, application control, context fields. |
+| `references/context-api.md` | The complete `ext.Context` API: output, message injection, widgets, header/footer, status bar, prompts, overlays, editor interceptor, terminal size, thinking level, UI visibility, session data/state, model and tool management, LLM completions, decision models (`ctx.Decide`, `GetDecisionModel`), TUI suspension, themes, application control, context fields. |
 | `references/renderers.md` | Custom tool renderers (`RenderHeader` / `RenderBody`) and message renderers. |
 | `references/yaegi-constraints.md` | The full Yaegi constraints section with complete code examples for each pitfall. |
-| `references/common-patterns.md` | Recipes: tool call blocking, system prompt injection, background processing with `SendMessage`, ephemeral context injection, live widget updates, custom theme with slash command, spawning Kit as a sub-agent. |
+| `references/common-patterns.md` | Recipes: tool call blocking, gating tool calls with a decision model, system prompt injection, background processing with `SendMessage`, ephemeral context injection, live widget updates, custom theme with slash command, spawning Kit as a sub-agent. |
 | `references/testing-and-distribution.md` | The `pkg/extensions/test` harness and assertions, CLI testing commands, and distributing extensions via git repositories (`kit install`, repo structure, README template, storage locations). |
 | `references/plan-mode-example.md` | A complete, end-to-end extension (Plan Mode) that combines shortcuts, widgets, tool blocking, and state. |
 | `references/bridged-sdk-apis.md` | Bridged SDK capabilities: conversation tree navigation, skill loading, template parsing, model resolution, model pricing. |
