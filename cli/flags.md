@@ -8,6 +8,7 @@ All flags can be passed to the root `kit` command.
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
+| `--decision-model` | — | — | Default [decision model](/sdk/decisions) for `ctx.Decide` calls from extensions (provider/model format). Also `decision-model` in `.kit.yml` or `KIT_DECISION_MODEL` |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
 | `--provider-wire` | — | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` ([overrides the model database](/providers#provider-overrides)) |

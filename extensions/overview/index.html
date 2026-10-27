@@ -6,7 +6,7 @@
 <title>Extension System | Kit</title>
 <meta name="description" content="Overview of Kit's Go-based extension system.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-CpYY1dQe.js"></script>
+<script type="module" src="/assets/index-Ce-gAjPA.js"></script>
 <link rel="canonical" href="https://go-kit.dev/extensions/overview" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -97,6 +97,7 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Session state** — `ctx.SetState(...)`, `ctx.GetState(...)`, `ctx.DeleteState(...)`, `ctx.ListState()` (last-write-wins, sidecar file)
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
+- **Decision models** — `ctx.Decide(...)`, `ctx.GetDecisionModel()` (typed questions answered with probabilities; see [Capabilities](/extensions/capabilities#decision-models))
 - **Custom events** — `ctx.EmitCustomEvent(...)`
 
 See [Capabilities](/extensions/capabilities) for full details on each component type, and [Testing](/extensions/testing) for writing tests for your extensions.</div>

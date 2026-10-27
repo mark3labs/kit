@@ -777,6 +777,41 @@ response := ctx.Complete(ext.CompleteRequest{
 })
 ```
 
+## Decision models
+
+Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database.
+
+```go
+// In OnSessionStart: complain once, early, when no default is set.
+if ctx.GetDecisionModel() == "" {
+    ctx.PrintError("my-ext: set decision-model in your kit config")
+}
+
+// Later, in a handler:
+res, err := ctx.Decide(ext.DecisionRequest{
+    Model: "", // empty = the configured decision-model
+    State: ext.DecisionState{Text: command},
+    Questions: []ext.DecisionQuestion{
+        ext.BooleanQuestion("destructive", "Does this command delete or overwrite data?"),
+        ext.ChoiceQuestion("route", "Which team owns this?",
+            ext.DecisionOption{Name: "ops"}, ext.DecisionOption{Name: "dev"}),
+        ext.ScoreQuestion("risk", "How risky is it?", "low", "medium", "high"),
+    },
+})
+if errors.Is(err, ext.ErrNoDecisionModel) {
+    return // already reported at session start
+}
+if err != nil {
+    ctx.PrintError("decide: " + err.Error())
+    return
+}
+a, err := res.Boolean("destructive") // also res.Choice, res.Score
+if err != nil { /* no answer, wrong type or refused */ }
+// a.Probability, a.Choice, a.Score, a.Level, a.Prob("ops")
+```
+
+See `examples/extensions/decide-gate.go` for a full example.
+
 ## Themes
 
 Register, switch, and read color themes at runtime:

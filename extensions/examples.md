@@ -29,6 +29,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`auto-commit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/auto-commit.go) | Auto-commit changes on shutdown |
 | [`plan-mode.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/plan-mode.go) | Read-only planning mode |
 | [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Opt-in confirmation for selected shell command patterns |
+| [`decide-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/decide-gate.go) | Confirmation for shell commands that a decision model rates destructive (uses the `decision-model` setting) |
 | [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Opt-in confirmation for forks and session switches |
 | [`protected-paths.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/protected-paths.go) | Path protection for sensitive files |
 | [`project-rules.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/project-rules.go) | Project-specific rules injection |

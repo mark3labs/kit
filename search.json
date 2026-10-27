@@ -159,7 +159,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1452
+      "wordCount": 1476
     },
     {
       "id": "configuration",
@@ -185,7 +185,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 2221
+      "wordCount": 2263
     },
     {
       "id": "development",
@@ -243,6 +243,7 @@
         "Subagents",
         "Monitoring subagents spawned by the main agent",
         "LLM completion",
+        "Decision models",
         "Themes",
         "Reading the active theme",
         "Custom events",
@@ -256,7 +257,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 5344
+      "wordCount": 5538
     },
     {
       "id": "extensions/examples",
@@ -276,7 +277,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 712
+      "wordCount": 730
     },
     {
       "id": "extensions/loading",
@@ -312,7 +313,7 @@
         "The Context object"
       ],
       "tags": [],
-      "wordCount": 317
+      "wordCount": 330
     },
     {
       "id": "extensions/testing",
@@ -335,6 +336,7 @@
         "Testing Status Bar",
         "Testing Print Output",
         "Testing with Prompts",
+        "Testing with Decision Models",
         "Testing Complete Session Flow",
         "Available Assertions",
         "Event Results",
@@ -352,7 +354,7 @@
         "Complete Example"
       ],
       "tags": [],
-      "wordCount": 1601
+      "wordCount": 1734
     },
     {
       "id": "index",
@@ -445,7 +447,7 @@
         "Tools and code mode"
       ],
       "tags": [],
-      "wordCount": 9430
+      "wordCount": 9471
     },
     {
       "id": "sdk/authentication",
@@ -496,7 +498,7 @@
         "Errors and cancellation"
       ],
       "tags": [],
-      "wordCount": 1008
+      "wordCount": 1100
     },
     {
       "id": "sdk/options",
@@ -532,7 +534,7 @@
         "Managed skill activation"
       ],
       "tags": [],
-      "wordCount": 6155
+      "wordCount": 6218
     },
     {
       "id": "sdk/overview",

@@ -1820,6 +1820,7 @@ All flags can be passed to the root `kit` command.
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
+| `--decision-model` | — | — | Default [decision model](/sdk/decisions) for `ctx.Decide` calls from extensions (provider/model format). Also `decision-model` in `.kit.yml` or `KIT_DECISION_MODEL` |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
 | `--provider-wire` | — | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` ([overrides the model database](/providers#provider-overrides)) |
@@ -2023,6 +2024,7 @@ stream: true
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
+| `decision-model` | string | — | Default [decision model](/sdk/decisions) for extension `ctx.Decide` calls and SDK `Kit.Decide` when a request names no model (provider/model format). Kit warns at startup when the value is not a decision model. Also `--decision-model` or `KIT_DECISION_MODEL`. |
 | `max-tokens` | int | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. Use [`modelSettings[provider/model].maxTokens`](#per-model-settings) to override per-model. |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
@@ -3237,6 +3239,41 @@ response := ctx.Complete(ext.CompleteRequest{
 })
 ```
 
+## Decision models
+
+Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database.
+
+```go
+// In OnSessionStart: complain once, early, when no default is set.
+if ctx.GetDecisionModel() == "" {
+    ctx.PrintError("my-ext: set decision-model in your kit config")
+}
+
+// Later, in a handler:
+res, err := ctx.Decide(ext.DecisionRequest{
+    Model: "", // empty = the configured decision-model
+    State: ext.DecisionState{Text: command},
+    Questions: []ext.DecisionQuestion{
+        ext.BooleanQuestion("destructive", "Does this command delete or overwrite data?"),
+        ext.ChoiceQuestion("route", "Which team owns this?",
+            ext.DecisionOption{Name: "ops"}, ext.DecisionOption{Name: "dev"}),
+        ext.ScoreQuestion("risk", "How risky is it?", "low", "medium", "high"),
+    },
+})
+if errors.Is(err, ext.ErrNoDecisionModel) {
+    return // already reported at session start
+}
+if err != nil {
+    ctx.PrintError("decide: " + err.Error())
+    return
+}
+a, err := res.Boolean("destructive") // also res.Choice, res.Score
+if err != nil { /* no answer, wrong type or refused */ }
+// a.Probability, a.Choice, a.Score, a.Level, a.Prob("ops")
+```
+
+See `examples/extensions/decide-gate.go` for a full example.
+
 ## Themes
 
 Register, switch, and read color themes at runtime:
@@ -3554,6 +3591,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`auto-commit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/auto-commit.go) | Auto-commit changes on shutdown |
 | [`plan-mode.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/plan-mode.go) | Read-only planning mode |
 | [`permission-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/permission-gate.go) | Opt-in confirmation for selected shell command patterns |
+| [`decide-gate.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/decide-gate.go) | Confirmation for shell commands that a decision model rates destructive (uses the `decision-model` setting) |
 | [`confirm-destructive.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/confirm-destructive.go) | Opt-in confirmation for forks and session switches |
 | [`protected-paths.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/protected-paths.go) | Path protection for sensitive files |
 | [`project-rules.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/project-rules.go) | Project-specific rules injection |
@@ -3910,6 +3948,7 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Session state** — `ctx.SetState(...)`, `ctx.GetState(...)`, `ctx.DeleteState(...)`, `ctx.ListState()` (last-write-wins, sidecar file)
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
+- **Decision models** — `ctx.Decide(...)`, `ctx.GetDecisionModel()` (typed questions answered with probabilities; see [Capabilities](/extensions/capabilities#decision-models))
 - **Custom events** — `ctx.EmitCustomEvent(...)`
 
 See [Capabilities](/extensions/capabilities) for full details on each component type, and [Testing](/extensions/testing) for writing tests for your extensions.
@@ -4212,6 +4251,30 @@ func TestWithPrompts(t *testing.T) {
     
     // Now when your extension calls ctx.PromptSelect(), it gets this result
     _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+}
+```
+
+### Testing with Decision Models
+
+The mock context answers `ctx.Decide` without a network call. Set `DecisionModel` to the value that `ctx.GetDecisionModel()` returns, and `DecideResult` / `DecideErr` to the value that `ctx.Decide` returns. `DecideRequests` records each request, with the model resolved. `DecisionModels` is the list that `ctx.GetDecisionModels()` returns. Like Kit, the mock returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest` when the request and `DecisionModel` are both empty; check them with `errors.Is`, not `==`.
+
+```go
+func TestDecisionGate(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-gate.go")
+
+    mock := harness.Context()
+    mock.DecisionModel = "openrouter/typesafe/jev-1.14"
+    mock.DecideResult = extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+        {ID: "destructive", Type: extensions.DecisionBoolean, Probability: 0.9},
+    }}
+
+    result, _ := harness.Emit(extensions.ToolCallEvent{ToolName: "shell", Input: `{"command":"rm -rf build"}`})
+    test.AssertBlocked(t, result, "User denied: rm -rf build") // exact reason
+
+    if len(mock.DecideRequests) != 1 {
+        t.Fatalf("got %d Decide requests, want 1", len(mock.DecideRequests))
+    }
 }
 ```
 
@@ -5193,6 +5256,7 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`WithMaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) — WithMaxTokens sets the maximum output tokens per LLM response.
 - [`WithModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) — WithModelMode selects a named mode for the selected model.
 - [`WithModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) — WithModel sets the model in "provider/model" format.
+- [`WithDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) — WithDecisionModel sets the default decision model in "provider/model" format.
 - [`WithProviderAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) — WithProviderAPIKey overrides the API key used to authenticate with the model provider.
 - [`WithProviderURL`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) — WithProviderURL overrides the provider endpoint URL.
 - [`WithProviderWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) — WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google".
@@ -5231,11 +5295,13 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`ErrInvalidDecisionRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionRequest) — ErrInvalidDecisionRequest indicates a request that fails validation.
 - [`ErrInvalidDecisionResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionResponse) — ErrInvalidDecisionResponse indicates answers that do not match the questions.
 - [`ErrNoDecisionAnswer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoDecisionAnswer) — ErrNoDecisionAnswer indicates a question ID with no answer.
+- [`ErrNoDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoDecisionModel) — ErrNoDecisionModel indicates a request with no model and no configured default (see Kit.GetDecisionModel).
 - [`ErrNotDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNotDecisionModel) — ErrNotDecisionModel indicates a model that is not a decision model.
 - [`ErrUnknownDecisionWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnknownDecisionWire) — ErrUnknownDecisionWire indicates a decision model whose protocol Kit does not know.
 - [`ErrWrongDecisionAnswerType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrWrongDecisionAnswerType) — ErrWrongDecisionAnswerType indicates an accessor for a different question type.
 - [`GetDecisionModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetDecisionModels) — GetDecisionModels lists the decision models of the model database, sorted by provider and model ID.
 - [`Kit.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Decide) — Decide sends req to a decision model.
+- [`Kit.GetDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetDecisionModel) — GetDecisionModel returns the configured default decision model in "provider/model" format.
 - [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
 
 ## Events and hooks
@@ -6063,6 +6129,8 @@ Decision models classify, route, score and provide probabilistic gates. They ret
 
 `Decide` (`kit.Decide(ctx, req)`) needs no Kit instance. It resolves stored credentials or provider environment variables with default transport settings, without an instance transport wrapper. `Kit.Decide` uses the instance HTTP transport and TLS setting, and endpoint/API-key overrides when they apply to the requested model. It does not switch the chat model or append a normal agent turn to its session. See [authentication](/sdk/authentication) and [transport tracing](/sdk/callbacks#provider-request-tracing).
 
+When `DecisionRequest.Model` is empty, `Kit.Decide` uses the default decision model: `Options.DecisionModel` / `WithDecisionModel`, the `--decision-model` flag, `KIT_DECISION_MODEL` or `decision-model` in `.kit.yml`. `Kit.GetDecisionModel` returns it, and Kit reads it on each call. When no model is set, `Decide` returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest`. The standalone `kit.Decide` reads no config, so its request must name a model. At startup Kit writes a warning to stderr when the configured value is not a decision model that it can call.
+
 A decision model cannot serve as an agent chat model. Selecting one with `SetModel` returns `ErrDecisionModelNotChat`.
 
 ## Build a request
@@ -6148,6 +6216,7 @@ Use `errors.Is` for wrapped sentinels:
 | `ErrDecisionModelNotChat` | Use Decide instead of chat/SetModel. |
 | `ErrUnknownDecisionWire` | Select an entry with a supported wire. |
 | `ErrInvalidDecisionRequest` | Correct validation failures; nothing was sent. |
+| `ErrNoDecisionModel` | Set `DecisionRequest.Model` or the `decision-model` config; nothing was sent. |
 | `ErrInvalidDecisionResponse` | Treat mismatched, missing or malformed answers as failure. |
 | `ErrDecisionRefused` | A typed accessor found a refused answer; use an explicit host fallback. |
 | `ErrNoDecisionAnswer` | Check the question ID. |
@@ -6319,6 +6388,7 @@ host, err := kit.New(ctx, &kit.Options{
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `Model` | `string` | config default | Model string (provider/model format) |
+| `DecisionModel` | `string` | config default | Default [decision model](/sdk/decisions) for `Kit.Decide` and extension `ctx.Decide` when a request names no model |
 | `SystemPrompt` | `string` | — | System prompt text or file path |
 | `ConfigFile` | `string` | empty | Explicit path; when unset, discover project config before home config |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = use the configured default) |
@@ -6810,6 +6880,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `MaxTokens` | MaxTokens overrides the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ModelMode` | Model mode to select (empty selects the model default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Model` | Override model (e.g., "anthropic/claude-sonnet-4-5-20250929"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `DecisionModel` | Default decision model in "provider/model" format, used by Kit.Decide and extensions when a request names no model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `NewAgent` | NewAgent creates a Kit using an ergonomic functional-options API. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewAgent) |
 | `NewIsolatedAgent` | NewIsolatedAgent is [NewAgent] with [Isolated] applied before opts. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewIsolatedAgent) |
 | `NoAgents` | NoAgents disables discovery of named agent definitions (built-ins and .agents/agents/ / .kit/agents/ / ~/.config/kit/agents/ files). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -6859,6 +6930,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `WithMaxTokens` | WithMaxTokens sets the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) |
 | `WithModelMode` | WithModelMode selects a named mode for the selected model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) |
 | `WithModel` | WithModel sets the model in "provider/model" format (for example openai/gpt-4.1). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
+| `WithDecisionModel` | WithDecisionModel sets the default decision model in "provider/model" format (e.g. openrouter/typesafe/jev-1.14). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) |
 | `WithProviderAPIKey` | WithProviderAPIKey overrides the API key used to authenticate with the model provider. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) |
 | `WithProviderURL` | WithProviderURL overrides the provider endpoint URL. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) |
 | `WithProviderWire` | WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) |
