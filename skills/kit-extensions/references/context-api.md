@@ -345,11 +345,12 @@ user to set it when `ctx.GetDecisionModel()` is empty. Chat models cannot
 answer decision requests.
 
 ```go
-// Complain early when no default is set.
+// In OnSessionStart: complain once, early, when no default is set.
 if ctx.GetDecisionModel() == "" {
     ctx.PrintError("my-ext: set decision-model in your kit config")
 }
 
+// Later, in a handler:
 res, err := ctx.Decide(ext.DecisionRequest{
     Model: "", // empty = the configured decision-model
     State: ext.DecisionState{Text: command},
@@ -361,8 +362,7 @@ res, err := ctx.Decide(ext.DecisionRequest{
     },
 })
 if errors.Is(err, ext.ErrNoDecisionModel) {
-    ctx.PrintError("my-ext: set decision-model in your kit config")
-    return
+    return // already reported at session start
 }
 if err != nil {
     ctx.PrintError("decide: " + err.Error())
