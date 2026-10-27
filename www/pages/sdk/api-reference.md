@@ -178,6 +178,7 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`WithMaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) — WithMaxTokens sets the maximum output tokens per LLM response.
 - [`WithModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) — WithModelMode selects a named mode for the selected model.
 - [`WithModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) — WithModel sets the model in "provider/model" format.
+- [`WithDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) — WithDecisionModel sets the default decision model in "provider/model" format.
 - [`WithProviderAPIKey`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) — WithProviderAPIKey overrides the API key used to authenticate with the model provider.
 - [`WithProviderURL`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) — WithProviderURL overrides the provider endpoint URL.
 - [`WithProviderWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) — WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google".
@@ -216,11 +217,13 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`ErrInvalidDecisionRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionRequest) — ErrInvalidDecisionRequest indicates a request that fails validation.
 - [`ErrInvalidDecisionResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrInvalidDecisionResponse) — ErrInvalidDecisionResponse indicates answers that do not match the questions.
 - [`ErrNoDecisionAnswer`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoDecisionAnswer) — ErrNoDecisionAnswer indicates a question ID with no answer.
+- [`ErrNoDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNoDecisionModel) — ErrNoDecisionModel indicates a request with no model and no configured default (see Kit.GetDecisionModel).
 - [`ErrNotDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrNotDecisionModel) — ErrNotDecisionModel indicates a model that is not a decision model.
 - [`ErrUnknownDecisionWire`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrUnknownDecisionWire) — ErrUnknownDecisionWire indicates a decision model whose protocol Kit does not know.
 - [`ErrWrongDecisionAnswerType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrWrongDecisionAnswerType) — ErrWrongDecisionAnswerType indicates an accessor for a different question type.
 - [`GetDecisionModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#GetDecisionModels) — GetDecisionModels lists the decision models of the model database, sorted by provider and model ID.
 - [`Kit.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Decide) — Decide sends req to a decision model.
+- [`Kit.GetDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetDecisionModel) — GetDecisionModel returns the configured default decision model in "provider/model" format.
 - [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
 
 ## Events and hooks

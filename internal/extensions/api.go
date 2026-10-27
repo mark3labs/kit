@@ -655,6 +655,46 @@ type Context struct {
 	//   })
 	Complete func(CompleteRequest) (CompleteResponse, error)
 
+	// Decide sends typed questions to a decision model and returns
+	// probabilities instead of text. Use it to classify, route, score or
+	// gate actions. If req.Model is empty the configured decision-model is
+	// used; if that is empty too, Decide returns an error that wraps
+	// ErrNoDecisionModel. Chat models cannot answer decision requests.
+	//
+	// Example — gate a shell command:
+	//
+	//   res, err := ctx.Decide(ext.DecisionRequest{
+	//       State:     ext.DecisionState{Text: command},
+	//       Questions: []ext.DecisionQuestion{
+	//           ext.BooleanQuestion("destructive", "Does this command delete or overwrite data?"),
+	//       },
+	//   })
+	//   if err != nil {
+	//       ctx.PrintError("decide: " + err.Error())
+	//       return
+	//   }
+	//   a, err := res.Boolean("destructive")
+	//   if err == nil && a.Probability > 0.8 { /* block */ }
+	Decide func(DecisionRequest) (DecisionResult, error)
+
+	// GetDecisionModel returns the configured default decision model
+	// ("decision-model" in .kit.yml, --decision-model or
+	// KIT_DECISION_MODEL). Empty when none is set. The value is live: read
+	// it when you need it, do not keep a copy.
+	//
+	// Example — complain early:
+	//
+	//   api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+	//       if ctx.GetDecisionModel() == "" {
+	//           ctx.PrintError("my-ext: set decision-model in your kit config")
+	//       }
+	//   })
+	GetDecisionModel func() string
+
+	// GetDecisionModels lists the decision models of the model database,
+	// sorted by provider and model ID.
+	GetDecisionModels func() []DecisionModelInfo
+
 	// SuspendTUI temporarily releases the terminal from the TUI, runs the
 	// provided callback (which may spawn interactive processes like vim or
 	// htop), and then restores the TUI. In non-interactive mode the

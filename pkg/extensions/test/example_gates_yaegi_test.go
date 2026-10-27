@@ -1,6 +1,7 @@
 package test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mark3labs/kit/pkg/extensions"
@@ -75,5 +76,68 @@ func TestProtectedPathsExample(t *testing.T) {
 		if tcr, ok := result.(extensions.ToolCallResult); ok && tcr.Block {
 			t.Errorf("%s %s: blocked with %q; want it allowed", call.ToolName, call.Input, tcr.Reason)
 		}
+	}
+}
+
+// TestDecideGateExample checks that the decide-gate example lets a command
+// through when the decision model rates it safe, asks for a command rated
+// destructive, and asks for every command when no decision-model is set.
+func TestDecideGateExample(t *testing.T) {
+	harness := New(t)
+	harness.LoadFile("../../../examples/extensions/decide-gate.go")
+	mock := harness.Context()
+	call := extensions.ToolCallEvent{ToolName: "shell", Input: `{"command":"rm -rf build"}`}
+
+	// No decision-model: the mock prompt answers no, so the call is blocked.
+	result, err := harness.Emit(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	AssertBlocked(t, result, "User denied execution of command: rm -rf build")
+
+	mock.DecisionModel = "openrouter/typesafe/jev-1.14"
+	mock.DecideResult = extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+		{ID: "destructive", Type: extensions.DecisionBoolean, Probability: 0.1},
+	}}
+	result, err = harness.Emit(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	AssertNotBlocked(t, result)
+
+	mock.DecideResult.Answers[0].Probability = 0.9
+	result, err = harness.Emit(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	AssertBlocked(t, result, "User denied execution of command: rm -rf build")
+
+	// Fail closed: a missing answer, a wrong answer type or a failed call
+	// asks the user, and the mock prompt answers no.
+	unusable := []struct {
+		name   string
+		result extensions.DecisionResult
+		err    error
+	}{
+		{name: "missing answer"},
+		{name: "wrong type", result: extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+			{ID: "destructive", Type: extensions.DecisionScore},
+		}}},
+		{name: "call failed", err: errors.New("provider unavailable")},
+	}
+	for _, c := range unusable {
+		mock.DecideResult, mock.DecideErr = c.result, c.err
+		result, err = harness.Emit(call)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		AssertBlocked(t, result, "User denied execution of command: rm -rf build")
+	}
+
+	if n := len(mock.DecideRequests); n != 5 {
+		t.Fatalf("got %d Decide requests, want 5", n)
+	}
+	if got := mock.DecideRequests[0].State.Text; got != "rm -rf build" {
+		t.Errorf("State.Text = %q", got)
 	}
 }

@@ -511,6 +511,7 @@ mcpServers:
 
 # Application settings (all optional)
 # model: "anthropic/claude-sonnet-4-5-20250929"  # Default model to use
+# decision-model: "openrouter/typesafe/jev-1.14" # Default model for extension Decide calls
 # max-steps: 10                                # Maximum agent steps (0 for unlimited)
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file

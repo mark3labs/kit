@@ -160,6 +160,7 @@ host, err := kit.New(ctx, &kit.Options{
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `Model` | `string` | config default | Model string (provider/model format) |
+| `DecisionModel` | `string` | config default | Default [decision model](/sdk/decisions) for `Kit.Decide` and extension `ctx.Decide` when a request names no model |
 | `SystemPrompt` | `string` | — | System prompt text or file path |
 | `ConfigFile` | `string` | empty | Explicit path; when unset, discover project config before home config |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = use the configured default) |
@@ -651,6 +652,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `MaxTokens` | MaxTokens overrides the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ModelMode` | Model mode to select (empty selects the model default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Model` | Override model (e.g., "anthropic/claude-sonnet-4-5-20250929"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `DecisionModel` | Default decision model in "provider/model" format, used by Kit.Decide and extensions when a request names no model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `NewAgent` | NewAgent creates a Kit using an ergonomic functional-options API. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewAgent) |
 | `NewIsolatedAgent` | NewIsolatedAgent is [NewAgent] with [Isolated] applied before opts. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewIsolatedAgent) |
 | `NoAgents` | NoAgents disables discovery of named agent definitions (built-ins and .agents/agents/ / .kit/agents/ / ~/.config/kit/agents/ files). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -700,6 +702,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `WithMaxTokens` | WithMaxTokens sets the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) |
 | `WithModelMode` | WithModelMode selects a named mode for the selected model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) |
 | `WithModel` | WithModel sets the model in "provider/model" format (for example openai/gpt-4.1). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
+| `WithDecisionModel` | WithDecisionModel sets the default decision model in "provider/model" format (e.g. openrouter/typesafe/jev-1.14). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) |
 | `WithProviderAPIKey` | WithProviderAPIKey overrides the API key used to authenticate with the model provider. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderAPIKey) |
 | `WithProviderURL` | WithProviderURL overrides the provider endpoint URL. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderURL) |
 | `WithProviderWire` | WithProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProviderWire) |

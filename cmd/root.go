@@ -28,15 +28,16 @@ import (
 )
 
 var (
-	configFile       string
-	systemPromptFile string
-	modelFlag        string
-	providerURL      string
-	providerAPIKey   string
-	providerWire     string
-	debugMode        bool
-	positionalPrompt string        // set by processPositionalArgs from CLI positional args
-	positionalFiles  []ui.FilePart // binary @file parts from processPositionalArgs
+	configFile        string
+	systemPromptFile  string
+	modelFlag         string
+	decisionModelFlag string
+	providerURL       string
+	providerAPIKey    string
+	providerWire      string
+	debugMode         bool
+	positionalPrompt  string        // set by processPositionalArgs from CLI positional args
+	positionalFiles   []ui.FilePart // binary @file parts from processPositionalArgs
 
 	quietFlag       bool
 	jsonFlag        bool
@@ -403,6 +404,9 @@ func init() {
 		StringVarP(&modelFlag, "model", "m", "anthropic/claude-sonnet-4-5-20250929",
 			"model to use (format: provider/model)")
 	rootCmd.PersistentFlags().
+		StringVar(&decisionModelFlag, "decision-model", "",
+			"default decision model for Decide calls from extensions (format: provider/model)")
+	rootCmd.PersistentFlags().
 		BoolVar(&debugMode, "debug", false, "enable debug logging")
 
 	rootCmd.PersistentFlags().
@@ -503,6 +507,7 @@ func init() {
 	_ = viper.BindPFlag("system-prompt", rootCmd.PersistentFlags().Lookup("system-prompt"))
 	_ = viper.BindPFlag("no-session", rootCmd.PersistentFlags().Lookup("no-session"))
 	_ = viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
+	_ = viper.BindPFlag("decision-model", rootCmd.PersistentFlags().Lookup("decision-model"))
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))

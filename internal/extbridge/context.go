@@ -18,8 +18,9 @@ import (
 // internal/acpserver/session.go for headless ACP mode. Keeping the shared
 // half here means a new data-access Context field only has to be wired once.
 //
-// ctx is used for subagent spawns; pass a long-lived context (not a
-// per-request one) so later spawns aren't cancelled prematurely.
+// ctx is used for subagent spawns and decision calls; pass a long-lived
+// context (not a per-request one) so later calls aren't cancelled
+// prematurely.
 func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 	return extensions.Context{
 		// -------------------------------------------------------------------
@@ -109,6 +110,27 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		// -------------------------------------------------------------------
 		Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
 			return kitInstance.ExecuteCompletion(context.Background(), req)
+		},
+		Decide: func(req extensions.DecisionRequest) (extensions.DecisionResult, error) {
+			res, err := kitInstance.Decide(ctx, kit.DecisionRequest{
+				Model:           req.Model,
+				State:           req.State,
+				Questions:       req.Questions,
+				ProviderOptions: req.ProviderOptions,
+			})
+			if err != nil {
+				return extensions.DecisionResult{}, err
+			}
+			return *res, nil
+		},
+		GetDecisionModel: kitInstance.GetDecisionModel,
+		GetDecisionModels: func() []extensions.DecisionModelInfo {
+			infos := kit.GetDecisionModels()
+			out := make([]extensions.DecisionModelInfo, len(infos))
+			for i, m := range infos {
+				out[i] = extensions.DecisionModelInfo(m)
+			}
+			return out
 		},
 		SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
 			return SpawnSubagent(ctx, kitInstance, config)

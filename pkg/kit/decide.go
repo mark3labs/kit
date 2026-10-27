@@ -75,6 +75,10 @@ var (
 	// ErrInvalidDecisionRequest indicates a request that fails validation.
 	// Nothing is sent.
 	ErrInvalidDecisionRequest = decision.ErrInvalidRequest
+	// ErrNoDecisionModel indicates a request with no model and no
+	// configured default (see Kit.GetDecisionModel). It also matches
+	// ErrInvalidDecisionRequest.
+	ErrNoDecisionModel = decision.ErrNoModel
 	// ErrInvalidDecisionResponse indicates answers that do not match the
 	// questions.
 	ErrInvalidDecisionResponse = decision.ErrInvalidResponse
@@ -168,14 +172,32 @@ func Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
 	return decide(ctx, &models.ProviderConfig{ModelString: req.Model}, req)
 }
 
-// Decide sends req to a decision model. It uses the Kit's HTTP transport
-// (WithHTTPTransport), TLS setting and, when they apply to req.Model, its
-// provider URL and API key overrides. The Kit's chat model does not change.
+// GetDecisionModel returns the configured default decision model in
+// "provider/model" format: Options.DecisionModel, the --decision-model
+// flag, KIT_DECISION_MODEL or "decision-model" in .kit.yml. Empty when none
+// is set. Kit reads the value on each call, so a change takes effect at
+// once.
+func (m *Kit) GetDecisionModel() string {
+	return m.v.GetString("decision-model")
+}
+
+// Decide sends req to a decision model. When req.Model is empty it uses
+// GetDecisionModel, and it returns ErrNoDecisionModel when that is empty
+// too. It uses the Kit's HTTP transport (WithHTTPTransport), TLS setting
+// and, when they apply to the model, its provider URL and API key
+// overrides. The Kit's chat model does not change.
 //
 // Decide validates the request before it sends it, and retries rate limits
 // and transient provider failures twice. Errors from the provider are
 // classified like other provider errors (see ClassifyProviderError).
 func (m *Kit) Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
+	if req.Model == "" {
+		req.Model = m.GetDecisionModel()
+		if req.Model == "" {
+			return nil, fmt.Errorf("%w: %w: set decision-model in .kit.yml, --decision-model or KIT_DECISION_MODEL",
+				ErrInvalidDecisionRequest, ErrNoDecisionModel)
+		}
+	}
 	cfg := &models.ProviderConfig{
 		ModelString:   req.Model,
 		TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
@@ -188,7 +210,7 @@ func (m *Kit) Decide(ctx context.Context, req DecisionRequest) (*DecisionResult,
 
 func decide(ctx context.Context, cfg *models.ProviderConfig, req DecisionRequest) (*DecisionResult, error) {
 	if req.Model == "" {
-		return nil, fmt.Errorf("%w: no model", ErrInvalidDecisionRequest)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDecisionRequest, ErrNoDecisionModel)
 	}
 	ep, err := models.ResolveDecisionEndpoint(cfg)
 	if err != nil {

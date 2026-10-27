@@ -19,6 +19,7 @@ var internalFiles = []string{
 	"api.go",
 	"runner.go",
 	"subagent.go",
+	"decide.go",
 }
 
 // notExtensionFacing lists exported internal declarations that deliberately

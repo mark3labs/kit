@@ -1286,6 +1286,11 @@ type Options struct {
 	MaxSteps     int    // Override max steps (0 = use default)
 	ModelMode    string // Model mode to select (empty selects the model default)
 
+	// DecisionModel is the default decision model in "provider/model"
+	// format. Kit.Decide and extensions use it when a request names no
+	// model. Empty leaves the "decision-model" config value in place.
+	DecisionModel string
+
 	// Streaming enables or disables streaming output. It is a pointer so the
 	// SDK can distinguish "unset" (nil) from an explicit choice, mirroring the
 	// sampling-parameter fields below. nil leaves streaming to the precedence

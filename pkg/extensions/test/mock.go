@@ -1,6 +1,8 @@
 package test
 
 import (
+	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/mark3labs/kit/pkg/extensions"
@@ -58,6 +60,18 @@ type MockContext struct {
 	PromptConfirmResult     extensions.PromptConfirmResult
 	PromptInputResult       extensions.PromptInputResult
 	PromptMultiSelectResult extensions.PromptMultiSelectResult
+
+	// Decide. DecisionModel is the configured default that GetDecisionModel
+	// returns, and DecisionModels is the list that GetDecisionModels
+	// returns. Decide records each request with its model resolved and
+	// returns DecideResult and DecideErr; like Kit, it fails with an error
+	// that wraps ErrNoDecisionModel and ErrInvalidDecisionRequest when the
+	// request and DecisionModel are both empty.
+	DecisionModel  string
+	DecisionModels []extensions.DecisionModelInfo
+	DecideResult   extensions.DecisionResult
+	DecideErr      error
+	DecideRequests []extensions.DecisionRequest
 
 	// Overlay
 	Overlays []extensions.OverlayConfig
@@ -118,6 +132,9 @@ func (m *MockContext) ToContext() extensions.Context {
 		SetActiveTools:    m.setActiveTools,
 		Exit:              m.exit,
 		Complete:          m.complete,
+		Decide:            m.decide,
+		GetDecisionModel:  m.getDecisionModel,
+		GetDecisionModels: m.getDecisionModels,
 		SuspendTUI:        m.suspendTUI,
 		RenderMessage:     m.renderMessage,
 		RegisterTheme:     m.registerTheme,
@@ -331,6 +348,33 @@ func (m *MockContext) exit() {}
 
 func (m *MockContext) complete(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
 	return extensions.CompleteResponse{}, nil
+}
+
+func (m *MockContext) decide(req extensions.DecisionRequest) (extensions.DecisionResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if req.Model == "" {
+		req.Model = m.DecisionModel
+	}
+	if req.Model == "" {
+		return extensions.DecisionResult{}, fmt.Errorf("%w: %w", extensions.ErrInvalidDecisionRequest, extensions.ErrNoDecisionModel)
+	}
+	m.DecideRequests = append(m.DecideRequests, req)
+	return m.DecideResult, m.DecideErr
+}
+
+func (m *MockContext) getDecisionModel() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.DecisionModel
+}
+
+func (m *MockContext) getDecisionModels() []extensions.DecisionModelInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	// A copy, like Kit: a caller that sorts or edits the result must not
+	// change later results.
+	return slices.Clone(m.DecisionModels)
 }
 
 func (m *MockContext) suspendTUI(callback func()) error {

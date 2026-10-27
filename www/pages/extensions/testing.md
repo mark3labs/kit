@@ -301,6 +301,30 @@ func TestWithPrompts(t *testing.T) {
 }
 ```
 
+### Testing with Decision Models
+
+The mock context answers `ctx.Decide` without a network call. Set `DecisionModel` to the value that `ctx.GetDecisionModel()` returns, and `DecideResult` / `DecideErr` to the value that `ctx.Decide` returns. `DecideRequests` records each request, with the model resolved. `DecisionModels` is the list that `ctx.GetDecisionModels()` returns. Like Kit, the mock returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest` when the request and `DecisionModel` are both empty; check them with `errors.Is`, not `==`.
+
+```go
+func TestDecisionGate(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-gate.go")
+
+    mock := harness.Context()
+    mock.DecisionModel = "openrouter/typesafe/jev-1.14"
+    mock.DecideResult = extensions.DecisionResult{Answers: []extensions.DecisionAnswer{
+        {ID: "destructive", Type: extensions.DecisionBoolean, Probability: 0.9},
+    }}
+
+    result, _ := harness.Emit(extensions.ToolCallEvent{ToolName: "shell", Input: `{"command":"rm -rf build"}`})
+    test.AssertBlocked(t, result, "User denied: rm -rf build") // exact reason
+
+    if len(mock.DecideRequests) != 1 {
+        t.Fatalf("got %d Decide requests, want 1", len(mock.DecideRequests))
+    }
+}
+```
+
 ### Testing Complete Session Flow
 
 ```go

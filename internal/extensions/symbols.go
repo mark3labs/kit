@@ -63,7 +63,34 @@ func Symbols() interp.Exports {
 			"CompleteRequest":  reflect.ValueOf((*CompleteRequest)(nil)),
 			"CompleteResponse": reflect.ValueOf((*CompleteResponse)(nil)),
 			"CompactConfig":    reflect.ValueOf((*CompactConfig)(nil)),
-			"FilePart":         reflect.ValueOf((*FilePart)(nil)),
+
+			// Decision types. ctx.Decide returns probabilities instead of
+			// text; build questions with the helper functions.
+			"DecisionRequest":      reflect.ValueOf((*DecisionRequest)(nil)),
+			"DecisionQuestion":     reflect.ValueOf((*DecisionQuestion)(nil)),
+			"DecisionQuestionType": reflect.ValueOf((*DecisionQuestionType)(nil)),
+			"DecisionOption":       reflect.ValueOf((*DecisionOption)(nil)),
+			"DecisionState":        reflect.ValueOf((*DecisionState)(nil)),
+			"DecisionImage":        reflect.ValueOf((*DecisionImage)(nil)),
+			"DecisionResult":       reflect.ValueOf((*DecisionResult)(nil)),
+			"DecisionAnswer":       reflect.ValueOf((*DecisionAnswer)(nil)),
+			"DecisionProbability":  reflect.ValueOf((*DecisionProbability)(nil)),
+			"DecisionUsage":        reflect.ValueOf((*DecisionUsage)(nil)),
+			"DecisionModelInfo":    reflect.ValueOf((*DecisionModelInfo)(nil)),
+			"DecisionBoolean":      reflect.ValueOf(DecisionBoolean),
+			"DecisionChoice":       reflect.ValueOf(DecisionChoice),
+			"DecisionScore":        reflect.ValueOf(DecisionScore),
+			"BooleanQuestion":      reflect.ValueOf(BooleanQuestion),
+			"ChoiceQuestion":       reflect.ValueOf(ChoiceQuestion),
+			"ScoreQuestion":        reflect.ValueOf(ScoreQuestion),
+
+			"ErrNoDecisionModel":         reflect.ValueOf(&ErrNoDecisionModel).Elem(),
+			"ErrInvalidDecisionRequest":  reflect.ValueOf(&ErrInvalidDecisionRequest).Elem(),
+			"ErrInvalidDecisionResponse": reflect.ValueOf(&ErrInvalidDecisionResponse).Elem(),
+			"ErrDecisionRefused":         reflect.ValueOf(&ErrDecisionRefused).Elem(),
+			"ErrNoDecisionAnswer":        reflect.ValueOf(&ErrNoDecisionAnswer).Elem(),
+			"ErrWrongDecisionAnswerType": reflect.ValueOf(&ErrWrongDecisionAnswerType).Elem(),
+			"FilePart":                   reflect.ValueOf((*FilePart)(nil)),
 
 			// Status bar types
 			"StatusBarEntry": reflect.ValueOf((*StatusBarEntry)(nil)),

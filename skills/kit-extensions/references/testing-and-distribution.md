@@ -42,6 +42,7 @@ func TestMyExtension(t *testing.T) {
 - Emit events with `Emit()` to trigger handlers
 - Verify with 25+ assertion helpers: `AssertWidgetSet()`, `AssertToolRegistered()`, `AssertPrintInfo()`, etc.
 - Mock prompts by setting results on `harness.Context().SetPromptSelectResult()`
+- Mock `ctx.Decide` with `harness.Context()` fields: `DecisionModel` (what `GetDecisionModel` returns), `DecisionModels` (what `GetDecisionModels` returns), `DecideResult` and `DecideErr` (what `Decide` returns). `DecideRequests` records each request with its model resolved. Like Kit, the mock returns an error that wraps `ErrNoDecisionModel` and `ErrInvalidDecisionRequest` when the request and `DecisionModel` are both empty; check them with `errors.Is`, not `==`. Build results with the aliases in `github.com/mark3labs/kit/pkg/extensions` (`DecisionResult`, `DecisionAnswer`, `DecisionBoolean`, ...). See `pkg/extensions/test/example_gates_yaegi_test.go`.
 - Test multiple scenarios per extension with isolated harness instances
 
 See `examples/extensions/tool-logger_test.go` for a complete example with 14 test cases.

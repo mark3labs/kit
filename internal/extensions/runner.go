@@ -338,6 +338,19 @@ func normalizeContext(ctx Context) Context {
 			return CompleteResponse{}, nil
 		}
 	}
+	// Decide fails instead of returning a zero result: a zero Probability
+	// looks like a real "false" answer.
+	if ctx.Decide == nil {
+		ctx.Decide = func(DecisionRequest) (DecisionResult, error) {
+			return DecisionResult{}, fmt.Errorf("decide is not available in this context")
+		}
+	}
+	if ctx.GetDecisionModel == nil {
+		ctx.GetDecisionModel = func() string { return "" }
+	}
+	if ctx.GetDecisionModels == nil {
+		ctx.GetDecisionModels = func() []DecisionModelInfo { return nil }
+	}
 	if ctx.SuspendTUI == nil {
 		ctx.SuspendTUI = func(callback func()) error { callback(); return nil }
 	}

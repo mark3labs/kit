@@ -72,6 +72,7 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Session state** — `ctx.SetState(...)`, `ctx.GetState(...)`, `ctx.DeleteState(...)`, `ctx.ListState()` (last-write-wins, sidecar file)
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
+- **Decision models** — `ctx.Decide(...)`, `ctx.GetDecisionModel()` (typed questions answered with probabilities; see [Capabilities](/extensions/capabilities#decision-models))
 - **Custom events** — `ctx.EmitCustomEvent(...)`
 
 See [Capabilities](/extensions/capabilities) for full details on each component type, and [Testing](/extensions/testing) for writing tests for your extensions.
