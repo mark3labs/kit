@@ -18,8 +18,9 @@ import (
 // internal/acpserver/session.go for headless ACP mode. Keeping the shared
 // half here means a new data-access Context field only has to be wired once.
 //
-// ctx is used for subagent spawns; pass a long-lived context (not a
-// per-request one) so later spawns aren't cancelled prematurely.
+// ctx is used for subagent spawns and decision calls; pass a long-lived
+// context (not a per-request one) so later calls aren't cancelled
+// prematurely.
 func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 	return extensions.Context{
 		// -------------------------------------------------------------------
@@ -111,7 +112,7 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 			return kitInstance.ExecuteCompletion(context.Background(), req)
 		},
 		Decide: func(req extensions.DecisionRequest) (extensions.DecisionResult, error) {
-			res, err := kitInstance.Decide(context.Background(), kit.DecisionRequest{
+			res, err := kitInstance.Decide(ctx, kit.DecisionRequest{
 				Model:           req.Model,
 				State:           req.State,
 				Questions:       req.Questions,

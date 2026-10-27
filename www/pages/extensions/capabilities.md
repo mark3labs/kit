@@ -802,8 +802,16 @@ res, err := ctx.Decide(ext.DecisionRequest{
         ext.ScoreQuestion("risk", "How risky is it?", "low", "medium", "high"),
     },
 })
-if errors.Is(err, ext.ErrNoDecisionModel) { /* no model in request or config */ }
+if errors.Is(err, ext.ErrNoDecisionModel) {
+    ctx.PrintError("my-ext: set decision-model in your kit config")
+    return
+}
+if err != nil {
+    ctx.PrintError("decide: " + err.Error())
+    return
+}
 a, err := res.Boolean("destructive") // also res.Choice, res.Score
+if err != nil { /* no answer, wrong type or refused */ }
 // a.Probability, a.Choice, a.Score, a.Level, a.Prob("ops")
 ```
 
