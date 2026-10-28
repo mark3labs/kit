@@ -45,6 +45,8 @@ func (m *echoModel) reply(call kit.LLMCall) string {
 	return fmt.Sprintf("[%s] you said %q (tools offered: %d)", m.model, last, len(tools))
 }
 
+// Generate returns the whole reply in one response. Kit uses it when
+// streaming is off.
 func (m *echoModel) Generate(_ context.Context, call kit.LLMCall) (*kit.LLMResponse, error) {
 	return &kit.LLMResponse{
 		Content:      kit.LLMResponseContent{kit.LLMTextContent{Text: m.reply(call)}},
@@ -53,6 +55,9 @@ func (m *echoModel) Generate(_ context.Context, call kit.LLMCall) (*kit.LLMRespo
 	}, nil
 }
 
+// Stream returns the reply as a text block (start, delta, end) and then a
+// finish part with the finish reason and usage. Kit uses it when streaming
+// is on.
 func (m *echoModel) Stream(_ context.Context, call kit.LLMCall) (kit.LLMStreamResponse, error) {
 	text := m.reply(call)
 	return func(yield func(kit.LLMStreamPart) bool) {
@@ -84,9 +89,13 @@ func (m *echoModel) StreamObject(context.Context, kit.LLMObjectCall) (kit.LLMObj
 	return nil, errors.New("structured output is not supported")
 }
 
+// Provider returns the provider name.
 func (m *echoModel) Provider() string { return "echo" }
-func (m *echoModel) Model() string    { return m.model }
 
+// Model returns the model name after the provider prefix.
+func (m *echoModel) Model() string { return m.model }
+
+// main registers the echo provider, sends one prompt and prints the reply.
 func main() {
 	ctx := context.Background()
 

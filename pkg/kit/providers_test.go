@@ -29,6 +29,7 @@ func (m *echoModel) Generate(context.Context, LLMCall) (*LLMResponse, error) {
 	}, nil
 }
 
+// Stream streams the reply as one text block followed by a finish part.
 func (m *echoModel) Stream(context.Context, LLMCall) (LLMStreamResponse, error) {
 	text := m.reply()
 	return iter.Seq[LLMStreamPart](func(yield func(LLMStreamPart) bool) {
