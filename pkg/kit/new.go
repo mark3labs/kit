@@ -332,7 +332,7 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 // resolveConfig builds the instance configuration store and snapshots every
 // instance-derived value New needs. It performs no network or subprocess
 // I/O; MCP and agent setup happen afterwards.
-func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.Viper, *resolvedConfig, error) {
+func resolveConfig(opts *Options, providers map[string]ProviderFactory, decisionProviders map[string]DecisionProviderFactory) (*viper.Viper, *resolvedConfig, error) {
 	userAgent, err := httpclient.ResolveUserAgent(opts.UserAgent)
 	if err != nil {
 		return nil, nil, err
@@ -344,8 +344,9 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 	applyOptionOverrides(v, opts)
 	v.Set("internal-user-agent", userAgent)
 	// A warning, not an error: the model database can be out of date, and
-	// Decide reports the same problem when it is called.
-	if dm := v.GetString("decision-model"); dm != "" && !opts.Quiet {
+	// Decide reports the same problem when it is called. A decision
+	// provider factory is not in the model database, so it is not checked.
+	if dm := v.GetString("decision-model"); dm != "" && !opts.Quiet && !hasDecisionProvider(decisionProviders, dm) {
 		if err := models.ValidateDecisionModel(dm); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: decision-model: %v\n", err)
 		}

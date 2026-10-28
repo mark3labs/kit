@@ -87,8 +87,11 @@ type Kit struct {
 	// providers is this instance's snapshot of Options.Providers, keyed by
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
-	providers     map[string]ProviderFactory
-	httpTransport func(http.RoundTripper) http.RoundTripper
+	providers map[string]ProviderFactory
+	// decisionProviders is this instance's snapshot of
+	// Options.DecisionProviders, keyed like providers.
+	decisionProviders map[string]DecisionProviderFactory
+	httpTransport     func(http.RoundTripper) http.RoundTripper
 	// activeModelFromFactory is true when the active model was built by a
 	// ProviderFactory. Set in New and SetModel.
 	activeModelFromFactory bool
@@ -1589,6 +1592,26 @@ type Options struct {
 	//	})
 	Providers map[string]ProviderFactory
 
+	// DecisionProviders registers decision provider factories for this Kit
+	// instance, keyed by provider name with the same rules as Providers.
+	// [Kit.Decide] (and so ctx.Decide in extensions) then sends requests
+	// for "name/<model>" to the model that the factory creates instead of
+	// to a provider of the model database. Instance factories take
+	// precedence over factories registered with [RegisterDecisionProvider].
+	// Subagents spawned by this Kit inherit them. [New] copies the map.
+	//
+	// Example:
+	//
+	//	host, _ := kit.New(ctx, &kit.Options{
+	//	    DecisionModel: "local/my-decider",
+	//	    DecisionProviders: map[string]kit.DecisionProviderFactory{
+	//	        "local": func(ctx context.Context, cfg *kit.ProviderConfig, model string) (kit.DecisionModel, error) {
+	//	            return myBackend.DecisionModel(ctx, model)
+	//	        },
+	//	    },
+	//	})
+	DecisionProviders map[string]DecisionProviderFactory
+
 	// Compaction
 	// AutoCompact enables proactive compaction before turns that near the
 	// context limit. Independent of this setting, the turn loop always
@@ -1789,7 +1812,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
-	v, rc, err := resolveConfig(opts, providers)
+	decisionProviders, err := normalizeDecisionProviders(opts.DecisionProviders)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Options.DecisionProviders: %w", err)
+	}
+
+	v, rc, err := resolveConfig(opts, providers, decisionProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -1843,6 +1871,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
 		providers:             providers,
+		decisionProviders:     decisionProviders,
 		httpTransport:         opts.HTTPTransport,
 		mcpConfig:             mcpConfig,
 		v:                     v,
@@ -2599,6 +2628,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// Propagate instance provider factories so a child can use the same
 	// application-provided backends as the parent.
 	childOpts.Providers = m.providers
+	childOpts.DecisionProviders = m.decisionProviders
 
 	// Register the run so that it can be listed and killed.
 	runID, unregister := m.subagents.add(RunningSubagent{

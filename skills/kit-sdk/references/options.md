@@ -179,6 +179,7 @@ host, err := kit.NewIsolatedAgent(ctx,
 | `ProviderURL` | `string` | Use provider default endpoint | Same base URL flag as `--provider-url` |
 | `TLSSkipVerify` | `bool` | — | Only effective when `true`; cannot force-disable via Options |
 | `Providers` | `map[string]ProviderFactory` | No instance factories | App-supplied backends; wins over `kit.RegisterProvider` and built-ins; copied by `kit.New` |
+| `DecisionProviders` | `map[string]DecisionProviderFactory` | No instance factories | App-supplied decision models for `Kit.Decide` and extension `ctx.Decide`; wins over `kit.RegisterDecisionProvider`; copied by `kit.New` |
 
 These fields eliminate the old `viper.Set("max-tokens", 16384)` dance many
 downstream embedders used to do before calling `kit.New()`. Everything is
@@ -192,6 +193,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | Name | Contract |
 | --- | --- |
 | `WithProvider` | Registers a provider factory for this Kit instance only; see `Providers`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProvider) |
+| `WithDecisionProvider` | Registers a decision provider factory for this Kit instance only; see `DecisionProviders`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) |
 | `AllowMissingCredentials` | AllowMissingCredentials lets New succeed when the configured provider cannot be created — no API key or OAuth token, a failed OAuth token refresh, an unsupported provider, and so on. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AlwaysOfferSkillActivation` | AlwaysOfferSkillActivation keeps the built-in activate_skill tool offered with an empty catalogue. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AutoCompact` | Compaction AutoCompact enables proactive compaction before turns that near the context limit. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -242,6 +244,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `ProviderURL` | ProviderURL overrides the provider endpoint. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ProviderWire` | ProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Providers` | Providers registers provider factories for this Kit instance, keyed by provider name (case-insensitive, must not contain "/"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `DecisionProviders` | DecisionProviders registers decision provider factories for this Kit instance, keyed by provider name with the same rules as Providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Quiet` | Suppress debug output. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `RetryPolicy` | RetryPolicy limits retries per model request. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SessionDir` | Project directory identity for session discovery, not a storage root. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |

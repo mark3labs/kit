@@ -20,18 +20,45 @@ const (
 // validate checks a request against the question rules and the endpoint's
 // image support. It returns an error that wraps ErrInvalidRequest.
 func validate(ep *models.DecisionEndpoint, req Request) error {
-	invalid := func(format string, args ...any) error {
-		return fmt.Errorf("%w: %s", ErrInvalidRequest, fmt.Sprintf(format, args...))
+	if err := validateQuestions(req); err != nil {
+		return err
+	}
+	if ep.Wire != models.DecisionWireGateway && len(req.Questions) > maxQuestions {
+		return invalid("%d questions; the limit is %d", len(req.Questions), maxQuestions)
 	}
 
+	if n := len(req.State.Images); n > 0 {
+		if !ep.AcceptsImages {
+			return invalid("model %s/%s does not accept images", ep.Provider, ep.Model)
+		}
+		if ep.MaxImages > 0 && n > ep.MaxImages {
+			return invalid("%d images; %s accepts at most %d", n, ep.Provider, ep.MaxImages)
+		}
+		for i, img := range req.State.Images {
+			if len(img.Data) == 0 {
+				return invalid("image %d is empty", i)
+			}
+			if !slices.Contains(ep.ImageTypes, img.MediaType) {
+				return invalid("image %d has media type %q; %s accepts %v", i, img.MediaType, ep.Provider, ep.ImageTypes)
+			}
+		}
+	}
+	return nil
+}
+
+// invalid returns an error that wraps ErrInvalidRequest.
+func invalid(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidRequest, fmt.Sprintf(format, args...))
+}
+
+// validateQuestions checks the state and the question rules that apply to
+// every model. It does not check limits that depend on the wire.
+func validateQuestions(req Request) error {
 	if req.State.Text == "" && req.State.JSON == nil && len(req.State.Images) == 0 {
 		return invalid("state is empty")
 	}
 	if len(req.Questions) == 0 {
 		return invalid("no questions")
-	}
-	if ep.Wire != models.DecisionWireGateway && len(req.Questions) > maxQuestions {
-		return invalid("%d questions; the limit is %d", len(req.Questions), maxQuestions)
 	}
 
 	seen := make(map[string]bool, len(req.Questions))
@@ -74,23 +101,6 @@ func validate(ep *models.DecisionEndpoint, req Request) error {
 			}
 		default:
 			return invalid("question %q has unknown type %q", q.ID, q.Type)
-		}
-	}
-
-	if n := len(req.State.Images); n > 0 {
-		if !ep.AcceptsImages {
-			return invalid("model %s/%s does not accept images", ep.Provider, ep.Model)
-		}
-		if ep.MaxImages > 0 && n > ep.MaxImages {
-			return invalid("%d images; %s accepts at most %d", n, ep.Provider, ep.MaxImages)
-		}
-		for i, img := range req.State.Images {
-			if len(img.Data) == 0 {
-				return invalid("image %d is empty", i)
-			}
-			if !slices.Contains(ep.ImageTypes, img.MediaType) {
-				return invalid("image %d has media type %q; %s accepts %v", i, img.MediaType, ep.Provider, ep.ImageTypes)
-			}
 		}
 	}
 	return nil

@@ -96,7 +96,9 @@ type DecisionRequest struct {
 	// Model is a decision model in "provider/model" format, for example
 	// "openrouter/typesafe/jev-1.14", "vercel/typesafe-ai/jev",
 	// "cloudflare-workers-ai/@cf/cloudflare/clef-flash" or
-	// "ollama/pplx-decider". See GetDecisionModels.
+	// "ollama/pplx-decider". See GetDecisionModels. The provider can also
+	// be the name of a decision provider factory (see
+	// RegisterDecisionProvider).
 	Model     string
 	State     DecisionState
 	Questions []DecisionQuestion
@@ -167,9 +169,10 @@ func GetDecisionModels() []DecisionModelInfo {
 
 // Decide sends req to a decision model with the default settings: API keys
 // from stored credentials or the environment, and no transport wrapper. Use
-// Kit.Decide to apply a Kit's HTTP transport and endpoint overrides.
+// Kit.Decide to apply a Kit's HTTP transport and endpoint overrides. A
+// factory registered with [RegisterDecisionProvider] handles its provider.
 func Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
-	return decide(ctx, &models.ProviderConfig{ModelString: req.Model}, req)
+	return decide(ctx, &models.ProviderConfig{ModelString: req.Model}, nil, req)
 }
 
 // GetDecisionModel returns the configured default decision model in
@@ -186,6 +189,10 @@ func (m *Kit) GetDecisionModel() string {
 // too. It uses the Kit's HTTP transport (WithHTTPTransport), TLS setting
 // and, when they apply to the model, its provider URL and API key
 // overrides. The Kit's chat model does not change.
+//
+// A decision provider factory ([Options.DecisionProviders], then
+// [RegisterDecisionProvider]) handles its provider instead of the model
+// database. Kit gives it the same configuration.
 //
 // Decide validates the request before it sends it, and retries rate limits
 // and transient provider failures twice. Errors from the provider are
@@ -205,22 +212,34 @@ func (m *Kit) Decide(ctx context.Context, req DecisionRequest) (*DecisionResult,
 		HTTPTransport: m.httpTransport,
 	}
 	m.applyEffectiveProviderSettings(cfg, req.Model)
-	return decide(ctx, cfg, req)
+	return decide(ctx, cfg, m.decisionProviders, req)
 }
 
-func decide(ctx context.Context, cfg *models.ProviderConfig, req DecisionRequest) (*DecisionResult, error) {
+// decide sends req through a decision provider factory (instance factories
+// first, then process-wide ones) or else to the endpoint that the model
+// database gives.
+func decide(ctx context.Context, cfg *models.ProviderConfig, factories map[string]DecisionProviderFactory, req DecisionRequest) (*DecisionResult, error) {
 	if req.Model == "" {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDecisionRequest, ErrNoDecisionModel)
 	}
-	ep, err := models.ResolveDecisionEndpoint(cfg)
-	if err != nil {
-		return nil, err
-	}
-	res, err := decision.Decide(ctx, ep, decision.Request{
+	wireReq := decision.Request{
 		State:           req.State,
 		Questions:       req.Questions,
 		ProviderOptions: req.ProviderOptions,
-	})
+	}
+	var (
+		res *DecisionResult
+		err error
+	)
+	if f, provider, modelName, ok := lookupDecisionProvider(factories, req.Model); ok {
+		res, err = decideWithFactory(ctx, f, cfg, provider, modelName, req, wireReq)
+	} else {
+		var ep *models.DecisionEndpoint
+		if ep, err = models.ResolveDecisionEndpoint(cfg); err != nil {
+			return nil, err
+		}
+		res, err = decision.Decide(ctx, ep, wireReq)
+	}
 	if err != nil {
 		err = fmt.Errorf("decide with %s: %w", req.Model, err)
 		if errors.Is(err, ErrInvalidDecisionRequest) || errors.Is(err, ErrInvalidDecisionResponse) {
@@ -229,4 +248,24 @@ func decide(ctx context.Context, cfg *models.ProviderConfig, req DecisionRequest
 		return nil, ClassifyProviderError(err)
 	}
 	return res, nil
+}
+
+// decideWithFactory validates req, sends it to the model that f creates and
+// checks the result.
+func decideWithFactory(ctx context.Context, f DecisionProviderFactory, cfg *models.ProviderConfig, provider, modelName string, req DecisionRequest, wireReq decision.Request) (*DecisionResult, error) {
+	if err := decision.CheckRequest(wireReq); err != nil {
+		return nil, err
+	}
+	model, err := f(ctx, cfg, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("decision provider %s: %w", provider, err)
+	}
+	if model == nil {
+		return nil, fmt.Errorf("decision provider %s: factory returned no model", provider)
+	}
+	res, err := model.Decide(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return decision.CheckResult(wireReq, res)
 }
