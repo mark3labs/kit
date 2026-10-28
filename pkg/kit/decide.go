@@ -194,8 +194,9 @@ func (m *Kit) GetDecisionModel() string {
 // [RegisterDecisionProvider]) handles its provider instead of the model
 // database. Kit gives it the same configuration.
 //
-// Decide validates the request before it sends it, and retries rate limits
-// and transient provider failures twice. Errors from the provider are
+// Decide validates the request before it sends it. For built-in providers it
+// retries rate limits and transient provider failures twice; it calls a
+// model from a decision provider factory once. Errors from the provider are
 // classified like other provider errors (see ClassifyProviderError).
 func (m *Kit) Decide(ctx context.Context, req DecisionRequest) (*DecisionResult, error) {
 	if req.Model == "" {
