@@ -1404,7 +1404,7 @@ npm/                 - NPM package wrapper for distribution
 - **Vercel AI** - Vercel AI SDK models
 - **Custom** - Any OpenAI-compatible endpoint via `--provider-url`
 - **Auto-routed** - Any provider from models.dev database
-- **App-supplied (Go SDK)** - Your own inference backend under any provider name, via `kit.RegisterProvider` or `Options.Providers` (see [pkg/kit/README.md](pkg/kit/README.md#bundled-inference-backends-custom-providers))
+- **App-supplied (Go SDK)** - Your own inference backend under any provider name, via `kit.RegisterProvider` or `Options.Providers` (see [pkg/kit/README.md](pkg/kit/README.md#bundled-inference-backends-custom-providers)). Decision models use `kit.RegisterDecisionProvider` or `Options.DecisionProviders` (see [pkg/kit/README.md](pkg/kit/README.md#custom-decision-providers))
 
 ### Custom Provider
 

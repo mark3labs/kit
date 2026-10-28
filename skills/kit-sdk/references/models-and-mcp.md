@@ -88,6 +88,7 @@ Rules:
 - Kit adds no automatic prompt-cache options; set `ProviderResult.ProviderOptions` yourself.
 - The model is usually not in the model database, so set `CompactionOptions.ContextWindow` for auto-compaction.
 - To write your own model, implement `kit.LLMLanguageModel` with `kit.LLM*` types only (`LLMCall`, `LLMResponse`, `LLMStreamResponse`, `LLMStreamPart`, `LLMObjectCall`, ...). Do not import the underlying LLM library. See `examples/sdk/custom-provider`.
+- A `ProviderFactory` serves chat models only. For `Decide`, register a `kit.DecisionProviderFactory` (`Options.DecisionProviders`, `kit.WithDecisionProvider` or `kit.RegisterDecisionProvider`). See `references/decisions.md`.
 
 ---
 

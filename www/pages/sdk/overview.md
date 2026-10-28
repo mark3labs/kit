@@ -145,6 +145,7 @@ Available options:
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
 | `WithProvider(string, ProviderFactory)` | Adds one entry to `Options.Providers` (see [Custom provider backends](#custom-provider-backends)) |
+| `WithDecisionProvider(string, DecisionProviderFactory)` | Adds one entry to `Options.DecisionProviders` (see [custom decision providers](/sdk/decisions#custom-decision-providers)) |
 | `WithConfigFile(string)` | `Options.ConfigFile` (also clears `SkipConfig`) |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
@@ -456,6 +457,10 @@ Behaviour:
 - A factory model is usually not in the [model database](/providers#model-database),
   so its context window is unknown. Set `CompactionOptions.ContextWindow` if
   you use auto-compaction.
+- A `ProviderFactory` serves chat models only. To serve decision models
+  (`Kit.Decide`) from the same backend, register a `DecisionProviderFactory`
+  under the same name. See
+  [custom decision providers](/sdk/decisions#custom-decision-providers).
 
 ## Event system
 

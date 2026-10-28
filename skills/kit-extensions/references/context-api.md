@@ -377,6 +377,10 @@ if err != nil { /* no answer, wrong type or refused */ }
 ID, Name, Wire, AcceptsImages, ContextLimit, InputCostPerMTok). Sentinels:
 `ErrNoDecisionModel`, `ErrInvalidDecisionRequest`, `ErrInvalidDecisionResponse`,
 `ErrDecisionRefused`, `ErrNoDecisionAnswer`, `ErrWrongDecisionAnswerType`.
+`GetDecisionModels` lists only the model database. A Go application that
+embeds Kit can also supply decision models with a decision provider factory
+(`kit.RegisterDecisionProvider`); `ctx.Decide` uses them, but
+`GetDecisionModels` does not list them.
 
 ### TUI Suspension
 

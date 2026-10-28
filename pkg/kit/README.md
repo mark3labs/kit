@@ -491,6 +491,8 @@ Rules:
   `LLMStreamPart`, `LLMObjectCall` and the others. You do not need to import
   the underlying LLM library. See
   [`examples/sdk/custom-provider`](https://github.com/mark3labs/kit/tree/master/examples/sdk/custom-provider).
+- A `ProviderFactory` serves chat models only. For decision models, see
+  [Custom decision providers](#custom-decision-providers).
 
 ### MCP Prompts
 
@@ -798,6 +800,43 @@ fmt.Println(team.Choice, p, hasProbability, refund.Probability, urgency.Score)
 Kit finds decision models in the model database (models.dev entries of type
 `decision`; run `kit update-models` to refresh it) and selects the wire
 protocol from the same data, so the request shape is the same for every host.
+
+#### Custom decision providers
+
+A `kit.DecisionProviderFactory` serves decision models from your own Go code,
+for example an in-process local runtime, a test double or a proxy. Requests for
+`name/<model>` then go to the `kit.DecisionModel` that the factory returns, and
+not to the model database. Extension `ctx.Decide` uses it too.
+
+```go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (kit.DecisionModel, error) {
+    return backend.DecisionModel(ctx, model) // cache loaded resources
+}
+
+// For one Kit instance (inherited by its subagents)
+host, _ := kit.New(ctx, &kit.Options{
+    DecisionModel:     "local/my-decider",
+    DecisionProviders: map[string]kit.DecisionProviderFactory{"local": factory},
+})
+
+// For every Kit instance and for standalone kit.Decide
+_ = kit.RegisterDecisionProvider("local", factory)
+```
+
+Rules:
+
+- `Options.DecisionProviders` (or `kit.WithDecisionProvider`) wins over
+  `RegisterDecisionProvider`, which wins over the model database. Names follow
+  the `ProviderFactory` rules. Chat and decision factories are separate, so
+  one name can have both.
+- Kit validates the request before it calls the model. It checks the result
+  after the call: each question needs exactly one answer with its ID and
+  type, else `ErrInvalidDecisionResponse`. Kit puts answers in question order
+  and sets `Level` on score answers.
+- Kit calls the factory for each request and does not close the model. It
+  does not retry a custom model. Use `kit.DecisionModelFunc` to adapt a plain
+  function.
+- `GetDecisionModels` lists only the model database.
 `kit.GetDecisionModels()` lists them with their wire, image support, context
 limit and input price.
 
@@ -851,7 +890,10 @@ kit.LLMObjectCall, kit.LLMObjectResponse        // GenerateObject request and re
 kit.LLMObjectStreamResponse, kit.LLMObjectStreamPart // StreamObject result
 
 // Custom provider backends
-kit.ProviderFactory // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)
+kit.ProviderFactory         // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)
+kit.DecisionProviderFactory // func(ctx, *ProviderConfig, modelName string) (DecisionModel, error)
+kit.DecisionModel           // Interface: Decide(ctx, DecisionRequest) (*DecisionResult, error)
+kit.DecisionModelFunc       // Function adapter for DecisionModel
 
 // Agent configuration — concrete Kit-owned structs and function types.
 // All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct
