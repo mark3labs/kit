@@ -6,7 +6,7 @@
 <title>SDK API Reference | Kit</title>
 <meta name="description" content="A task-based index of the public Kit Go SDK.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-Tln3Tjlm.js"></script>
+<script type="module" src="/assets/index-CEAqmVu-.js"></script>
 <link rel="canonical" href="https://go-kit.dev/sdk/api-reference" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -250,6 +250,17 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`Kit.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Decide) — Decide sends req to a decision model.
 - [`Kit.GetDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetDecisionModel) — GetDecisionModel returns the configured default decision model in "provider/model" format.
 - [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
+
+Custom decision providers (an application-supplied `DecisionModel`):
+
+- [`DecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModel) — DecisionModel is a decision model that the application supplies.
+- [`DecisionModelFunc`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc) — DecisionModelFunc adapts a function to a [DecisionModel].
+- [`DecisionModelFunc.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc.Decide) — Decide calls f.
+- [`DecisionProviderFactory`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionProviderFactory) — DecisionProviderFactory creates a decision model for a provider name that the application supplies.
+- [`RegisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisterDecisionProvider) — RegisterDecisionProvider registers f as the process-wide decision provider factory for name.
+- [`RegisteredDecisionProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisteredDecisionProviders) — RegisteredDecisionProviders returns the sorted names of all process-wide decision provider factories registered with [RegisterDecisionProvider].
+- [`UnregisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UnregisterDecisionProvider) — UnregisterDecisionProvider removes the process-wide decision provider factory registered for name.
+- [`WithDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) — WithDecisionProvider registers a decision provider factory for this Kit instance only.
 
 ## Events and hooks
 

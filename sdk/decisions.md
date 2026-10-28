@@ -88,6 +88,23 @@ func ExampleDecide() {
 
 `DecisionAnswer` contains `Probability`, which is P(true) only for boolean answers and remains zero for choice and score answers. Use `Prob(name)` for a named option or level. `Choice` is the selected name. `Score` is the expected zero-based level, possibly fractional; `Level` is the most probable level when a distribution exists (otherwise rounded score). `Distribution` holds `DecisionProbability` values in question order. `Prob(name)` returns `(float64, bool)`; absence is not zero probability. `Confidence`, when present, measures distribution concentration, not probability of correctness. `Refused` marks refusal. `DecisionUsage` contains input and output token counts. Do not assume all providers return distributions, confidence, model names, usage detail or metadata.
 
+## Custom decision providers
+
+An application can supply its own decision model, for example an in-process local runtime, a test double or a proxy. Register a `DecisionProviderFactory` process-wide with `RegisterDecisionProvider`, or for one Kit with `Options.DecisionProviders` (`WithDecisionProvider`). Requests for `name/<model>` then go to the `DecisionModel` that the factory returns, and not to the model database. Instance factories win over process-wide ones. Subagents inherit instance factories. Extension `ctx.Decide` uses them too, because it calls `Kit.Decide`.
+
+```go
+host, err := kit.New(ctx, &kit.Options{
+    DecisionModel: "local/my-decider",
+    DecisionProviders: map[string]kit.DecisionProviderFactory{
+        "local": func(ctx context.Context, cfg *kit.ProviderConfig, model string) (kit.DecisionModel, error) {
+            return myBackend.DecisionModel(ctx, model) // cache loaded resources
+        },
+    },
+})
+```
+
+Kit calls the factory for each request and does not close the model. Kit validates the request before the call (the same question rules as the wires, but no wire limit on the question count or image types). After the call, Kit checks the result: each question needs exactly one answer with its ID and type, and an unknown or duplicate answer is `ErrInvalidDecisionResponse`. Kit puts answers and distributions in question order and sets `Level` of score answers. Use `DecisionModelFunc` to adapt a plain function. Kit does not retry a custom model.
+
 ## Errors and cancellation
 
 Use `errors.Is` for wrapped sentinels:

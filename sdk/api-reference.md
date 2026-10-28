@@ -221,6 +221,17 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`Kit.GetDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetDecisionModel) — GetDecisionModel returns the configured default decision model in "provider/model" format.
 - [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
 
+Custom decision providers (an application-supplied `DecisionModel`):
+
+- [`DecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModel) — DecisionModel is a decision model that the application supplies.
+- [`DecisionModelFunc`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc) — DecisionModelFunc adapts a function to a [DecisionModel].
+- [`DecisionModelFunc.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc.Decide) — Decide calls f.
+- [`DecisionProviderFactory`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionProviderFactory) — DecisionProviderFactory creates a decision model for a provider name that the application supplies.
+- [`RegisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisterDecisionProvider) — RegisterDecisionProvider registers f as the process-wide decision provider factory for name.
+- [`RegisteredDecisionProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisteredDecisionProviders) — RegisteredDecisionProviders returns the sorted names of all process-wide decision provider factories registered with [RegisterDecisionProvider].
+- [`UnregisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UnregisterDecisionProvider) — UnregisterDecisionProvider removes the process-wide decision provider factory registered for name.
+- [`WithDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) — WithDecisionProvider registers a decision provider factory for this Kit instance only.
+
 ## Events and hooks
 
 - [`AfterToolResultHook`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AfterToolResultHook) — AfterToolResultHook is the input for hooks that fire after a tool executes.

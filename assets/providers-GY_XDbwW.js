@@ -73,7 +73,7 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 <tr>
 <td><strong>App-supplied (Go SDK)</strong></td>
 <td>any name you register</td>
-<td>Your own backend via a <code>kit.ProviderFactory</code>. See <a href="/sdk/overview#custom-provider-backends">Custom provider backends</a></td>
+<td>Your own backend via a <code>kit.ProviderFactory</code>. See <a href="/sdk/overview#custom-provider-backends">Custom provider backends</a>. For decision models, use a <code>kit.DecisionProviderFactory</code>; see <a href="/sdk/decisions#custom-decision-providers">custom decision providers</a></td>
 </tr>
 </tbody>
 </table>
@@ -352,7 +352,7 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 | **Vercel AI** | \`vercel/\` | Vercel AI SDK models |
 | **Custom** | \`custom/\` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
-| **App-supplied (Go SDK)** | any name you register | Your own backend via a \`kit.ProviderFactory\`. See [Custom provider backends](/sdk/overview#custom-provider-backends) |
+| **App-supplied (Go SDK)** | any name you register | Your own backend via a \`kit.ProviderFactory\`. See [Custom provider backends](/sdk/overview#custom-provider-backends). For decision models, use a \`kit.DecisionProviderFactory\`; see [custom decision providers](/sdk/decisions#custom-decision-providers) |
 
 ## Model string format
 

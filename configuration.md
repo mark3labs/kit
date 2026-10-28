@@ -24,7 +24,7 @@ stream: true
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
-| `decision-model` | string | — | Default [decision model](/sdk/decisions) for extension `ctx.Decide` calls and SDK `Kit.Decide` when a request names no model (provider/model format). Kit warns at startup when the value is not a decision model. Also `--decision-model` or `KIT_DECISION_MODEL`. |
+| `decision-model` | string | — | Default [decision model](/sdk/decisions) for extension `ctx.Decide` calls and SDK `Kit.Decide` when a request names no model (provider/model format). Kit warns at startup when the value is not a decision model, except for a provider that an SDK [decision provider factory](/sdk/decisions#custom-decision-providers) handles. Also `--decision-model` or `KIT_DECISION_MODEL`. |
 | `max-tokens` | int | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. Use [`modelSettings[provider/model].maxTokens`](#per-model-settings) to override per-model. |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |

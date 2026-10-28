@@ -2024,7 +2024,7 @@ stream: true
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
-| `decision-model` | string | — | Default [decision model](/sdk/decisions) for extension `ctx.Decide` calls and SDK `Kit.Decide` when a request names no model (provider/model format). Kit warns at startup when the value is not a decision model. Also `--decision-model` or `KIT_DECISION_MODEL`. |
+| `decision-model` | string | — | Default [decision model](/sdk/decisions) for extension `ctx.Decide` calls and SDK `Kit.Decide` when a request names no model (provider/model format). Kit warns at startup when the value is not a decision model, except for a provider that an SDK [decision provider factory](/sdk/decisions#custom-decision-providers) handles. Also `--decision-model` or `KIT_DECISION_MODEL`. |
 | `max-tokens` | int | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. Use [`modelSettings[provider/model].maxTokens`](#per-model-settings) to override per-model. |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
@@ -3241,7 +3241,7 @@ response := ctx.Complete(ext.CompleteRequest{
 
 ## Decision models
 
-Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database.
+Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database. When Kit runs embedded in a Go application, the application can also supply decision models with a [decision provider factory](/sdk/decisions#custom-decision-providers); `ctx.Decide` uses them, but `ctx.GetDecisionModels()` does not list them.
 
 ```go
 // In OnSessionStart: complain once, early, when no default is set.
@@ -4665,7 +4665,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
 | **Custom** | `custom/` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
-| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends) |
+| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends). For decision models, use a `kit.DecisionProviderFactory`; see [custom decision providers](/sdk/decisions#custom-decision-providers) |
 
 ## Model string format
 
@@ -5303,6 +5303,17 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`Kit.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Decide) — Decide sends req to a decision model.
 - [`Kit.GetDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetDecisionModel) — GetDecisionModel returns the configured default decision model in "provider/model" format.
 - [`ScoreQuestion`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ScoreQuestion) — ScoreQuestion returns a question that is answered with a position on the scale of levels, lowest first.
+
+Custom decision providers (an application-supplied `DecisionModel`):
+
+- [`DecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModel) — DecisionModel is a decision model that the application supplies.
+- [`DecisionModelFunc`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc) — DecisionModelFunc adapts a function to a [DecisionModel].
+- [`DecisionModelFunc.Decide`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionModelFunc.Decide) — Decide calls f.
+- [`DecisionProviderFactory`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DecisionProviderFactory) — DecisionProviderFactory creates a decision model for a provider name that the application supplies.
+- [`RegisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisterDecisionProvider) — RegisterDecisionProvider registers f as the process-wide decision provider factory for name.
+- [`RegisteredDecisionProviders`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#RegisteredDecisionProviders) — RegisteredDecisionProviders returns the sorted names of all process-wide decision provider factories registered with [RegisterDecisionProvider].
+- [`UnregisterDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#UnregisterDecisionProvider) — UnregisterDecisionProvider removes the process-wide decision provider factory registered for name.
+- [`WithDecisionProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) — WithDecisionProvider registers a decision provider factory for this Kit instance only.
 
 ## Events and hooks
 
@@ -6268,6 +6279,23 @@ func ExampleDecide() {
 
 `DecisionAnswer` contains `Probability`, which is P(true) only for boolean answers and remains zero for choice and score answers. Use `Prob(name)` for a named option or level. `Choice` is the selected name. `Score` is the expected zero-based level, possibly fractional; `Level` is the most probable level when a distribution exists (otherwise rounded score). `Distribution` holds `DecisionProbability` values in question order. `Prob(name)` returns `(float64, bool)`; absence is not zero probability. `Confidence`, when present, measures distribution concentration, not probability of correctness. `Refused` marks refusal. `DecisionUsage` contains input and output token counts. Do not assume all providers return distributions, confidence, model names, usage detail or metadata.
 
+## Custom decision providers
+
+An application can supply its own decision model, for example an in-process local runtime, a test double or a proxy. Register a `DecisionProviderFactory` process-wide with `RegisterDecisionProvider`, or for one Kit with `Options.DecisionProviders` (`WithDecisionProvider`). Requests for `name/<model>` then go to the `DecisionModel` that the factory returns, and not to the model database. Instance factories win over process-wide ones. Subagents inherit instance factories. Extension `ctx.Decide` uses them too, because it calls `Kit.Decide`.
+
+```go
+host, err := kit.New(ctx, &kit.Options{
+    DecisionModel: "local/my-decider",
+    DecisionProviders: map[string]kit.DecisionProviderFactory{
+        "local": func(ctx context.Context, cfg *kit.ProviderConfig, model string) (kit.DecisionModel, error) {
+            return myBackend.DecisionModel(ctx, model) // cache loaded resources
+        },
+    },
+})
+```
+
+Kit calls the factory for each request and does not close the model. Kit validates the request before the call (the same question rules as the wires, but no wire limit on the question count or image types). After the call, Kit checks the result: each question needs exactly one answer with its ID and type, and an unknown or duplicate answer is `ErrInvalidDecisionResponse`. Kit puts answers and distributions in question order and sets `Level` of score answers. Use `DecisionModelFunc` to adapt a plain function. Kit does not retry a custom model.
+
 ## Errors and cancellation
 
 Use `errors.Is` for wrapped sentinels:
@@ -6497,6 +6525,7 @@ when embedding Kit as a library.
 | `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 | `Providers` | `map[string]ProviderFactory` | — | Provider factories for this instance, keyed by provider name (case-insensitive, no `/`). A model string `name/<model>` is built by the factory. Wins over `kit.RegisterProvider` and the built-in providers; subagents inherit it. `kit.New` copies the map and rejects nil factories and names that differ only in case. See [Custom provider backends](/sdk/overview#custom-provider-backends). |
+| `DecisionProviders` | `map[string]DecisionProviderFactory` | — | Decision provider factories for this instance, with the same name rules as `Providers`. `Kit.Decide` (and extension `ctx.Decide`) sends requests for `name/<model>` to the factory model instead of the model database. Wins over `kit.RegisterDecisionProvider`; subagents inherit it. See [custom decision providers](/sdk/decisions#custom-decision-providers). |
 
 ### Session
 
@@ -6906,6 +6935,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | Name | Contract |
 | --- | --- |
 | `WithProvider` | Registers a provider factory for this Kit instance only; see `Providers`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProvider) |
+| `WithDecisionProvider` | Registers a decision provider factory for this Kit instance only; see `DecisionProviders`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) |
 | `AllowMissingCredentials` | AllowMissingCredentials lets New succeed when the configured provider cannot be created — no API key or OAuth token, a failed OAuth token refresh, an unsupported provider, and so on. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AlwaysOfferSkillActivation` | AlwaysOfferSkillActivation keeps the built-in activate_skill tool offered with an empty catalogue. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AutoCompact` | Compaction AutoCompact enables proactive compaction before turns that near the context limit. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -6956,6 +6986,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `ProviderURL` | ProviderURL overrides the provider endpoint. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ProviderWire` | ProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Providers` | Providers registers provider factories for this Kit instance, keyed by provider name (case-insensitive, must not contain "/"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `DecisionProviders` | DecisionProviders registers decision provider factories for this Kit instance, keyed by provider name with the same rules as Providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Quiet` | Suppress debug output. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `RetryPolicy` | RetryPolicy limits retries per model request. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SessionDir` | Project directory identity for session discovery, not a storage root. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -7188,6 +7219,7 @@ Available options:
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
 | `WithProvider(string, ProviderFactory)` | Adds one entry to `Options.Providers` (see [Custom provider backends](#custom-provider-backends)) |
+| `WithDecisionProvider(string, DecisionProviderFactory)` | Adds one entry to `Options.DecisionProviders` (see [custom decision providers](/sdk/decisions#custom-decision-providers)) |
 | `WithConfigFile(string)` | `Options.ConfigFile` (also clears `SkipConfig`) |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
@@ -7499,6 +7531,10 @@ Behaviour:
 - A factory model is usually not in the [model database](/providers#model-database),
   so its context window is unknown. Set `CompactionOptions.ContextWindow` if
   you use auto-compaction.
+- A `ProviderFactory` serves chat models only. To serve decision models
+  (`Kit.Decide`) from the same backend, register a `DecisionProviderFactory`
+  under the same name. See
+  [custom decision providers](/sdk/decisions#custom-decision-providers).
 
 ## Event system
 

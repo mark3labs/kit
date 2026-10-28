@@ -151,6 +151,10 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 <td>Adds one entry to <code>Options.Providers</code> (see <a href="#custom-provider-backends">Custom provider backends</a>)</td>
 </tr>
 <tr>
+<td><code>WithDecisionProvider(string, DecisionProviderFactory)</code></td>
+<td>Adds one entry to <code>Options.DecisionProviders</code> (see <a href="/sdk/decisions#custom-decision-providers">custom decision providers</a>)</td>
+</tr>
+<tr>
 <td><code>WithConfigFile(string)</code></td>
 <td><code>Options.ConfigFile</code> (also clears <code>SkipConfig</code>)</td>
 </tr>
@@ -520,6 +524,10 @@ the underlying LLM library. See
 <li>A factory model is usually not in the <a href="/providers#model-database">model database</a>,
 so its context window is unknown. Set <code>CompactionOptions.ContextWindow</code> if
 you use auto-compaction.</li>
+<li>A <code>ProviderFactory</code> serves chat models only. To serve decision models
+(<code>Kit.Decide</code>) from the same backend, register a <code>DecisionProviderFactory</code>
+under the same name. See
+<a href="/sdk/decisions#custom-decision-providers">custom decision providers</a>.</li>
 </ul>
 <h2 id="event-system"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#event-system"><span class="icon icon-link"></span></a>Event system</h2>
 <p>Subscribe to events for monitoring:</p>
@@ -1201,6 +1209,7 @@ Available options:
 | \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
 | \`WithProviderWire(string)\` | \`Options.ProviderWire\` (wire protocol for auto-routed providers: \`openai\`, \`openai-compat\`, \`anthropic\`, \`google\`) |
 | \`WithProvider(string, ProviderFactory)\` | Adds one entry to \`Options.Providers\` (see [Custom provider backends](#custom-provider-backends)) |
+| \`WithDecisionProvider(string, DecisionProviderFactory)\` | Adds one entry to \`Options.DecisionProviders\` (see [custom decision providers](/sdk/decisions#custom-decision-providers)) |
 | \`WithConfigFile(string)\` | \`Options.ConfigFile\` (also clears \`SkipConfig\`) |
 | \`WithDebug()\` | \`Options.Debug = true\` |
 | \`WithDebugLogger(DebugLogger)\` | \`Options.DebugLogger\` (route engine + MCP debug output into a custom logger; overrides \`WithDebug\` when set) |
@@ -1512,6 +1521,10 @@ Behaviour:
 - A factory model is usually not in the [model database](/providers#model-database),
   so its context window is unknown. Set \`CompactionOptions.ContextWindow\` if
   you use auto-compaction.
+- A \`ProviderFactory\` serves chat models only. To serve decision models
+  (\`Kit.Decide\`) from the same backend, register a \`DecisionProviderFactory\`
+  under the same name. See
+  [custom decision providers](/sdk/decisions#custom-decision-providers).
 
 ## Event system
 

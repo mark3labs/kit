@@ -185,7 +185,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 2263
+      "wordCount": 2274
     },
     {
       "id": "development",
@@ -257,7 +257,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 5538
+      "wordCount": 5567
     },
     {
       "id": "extensions/examples",
@@ -410,7 +410,7 @@
         "Model database"
       ],
       "tags": [],
-      "wordCount": 1537
+      "wordCount": 1547
     },
     {
       "id": "quick-start",
@@ -447,7 +447,7 @@
         "Tools and code mode"
       ],
       "tags": [],
-      "wordCount": 10075
+      "wordCount": 10183
     },
     {
       "id": "sdk/authentication",
@@ -495,10 +495,11 @@
         "Standalone or instance",
         "Build a request",
         "Read answers by ID",
+        "Custom decision providers",
         "Errors and cancellation"
       ],
       "tags": [],
-      "wordCount": 1100
+      "wordCount": 1297
     },
     {
       "id": "sdk/options",
@@ -534,7 +535,7 @@
         "Managed skill activation"
       ],
       "tags": [],
-      "wordCount": 6218
+      "wordCount": 6309
     },
     {
       "id": "sdk/overview",
@@ -578,7 +579,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5536
+      "wordCount": 5577
     },
     {
       "id": "sdk/sessions",

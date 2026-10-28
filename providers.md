@@ -19,7 +19,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
 | **Custom** | `custom/` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
-| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends) |
+| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends). For decision models, use a `kit.DecisionProviderFactory`; see [custom decision providers](/sdk/decisions#custom-decision-providers) |
 
 ## Model string format
 
