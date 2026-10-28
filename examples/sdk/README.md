@@ -31,6 +31,14 @@ go run ./examples/sdk/crypto-monitor
 CRYPTO_INTERVAL=5m go run ./examples/sdk/crypto-monitor
 ```
 
+### [custom-provider](custom-provider/)
+
+Plugs an in-process language model into Kit with a `ProviderFactory`. The model implements `kit.LLMLanguageModel` with only `kit.LLM*` types and runs offline.
+
+```bash
+go run ./examples/sdk/custom-provider "ping"
+```
+
 ## Getting Started
 
 ```go
