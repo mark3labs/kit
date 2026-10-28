@@ -486,6 +486,11 @@ Rules:
   `ProviderResult.ProviderOptions` if your backend needs options.
 - Models that are not in the model database have no known context window.
   Set `CompactionOptions.ContextWindow` if you need auto-compaction.
+- To write your own model, implement `kit.LLMLanguageModel` with the
+  `kit.LLM*` types: `LLMCall`, `LLMResponse`, `LLMStreamResponse`,
+  `LLMStreamPart`, `LLMObjectCall` and the others. You do not need to import
+  the underlying LLM library. See
+  [`examples/sdk/custom-provider`](https://github.com/mark3labs/kit/tree/master/examples/sdk/custom-provider).
 
 ### MCP Prompts
 
@@ -833,6 +838,17 @@ kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 kit.LLMProvider     // source of language models (adapt into a ProviderFactory)
 kit.LLMLanguageModel // model returned by a ProviderFactory
+
+// Custom model types — implement LLMLanguageModel without importing the LLM library
+kit.LLMCall, kit.LLMCallWarning                 // Generate/Stream request; non-fatal call warning
+kit.LLMStreamResponse, kit.LLMStreamPart        // iter.Seq[LLMStreamPart]; one stream event
+kit.LLMStreamPartType*                          // TextStart/TextDelta/TextEnd, ToolCall, Finish, Error, ...
+kit.LLMResponseContent, kit.LLMContent          // LLMResponse.Content and its items
+kit.LLMTextContent, kit.LLMReasoningContent, kit.LLMToolCallContent // also File/Source/ToolResult
+kit.AsLLMContent[T]                             // LLMContent -> concrete type
+kit.LLMToolDefinition, kit.LLMFunctionTool      // entries of LLMCall.Tools
+kit.LLMObjectCall, kit.LLMObjectResponse        // GenerateObject request and result
+kit.LLMObjectStreamResponse, kit.LLMObjectStreamPart // StreamObject result
 
 // Custom provider backends
 kit.ProviderFactory // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)

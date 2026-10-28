@@ -24,6 +24,17 @@ kit.ProviderFactory  // func(ctx, *ProviderConfig, modelName string) (*ProviderR
 kit.LLMProvider      // source of language models; adapt one into a ProviderFactory
 kit.LLMLanguageModel // the model a ProviderFactory returns in ProviderResult.Model
 
+// Custom model types — implement LLMLanguageModel without importing the LLM library
+kit.LLMCall, kit.LLMCallWarning                 // Generate/Stream request; non-fatal call warning
+kit.LLMStreamResponse, kit.LLMStreamPart        // iter.Seq[LLMStreamPart]; one stream event
+kit.LLMStreamPartType*                          // TextStart/TextDelta/TextEnd, ToolCall, Finish, Error, ...
+kit.LLMResponseContent, kit.LLMContent          // LLMResponse.Content and its items
+kit.LLMTextContent, kit.LLMReasoningContent, kit.LLMToolCallContent // also File/Source/ToolResult
+kit.AsLLMContent[T]                             // LLMContent -> concrete type
+kit.LLMToolDefinition, kit.LLMFunctionTool      // entries of LLMCall.Tools
+kit.LLMObjectCall, kit.LLMObjectResponse        // GenerateObject request and result
+kit.LLMObjectStreamResponse, kit.LLMObjectStreamPart // StreamObject result
+
 // LLM types — clean aliases (no external library dependency in consumer code)
 kit.LLMMessage      // {Role LLMMessageRole, Content string}
 kit.LLMMessagePart  // interface for message content parts

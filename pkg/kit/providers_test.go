@@ -9,8 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	"charm.land/fantasy"
 )
 
 // echoModel is an in-process language model that answers every call with a
@@ -23,25 +21,25 @@ type echoModel struct {
 
 func (m *echoModel) reply() string { return "reply from " + m.model }
 
-func (m *echoModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
-	return &fantasy.Response{
-		Content:      fantasy.ResponseContent{fantasy.TextContent{Text: m.reply()}},
-		FinishReason: fantasy.FinishReasonStop,
-		Usage:        fantasy.Usage{InputTokens: 3, OutputTokens: 2},
+func (m *echoModel) Generate(context.Context, LLMCall) (*LLMResponse, error) {
+	return &LLMResponse{
+		Content:      LLMResponseContent{LLMTextContent{Text: m.reply()}},
+		FinishReason: FinishReasonStop,
+		Usage:        LLMUsage{InputTokens: 3, OutputTokens: 2},
 	}, nil
 }
 
-func (m *echoModel) Stream(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
+func (m *echoModel) Stream(context.Context, LLMCall) (LLMStreamResponse, error) {
 	text := m.reply()
-	return iter.Seq[fantasy.StreamPart](func(yield func(fantasy.StreamPart) bool) {
-		parts := []fantasy.StreamPart{
-			{Type: fantasy.StreamPartTypeTextStart, ID: "t1"},
-			{Type: fantasy.StreamPartTypeTextDelta, ID: "t1", Delta: text},
-			{Type: fantasy.StreamPartTypeTextEnd, ID: "t1"},
+	return iter.Seq[LLMStreamPart](func(yield func(LLMStreamPart) bool) {
+		parts := []LLMStreamPart{
+			{Type: LLMStreamPartTypeTextStart, ID: "t1"},
+			{Type: LLMStreamPartTypeTextDelta, ID: "t1", Delta: text},
+			{Type: LLMStreamPartTypeTextEnd, ID: "t1"},
 			{
-				Type:         fantasy.StreamPartTypeFinish,
-				FinishReason: fantasy.FinishReasonStop,
-				Usage:        fantasy.Usage{InputTokens: 3, OutputTokens: 2},
+				Type:         LLMStreamPartTypeFinish,
+				FinishReason: FinishReasonStop,
+				Usage:        LLMUsage{InputTokens: 3, OutputTokens: 2},
 			},
 		}
 		for _, p := range parts {
@@ -52,11 +50,11 @@ func (m *echoModel) Stream(context.Context, fantasy.Call) (fantasy.StreamRespons
 	}), nil
 }
 
-func (m *echoModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
+func (m *echoModel) GenerateObject(context.Context, LLMObjectCall) (*LLMObjectResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *echoModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
+func (m *echoModel) StreamObject(context.Context, LLMObjectCall) (LLMObjectStreamResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -425,19 +423,19 @@ type optionsModel struct {
 	maxOut []*int64 // MaxOutputTokens of each call
 }
 
-func (m *optionsModel) record(call fantasy.Call) {
+func (m *optionsModel) record(call LLMCall) {
 	m.mu.Lock()
 	m.seen = append(m.seen, call.ProviderOptions)
 	m.maxOut = append(m.maxOut, call.MaxOutputTokens)
 	m.mu.Unlock()
 }
 
-func (m *optionsModel) Generate(ctx context.Context, call fantasy.Call) (*fantasy.Response, error) {
+func (m *optionsModel) Generate(ctx context.Context, call LLMCall) (*LLMResponse, error) {
 	m.record(call)
 	return m.echoModel.Generate(ctx, call)
 }
 
-func (m *optionsModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+func (m *optionsModel) Stream(ctx context.Context, call LLMCall) (LLMStreamResponse, error) {
 	m.record(call)
 	return m.echoModel.Stream(ctx, call)
 }

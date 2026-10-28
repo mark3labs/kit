@@ -585,6 +585,68 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`ValidateEnvironment`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ValidateEnvironment) — ValidateEnvironment checks if required API keys are set for a provider.
 - [`WithProvider`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProvider) — WithProvider registers a provider factory for this Kit instance only.
 
+Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
+
+- [`LLMCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCall) — LLMCall is the request that Kit passes to [LLMLanguageModel] Generate and Stream.
+- [`LLMCallWarning`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCallWarning) — LLMCallWarning reports a non-fatal problem with a call, such as a setting or tool that the model does not support.
+- [`LLMCallWarningType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCallWarningType) — LLMCallWarningType classifies an [LLMCallWarning].
+- [`LLMCallWarningTypeUnsupportedSetting`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCallWarningTypeUnsupportedSetting) — LLMCallWarningTypeUnsupportedSetting reports an unsupported setting.
+- [`LLMCallWarningTypeUnsupportedTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCallWarningTypeUnsupportedTool) — LLMCallWarningTypeUnsupportedTool reports an unsupported tool.
+- [`LLMCallWarningTypeOther`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMCallWarningTypeOther) — LLMCallWarningTypeOther reports any other warning.
+- [`LLMToolDefinition`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolDefinition) — LLMToolDefinition is a tool definition that Kit sends to the model in [LLMCall].Tools.
+- [`LLMToolType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolType) — LLMToolType classifies an [LLMToolDefinition].
+- [`LLMToolTypeFunction`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolTypeFunction) — LLMToolTypeFunction identifies an [LLMFunctionTool].
+- [`LLMToolTypeProviderDefined`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolTypeProviderDefined) — LLMToolTypeProviderDefined identifies an [LLMProviderDefinedTool].
+- [`LLMFunctionTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMFunctionTool) — LLMFunctionTool is a function tool definition with a name, a description and a JSON Schema for its input.
+- [`LLMProviderDefinedTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMProviderDefinedTool) — LLMProviderDefinedTool is a tool whose schema and behavior the model provider defines, such as a hosted web search.
+- [`LLMStreamResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamResponse) — LLMStreamResponse is the sequence of [LLMStreamPart] values that [LLMLanguageModel] Stream returns.
+- [`LLMStreamPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPart) — LLMStreamPart is one event in an [LLMStreamResponse].
+- [`LLMStreamPartType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartType) — LLMStreamPartType classifies an [LLMStreamPart].
+- [`LLMStreamPartTypeWarnings`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeWarnings) — LLMStreamPartTypeWarnings carries call warnings.
+- [`LLMStreamPartTypeTextStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeTextStart) — LLMStreamPartTypeTextStart starts a text block.
+- [`LLMStreamPartTypeTextDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeTextDelta) — LLMStreamPartTypeTextDelta carries text for an open text block.
+- [`LLMStreamPartTypeTextEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeTextEnd) — LLMStreamPartTypeTextEnd ends a text block.
+- [`LLMStreamPartTypeReasoningStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeReasoningStart) — LLMStreamPartTypeReasoningStart starts a reasoning block.
+- [`LLMStreamPartTypeReasoningDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeReasoningDelta) — LLMStreamPartTypeReasoningDelta carries text for an open reasoning block.
+- [`LLMStreamPartTypeReasoningEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeReasoningEnd) — LLMStreamPartTypeReasoningEnd ends a reasoning block.
+- [`LLMStreamPartTypeToolInputStart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeToolInputStart) — LLMStreamPartTypeToolInputStart starts the streamed input of a tool call.
+- [`LLMStreamPartTypeToolInputDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeToolInputDelta) — LLMStreamPartTypeToolInputDelta carries part of a tool call input.
+- [`LLMStreamPartTypeToolInputEnd`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeToolInputEnd) — LLMStreamPartTypeToolInputEnd ends the streamed input of a tool call.
+- [`LLMStreamPartTypeToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeToolCall) — LLMStreamPartTypeToolCall carries a complete tool call.
+- [`LLMStreamPartTypeToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeToolResult) — LLMStreamPartTypeToolResult carries the result of a provider-executed tool.
+- [`LLMStreamPartTypeSource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeSource) — LLMStreamPartTypeSource carries a source citation.
+- [`LLMStreamPartTypeFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeFinish) — LLMStreamPartTypeFinish ends the stream with a finish reason and usage.
+- [`LLMStreamPartTypeError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeError) — LLMStreamPartTypeError reports a stream error.
+- [`LLMStreamPartTypeKeepalive`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMStreamPartTypeKeepalive) — LLMStreamPartTypeKeepalive carries no content.
+- [`LLMResponseContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMResponseContent) — LLMResponseContent is the ordered content of an [LLMResponse].
+- [`LLMContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContent) — LLMContent is one item of [LLMResponseContent].
+- [`LLMContentType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentType) — LLMContentType classifies an [LLMContent] value.
+- [`LLMContentTypeText`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeText) — LLMContentTypeText identifies [LLMTextContent].
+- [`LLMContentTypeReasoning`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeReasoning) — LLMContentTypeReasoning identifies [LLMReasoningContent].
+- [`LLMContentTypeFile`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeFile) — LLMContentTypeFile identifies [LLMFileContent].
+- [`LLMContentTypeSource`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeSource) — LLMContentTypeSource identifies [LLMSourceContent].
+- [`LLMContentTypeToolCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeToolCall) — LLMContentTypeToolCall identifies [LLMToolCallContent].
+- [`LLMContentTypeToolResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMContentTypeToolResult) — LLMContentTypeToolResult identifies [LLMToolResultContent].
+- [`LLMTextContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMTextContent) — LLMTextContent is text that the model generated.
+- [`LLMReasoningContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMReasoningContent) — LLMReasoningContent is reasoning that the model generated.
+- [`LLMFileContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMFileContent) — LLMFileContent is a file that the model generated.
+- [`LLMSourceContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMSourceContent) — LLMSourceContent is a source that the model used for its response.
+- [`LLMSourceType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMSourceType) — LLMSourceType classifies an [LLMSourceContent] or a source [LLMStreamPart].
+- [`LLMSourceTypeURL`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMSourceTypeURL) — LLMSourceTypeURL identifies a URL source.
+- [`LLMSourceTypeDocument`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMSourceTypeDocument) — LLMSourceTypeDocument identifies a document source.
+- [`LLMToolCallContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolCallContent) — LLMToolCallContent is a tool call that the model generated.
+- [`LLMToolResultContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMToolResultContent) — LLMToolResultContent is the result of a tool that the provider executed.
+- [`AsLLMContent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#AsLLMContent) — AsLLMContent converts content to the concrete content type T.
+- [`LLMObjectCall`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectCall) — LLMObjectCall is the request that Kit passes to [LLMLanguageModel] GenerateObject and StreamObject for structured output.
+- [`LLMObjectResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectResponse) — LLMObjectResponse is the result of [LLMLanguageModel] GenerateObject.
+- [`LLMObjectStreamResponse`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamResponse) — LLMObjectStreamResponse is the sequence of [LLMObjectStreamPart] values that [LLMLanguageModel] StreamObject returns.
+- [`LLMObjectStreamPart`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPart) — LLMObjectStreamPart is one event in an [LLMObjectStreamResponse].
+- [`LLMObjectStreamPartType`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPartType) — LLMObjectStreamPartType classifies an [LLMObjectStreamPart].
+- [`LLMObjectStreamPartTypeObject`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPartTypeObject) — LLMObjectStreamPartTypeObject carries a new partial object.
+- [`LLMObjectStreamPartTypeTextDelta`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPartTypeTextDelta) — LLMObjectStreamPartTypeTextDelta carries generated text.
+- [`LLMObjectStreamPartTypeError`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPartTypeError) — LLMObjectStreamPartTypeError reports a stream error.
+- [`LLMObjectStreamPartTypeFinish`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#LLMObjectStreamPartTypeFinish) — LLMObjectStreamPartTypeFinish ends the stream.
+
 ## Sessions
 
 - [`BranchEntry`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#BranchEntry) — BranchEntry represents a single node in the conversation tree.
