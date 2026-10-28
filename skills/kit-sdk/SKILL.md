@@ -73,7 +73,7 @@ defer func() { _ = host.Close() }()
 | Intercept (read-write) | `host.OnBeforeToolCall(priority, fn)`, `OnAfterToolResult`, `OnBeforeTurn`, `OnPrepareStep`, `OnContextPrepare`, `OnBeforeCompact` | `references/hooks.md` |
 | Add capabilities | `kit.NewTool(name, desc, fn)`, `kit.TextResult`, built-in tool constructors and bundles | `references/tools.md` |
 | Persist conversations | `SessionPath`, `Continue`, `NoSession`, instance and package-level session methods | `references/sessions.md` |
-| Decision API | `kit.Decide`, `host.Decide`, `GetDecisionModels`, typed question builders | [references/decisions.md](references/decisions.md) |
+| Decision API | `kit.Decide`, `host.Decide`, `GetDecisionModels`, typed question builders, custom decision providers (`kit.RegisterDecisionProvider`, `Options.DecisionProviders`) | [references/decisions.md](references/decisions.md) |
 | Models and MCP | `host.SetModel`, model registry, custom provider backends (`kit.RegisterProvider`, `Options.Providers`), `AddMCPServer`, in-process servers, MCP OAuth | `references/models-and-mcp.md` |
 | Manage the context window | `EstimateContextTokens`, `Compact`, `AutoCompact`, `host.Subagent` | `references/context-compaction-subagents.md` |
 

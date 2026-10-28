@@ -207,6 +207,7 @@ when embedding Kit as a library.
 | `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 | `Providers` | `map[string]ProviderFactory` | — | Provider factories for this instance, keyed by provider name (case-insensitive, no `/`). A model string `name/<model>` is built by the factory. Wins over `kit.RegisterProvider` and the built-in providers; subagents inherit it. `kit.New` copies the map and rejects nil factories and names that differ only in case. See [Custom provider backends](/sdk/overview#custom-provider-backends). |
+| `DecisionProviders` | `map[string]DecisionProviderFactory` | — | Decision provider factories for this instance, with the same name rules as `Providers`. `Kit.Decide` (and extension `ctx.Decide`) sends requests for `name/<model>` to the factory model instead of the model database. Wins over `kit.RegisterDecisionProvider`; subagents inherit it. See [custom decision providers](/sdk/decisions#custom-decision-providers). |
 
 ### Session
 
@@ -616,6 +617,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | Name | Contract |
 | --- | --- |
 | `WithProvider` | Registers a provider factory for this Kit instance only; see `Providers`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithProvider) |
+| `WithDecisionProvider` | Registers a decision provider factory for this Kit instance only; see `DecisionProviders`. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionProvider) |
 | `AllowMissingCredentials` | AllowMissingCredentials lets New succeed when the configured provider cannot be created — no API key or OAuth token, a failed OAuth token refresh, an unsupported provider, and so on. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AlwaysOfferSkillActivation` | AlwaysOfferSkillActivation keeps the built-in activate_skill tool offered with an empty catalogue. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `AutoCompact` | Compaction AutoCompact enables proactive compaction before turns that near the context limit. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -666,6 +668,7 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `ProviderURL` | ProviderURL overrides the provider endpoint. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ProviderWire` | ProviderWire overrides the wire protocol used for auto-routed providers: "openai" (Responses API), "openai-compat" (chat completions), "anthropic", or "google". [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Providers` | Providers registers provider factories for this Kit instance, keyed by provider name (case-insensitive, must not contain "/"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `DecisionProviders` | DecisionProviders registers decision provider factories for this Kit instance, keyed by provider name with the same rules as Providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Quiet` | Suppress debug output. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `RetryPolicy` | RetryPolicy limits retries per model request. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SessionDir` | Project directory identity for session discovery, not a storage root. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |

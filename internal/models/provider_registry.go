@@ -47,6 +47,14 @@ func validateProviderName(name string) error {
 	return nil
 }
 
+// ProviderNameKey returns the lookup key for a provider name (lower case,
+// without surrounding space) and an error when the name is empty or has a
+// "/". Other provider registries use it to follow the same name rules.
+func ProviderNameKey(name string) (string, error) {
+	key := normalizeProviderName(name)
+	return key, validateProviderName(key)
+}
+
 // RegisterProviderFactory registers f as the process-wide factory for the
 // provider name. A registered factory takes precedence over the built-in
 // providers and the model database auto-routing, so it can also override a

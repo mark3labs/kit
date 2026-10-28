@@ -784,7 +784,7 @@ response := ctx.Complete(ext.CompleteRequest{
 
 ## Decision models
 
-Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database.
+Ask a [decision model](/sdk/decisions) typed questions and get probabilities instead of text. Use it to classify, route, score or gate actions. Do not hard-code a model: leave `Model` empty to use the user's `decision-model` setting (`.kit.yml`, `--decision-model` or `KIT_DECISION_MODEL`). If neither is set, `Decide` returns an error that wraps `ext.ErrNoDecisionModel`. `ctx.GetDecisionModels()` lists the decision models of the model database. When Kit runs embedded in a Go application, the application can also supply decision models with a [decision provider factory](/sdk/decisions#custom-decision-providers); `ctx.Decide` uses them, but `ctx.GetDecisionModels()` does not list them.
 
 ```go
 // In OnSessionStart: complain once, early, when no default is set.
