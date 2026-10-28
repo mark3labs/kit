@@ -512,6 +512,11 @@ closes, and when the factory returns an error. Release resources that all
 models share after you close every Kit.</li>
 <li>Kit does not add automatic prompt-cache options. Set
 <code>ProviderResult.ProviderOptions</code> if your backend needs options.</li>
+<li>To write your own model, implement <code>kit.LLMLanguageModel</code> with the
+<code>kit.LLM*</code> types: <code>LLMCall</code>, <code>LLMResponse</code>, <code>LLMStreamResponse</code>,
+<code>LLMStreamPart</code>, <code>LLMObjectCall</code> and the others. You do not need to import
+the underlying LLM library. See
+<a href="https://github.com/mark3labs/kit/tree/master/examples/sdk/custom-provider"><code>examples/sdk/custom-provider</code></a>.</li>
 <li>A factory model is usually not in the <a href="/providers#model-database">model database</a>,
 so its context window is unknown. Set <code>CompactionOptions.ContextWindow</code> if
 you use auto-compaction.</li>
@@ -1499,6 +1504,11 @@ Behaviour:
   models share after you close every Kit.
 - Kit does not add automatic prompt-cache options. Set
   \`ProviderResult.ProviderOptions\` if your backend needs options.
+- To write your own model, implement \`kit.LLMLanguageModel\` with the
+  \`kit.LLM*\` types: \`LLMCall\`, \`LLMResponse\`, \`LLMStreamResponse\`,
+  \`LLMStreamPart\`, \`LLMObjectCall\` and the others. You do not need to import
+  the underlying LLM library. See
+  [\`examples/sdk/custom-provider\`](https://github.com/mark3labs/kit/tree/master/examples/sdk/custom-provider).
 - A factory model is usually not in the [model database](/providers#model-database),
   so its context window is unknown. Set \`CompactionOptions.ContextWindow\` if
   you use auto-compaction.

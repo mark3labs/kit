@@ -447,7 +447,7 @@
         "Tools and code mode"
       ],
       "tags": [],
-      "wordCount": 9471
+      "wordCount": 10075
     },
     {
       "id": "sdk/authentication",
@@ -578,7 +578,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 5504
+      "wordCount": 5536
     },
     {
       "id": "sdk/sessions",

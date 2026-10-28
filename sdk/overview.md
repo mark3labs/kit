@@ -443,6 +443,11 @@ Behaviour:
   models share after you close every Kit.
 - Kit does not add automatic prompt-cache options. Set
   `ProviderResult.ProviderOptions` if your backend needs options.
+- To write your own model, implement `kit.LLMLanguageModel` with the
+  `kit.LLM*` types: `LLMCall`, `LLMResponse`, `LLMStreamResponse`,
+  `LLMStreamPart`, `LLMObjectCall` and the others. You do not need to import
+  the underlying LLM library. See
+  [`examples/sdk/custom-provider`](https://github.com/mark3labs/kit/tree/master/examples/sdk/custom-provider).
 - A factory model is usually not in the [model database](/providers#model-database),
   so its context window is unknown. Set `CompactionOptions.ContextWindow` if
   you use auto-compaction.
