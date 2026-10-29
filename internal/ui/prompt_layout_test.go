@@ -72,13 +72,18 @@ func TestPromptFitsTerminal(t *testing.T) {
 	})
 }
 
-// checkViewHeight renders a frame and stops the test if the frame does not
-// have the height of the terminal. It returns the frame without ANSI codes.
+// checkViewHeight renders a frame and stops the test unless the frame has
+// the height of the terminal and ends with the status bar. The status bar
+// shows the model name. It returns the frame without ANSI codes.
 func checkViewHeight(t *testing.T, m *AppModel, when string) string {
 	t.Helper()
 	view := m.View().Content
 	if got := lipgloss.Height(view); got != m.height {
 		t.Fatalf("view height %s = %d, want %d\n%s", when, got, m.height, stripAnsi(view))
 	}
-	return stripAnsi(view)
+	plain := stripAnsi(view)
+	if last := plain[strings.LastIndex(plain, "\n")+1:]; !strings.Contains(last, m.modelName) {
+		t.Fatalf("last line %s = %q, want the status bar with %q\n%s", when, last, m.modelName, plain)
+	}
+	return plain
 }
