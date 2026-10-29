@@ -6381,6 +6381,8 @@ func (m *AppModel) resolvePrompt(resp app.PromptResponse) {
 	}
 	m.prompt = nil
 	m.state = m.prePromptState
+	// The input area comes back. Measure the layout again.
+	m.layoutDirty = true
 }
 
 // --------------------------------------------------------------------------
@@ -7781,6 +7783,9 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 		if m.prompt != nil {
 			cmds = append(cmds, m.prompt.Init())
 		}
+		// The prompt replaces the input area and is taller. Measure the
+		// layout again, or the terminal does not show its last lines.
+		m.layoutDirty = true
 
 	case app.PromptRequestEvent:
 		// Extension wants to show an interactive prompt. Enter prompt state.
@@ -7818,6 +7823,9 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 		if m.prompt != nil {
 			cmds = append(cmds, m.prompt.Init())
 		}
+		// The prompt replaces the input area and is taller. Measure the
+		// layout again, or the terminal does not show its last lines.
+		m.layoutDirty = true
 
 	case app.OverlayRequestEvent:
 		// Extension wants to show a modal overlay dialog. Enter overlay state.
