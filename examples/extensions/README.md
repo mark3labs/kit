@@ -74,7 +74,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `summarize.go` | Summarize conversation | Custom tool with parameters |
 | `confirm-destructive.go` | Confirm destructive commands | `OnToolCall` blocking |
 | `lsp-diagnostics.go` | LSP integration | Complex extension, external process |
-| `preferred-models.go` | Switch between the models that you list in an option | `RegisterCommand` with `Complete`, `RegisterOption`, `PromptSelect`, `SetModel` |
+| `preferred-models.go` | Switch between the models that you list in an option | `RegisterCommand` with `Complete`, `RegisterOption`, `PromptSelect`, `SetModel`, `OnModelChange` |
 
 ### Subagents & Background Tasks
 
