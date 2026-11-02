@@ -1918,7 +1918,8 @@ func (m *AppModel) resizeChildPanes(size tea.WindowSizeMsg) {
 }
 
 // update is the state machine proper. Callers go through Update, which wraps
-// this to maintain the frame clock.
+// this to maintain the frame clock. Job layout updates are handled before
+// modal input routing so status rows keep the correct height behind dialogs.
 func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -1962,6 +1963,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// strand every animation on screen — the wordmark with a highlight
 		// band frozen across it, the activity dot mid-bounce.
 		return m, m.advanceFrame(msg)
+	case app.JobsUpdatedEvent:
+		// Job status changes affect height even while a prompt or overlay
+		// owns input. Invalidate layout before modal routing can consume it.
+		m.layoutDirty = true
+		return m, nil
 	case app.MCPToolsReadyEvent:
 		// Handled here, ahead of the modal routing below, because the end of
 		// MCP loading arrives only once: a prompt or overlay open at that
@@ -2513,7 +2519,7 @@ func (m *AppModel) View() tea.View {
 	}
 	subagentView := m.chrome.subagents
 	if !m.chrome.valid {
-		subagentView = m.renderSubagentStatusBar()
+		subagentView = m.renderBackgroundStatus()
 	}
 	if subagentView != "" {
 		parts = append(parts, subagentView)
@@ -3692,6 +3698,10 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleThinkingCommand(args)
 	case "/mode":
 		return m.handleModelModeCommand(args)
+	case "/jobs":
+		m.handleJobsCommand(strings.Fields(args))
+	case "/cancel-job":
+		m.handleCancelJobCommand(strings.Fields(args))
 	case "/subagents":
 		return m.openSubagentInspector()
 	case "/kill-subagent":
@@ -4801,7 +4811,7 @@ func (m *AppModel) distributeHeight() {
 		m.chrome.activity = activityView
 	}
 	var subagentLines int
-	subagentView := m.renderSubagentStatusBar()
+	subagentView := m.renderBackgroundStatus()
 	if subagentView != "" {
 		subagentLines = lipgloss.Height(subagentView)
 		m.chrome.subagents = subagentView

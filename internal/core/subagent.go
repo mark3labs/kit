@@ -82,6 +82,7 @@ func getSubagentSpawner(ctx context.Context) SubagentSpawnFunc {
 // ---------------------------------------------------------------------------
 
 type subagentArgs struct {
+	Background     bool   `json:"background,omitempty"`
 	Task           string `json:"task"`
 	Agent          string `json:"agent,omitempty"`
 	Model          string `json:"model,omitempty"`
@@ -153,6 +154,7 @@ func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 			Name:        "subagent",
 			Description: subagentDescription(cfg.NamedAgents),
 			Parameters: map[string]any{
+				"background": map[string]any{"type": "boolean", "description": "Run as a background job and return its ID immediately (default false)."},
 				"task": map[string]any{
 					"type":        "string",
 					"description": "The complete task description for the subagent to perform",
@@ -196,6 +198,14 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		return fantasy.NewTextErrorResponse("task parameter is required"), nil
 	}
 
+	if args.Background {
+		if getSubagentSpawner(ctx) == nil {
+			return fantasy.NewTextErrorResponse("subagent spawner not available"), nil
+		}
+		args.Background = false
+		return startBackgroundJob(ctx, "subagent", call, args, executeSubagent)
+	}
+
 	// Determine timeout. Zero means "unset" so downstream resolution can
 	// apply a named agent's preset timeout (or the 5-minute default).
 	var timeout time.Duration
@@ -227,7 +237,10 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	// cleanly with a fresh timeout, following the pattern used by crush for
 	// shutdown-resilient child work. The subagent's own timeout
 	// (defaultSubagentTimeout / user-specified) provides the safety net.
-	spawnCtx := context.WithoutCancel(valuesContext{parent: ctx})
+	spawnCtx := ctx
+	if background, _ := ctx.Value(backgroundJobKey{}).(bool); !background {
+		spawnCtx = context.WithoutCancel(valuesContext{parent: ctx})
+	}
 
 	// Spawn in-process subagent.
 	result, err := spawner(spawnCtx, SubagentSpawnRequest{
@@ -246,6 +259,12 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 			"Subagent was killed by the user after %ds. It did not complete its task. "+
 				"Do not start it again unless the user asks you to.",
 			int(result.Elapsed.Seconds()))), nil
+	}
+	if result == nil {
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("Subagent failed: %v", err)), nil
+		}
+		return fantasy.NewTextErrorResponse("Subagent returned no result"), nil
 	}
 	if err != nil || result.Error != nil {
 		spawnErr := err

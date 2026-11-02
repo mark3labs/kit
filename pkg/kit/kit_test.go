@@ -475,6 +475,7 @@ func TestDisableCoreTools(t *testing.T) {
 			Model:            "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:            true,
 			NoSession:        true,
+			NoSkills:         true, // Keep core-tool assertions independent of local skill discovery.
 			NoExtensions:     true,
 			DisableCoreTools: true,
 		})
@@ -494,6 +495,7 @@ func TestDisableCoreTools(t *testing.T) {
 			Model:            "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:            true,
 			NoSession:        true,
+			NoSkills:         true, // Keep core-tool assertions independent of local skill discovery.
 			NoExtensions:     true,
 			DisableCoreTools: true,
 			CoreToolList:     []string{"subagent", "bash"},
@@ -519,6 +521,7 @@ func TestCoreToolList(t *testing.T) {
 		host, err := kit.New(ctx, &kit.Options{
 			Quiet:        true,
 			NoSession:    true,
+			NoSkills:     true, // Keep core-tool assertions independent of local skill discovery.
 			NoExtensions: true,
 		})
 		if err != nil {
@@ -535,11 +538,11 @@ func TestCoreToolList(t *testing.T) {
 	t.Run("Test ToolList populated with two valid and one invalid tool name", func(t *testing.T) {
 		defer resetViper()
 		host, err := kit.New(ctx, &kit.Options{
-			Quiet:            true,
-			NoSession:        true,
-			NoExtensions:     true,
-			DisableCoreTools: true,
-			CoreToolList:     []string{"subagent", "bash", "deadbeef"},
+			Quiet:        true,
+			NoSession:    true,
+			NoSkills:     true, // Keep core-tool assertions independent of local skill discovery.
+			NoExtensions: true,
+			CoreToolList: []string{"subagent", "bash", "deadbeef"},
 		})
 		if err != nil {
 			t.Fatalf("Failed to create Kit with DisableCoreTools and Tool list: %v", err)
@@ -547,12 +550,12 @@ func TestCoreToolList(t *testing.T) {
 		defer func() { _ = host.Close() }()
 
 		tools := host.GetToolNames()
-		if len(tools) != 0 {
-			t.Errorf("Expected 2 tools with 2 valid and 1 invalid tool name, got %d: %v", len(tools), tools)
+		if len(tools) != 2 {
+			t.Errorf("Expected shell and subagent; invalid tool must be ignored, got %d: %v", len(tools), tools)
 		}
 		for _, s := range tools {
-			if s != "subagent" && s != "bash" {
-				t.Errorf("Expected tool to be 'bash' or 'subagent' but got %s", s)
+			if s != "subagent" && s != "shell" {
+				t.Errorf("Expected tool to be 'shell' or 'subagent' but got %s", s)
 			}
 		}
 	})
@@ -574,6 +577,7 @@ exclude-core-tools:
 			Model:      "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:      true,
 			NoSession:  true,
+			NoSkills:   true, // Keep core-tool assertions independent of local skill discovery.
 			ConfigFile: cfgFile,
 		})
 		if err != nil {
@@ -600,6 +604,7 @@ exclude-core-tools:
 			Model:      "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:      true,
 			NoSession:  true,
+			NoSkills:   true, // Keep core-tool assertions independent of local skill discovery.
 			ConfigFile: cfgFile,
 		})
 		if err != nil {
@@ -609,7 +614,7 @@ exclude-core-tools:
 		tools := host.GetToolNames()
 		for _, tool := range tools {
 			if tool != "shell" && tool != "subagent" {
-				t.Errorf("include-core-tools expected to have only 'bash' and 'subagent' tools but have %s", tool)
+				t.Errorf("include-core-tools expected to have only 'shell' and 'subagent' tools but have %s", tool)
 			}
 		}
 	})
@@ -626,6 +631,7 @@ exclude-core-tools:
 			Model:      "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:      true,
 			NoSession:  true,
+			NoSkills:   true, // Keep core-tool assertions independent of local skill discovery.
 			ConfigFile: cfgFile,
 		})
 		if err != nil {
@@ -666,6 +672,7 @@ func TestGetToolsForSubagent(t *testing.T) {
 		Model:        "anthropic/claude-sonnet-4-5-20250929",
 		Quiet:        true,
 		NoSession:    true,
+		NoSkills:     true, // Keep core-tool assertions independent of local skill discovery.
 		NoExtensions: true,
 		CoreToolList: []string{"subagent", "bash"},
 		ExtraTools:   []kit.Tool{helloTool},

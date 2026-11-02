@@ -53,6 +53,12 @@ type Options struct {
 	// and usage tracking. Must not be set in production.
 	PromptFunc func(ctx context.Context, prompt string) (*kit.TurnResult, error)
 
+	// RunJobsFunc replaces the bounded headless SDK job drain in tests.
+	RunJobsFunc func(context.Context) (*kit.TurnResult, error)
+
+	// RunReadyJobsFunc replaces the nonblocking interactive SDK drain in tests.
+	RunReadyJobsFunc func(context.Context) (*kit.TurnResult, error)
+
 	// TreeSession is the tree-structured JSONL session manager. When non-nil,
 	// conversation history is persisted as an append-only JSONL tree and tree
 	// navigation (/tree, /fork) is enabled.

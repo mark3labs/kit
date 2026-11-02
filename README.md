@@ -21,6 +21,7 @@
 
 A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
 
+
 ## Features
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
@@ -198,6 +199,32 @@ Supported ACP features:
 - **Auth errors**: missing provider credentials give the `auth_required` error with steps to fix them
 
 To check an ACP build end to end, run `python3 scripts/acp_smoke_test.py` (set `MODEL=provider/model` to pick a model).
+
+### Background jobs
+
+The model can start shell commands and subagents as background jobs. Kit gives
+ready job results to the model in a continuation turn. In the TUI, pending jobs
+do not block new prompts, including when the model uses `jobs_wait`.
+
+Headless CLI modes wait for owned jobs, including file attachments, `--quiet`,
+`--json`, and `--no-exit`. Headless mode stays open until owned work and its
+model continuations finish. Quiet and JSON modes return the last model response,
+not an earlier response that only reports that work started. Display mode shows
+continuation output and tool events as they arrive.
+
+In the TUI:
+
+- `/jobs` lists retained jobs and the running count.
+- `/jobs <job-id>` shows a job's status, output, and error.
+- `/cancel-job <job-id>` requests cancellation of that job.
+
+The status row shows the running job count. The app stays idle while background
+work runs, so you can send new prompts. Only ready job results start a
+continuation. Job completions and user prompts run in sequence.
+Stopping the current turn does not cancel admitted background work. Use
+`/cancel-job` to stop that work. Exiting Kit cancels remaining jobs.
+Jobs are held in memory and do not resume after a restart.
+
 
 ## Configuration
 

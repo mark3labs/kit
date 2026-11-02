@@ -427,3 +427,37 @@ func TestToolsObjectInspection(t *testing.T) {
 		t.Fatalf("output = %q", r.Output)
 	}
 }
+
+// TestNestedStopCannotBeCaught checks that a nested tool stop ends execution
+// without an error or later effects, even through exception handlers, promise
+// callbacks, or an unawaited call followed by an infinite loop.
+func TestNestedStopCannotBeCaught(t *testing.T) {
+	for _, code := range []string{
+		`await tools.echo({}); await tools.fail({});`,
+		`try { await tools.echo({}); } catch (e) { await tools.fail({}); } finally { await tools.fail({}); } await tools.fail({});`,
+		`await tools.echo({}).then(() => tools.fail({}), () => tools.fail({}));`,
+		`tools.echo({}); while (true) {}`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			var sideEffects atomic.Int32
+			result := Run(context.Background(), Program{
+				Code: code, Catalog: testCatalog(),
+				Invoke: func(_ context.Context, call Call) (InvokeResult, error) {
+					if call.Name != "echo" {
+						sideEffects.Add(1)
+					}
+					return InvokeResult{Text: "yield", Stop: true}, nil
+				},
+			})
+			if !result.OK || !result.Stopped || result.Error != nil {
+				t.Fatalf("result = %+v", result)
+			}
+			if sideEffects.Load() != 0 {
+				t.Fatal("side effect ran after stop")
+			}
+			if len(result.Calls) != 1 || result.Calls[0].Status != CallOK {
+				t.Fatalf("calls = %+v", result.Calls)
+			}
+		})
+	}
+}

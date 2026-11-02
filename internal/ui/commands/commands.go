@@ -161,6 +161,18 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/r"},
 	},
 	{
+		Name:        "/jobs",
+		Description: "List background jobs or show /jobs <job-id> output",
+		Category:    "System",
+		HasArgs:     true,
+	},
+	{
+		Name:        "/cancel-job",
+		Description: "Stop background work: /cancel-job <job-id>",
+		Category:    "System",
+		HasArgs:     true,
+	},
+	{
 		Name:        "/subagents",
 		Description: "Inspect retained subagent conversations (read-only)",
 		Category:    "Navigation",

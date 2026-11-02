@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,8 +23,9 @@ import (
 
 // queueItem holds a prompt and optional image attachments for the execution queue.
 type queueItem struct {
-	Prompt string
-	Files  []kit.LLMFilePart
+	Prompt   string
+	Files    []kit.LLMFilePart
+	JobsOnly bool
 }
 
 // ErrAgentBusy is returned when an operation cannot proceed because the agent
@@ -138,6 +140,9 @@ type App struct {
 	// subagentForwardOnce starts the forwarding of subagent run updates to
 	// the program once. See startSubagentForwarding.
 	subagentForwardOnce sync.Once
+	jobForwardOnce      sync.Once
+	jobsPending         bool
+	stepMu              sync.Mutex
 }
 
 // New creates a new App with the provided options and pre-loaded messages.
@@ -267,6 +272,7 @@ func (a *App) SetProgram(p *tea.Program) {
 	a.mu.Unlock()
 	if p != nil {
 		a.startSubagentForwarding()
+		a.startJobForwarding()
 	}
 	if replay {
 		// Send blocks until the event loop reads the message, and the loop
@@ -817,6 +823,10 @@ func (a *App) releaseBusyAfterCompact() {
 	// Steer messages are placed first so they retain their "act now"
 	// semantics relative to ordinary queued prompts that arrived later.
 	pending := append(steerItems, a.queue...)
+	if a.jobsPending {
+		pending = append(pending, queueItem{JobsOnly: true})
+		a.jobsPending = false
+	}
 	a.queue = a.queue[:0]
 
 	if len(pending) == 0 {
@@ -854,12 +864,11 @@ func (a *App) releaseBusyAfterCompact() {
 // returns. No intermediate events are emitted. Blocks until the step
 // completes or ctx is cancelled.
 func (a *App) RunOnceWithFiles(ctx context.Context, prompt string, files []kit.LLMFilePart) error {
-	stepCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	a.mu.Lock()
-	a.cancelStep = cancel
-	a.mu.Unlock()
+	stepCtx, finish, err := a.beginOnce(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
 
 	result, err := a.executeStep(stepCtx, prompt, nil, files)
 	if err != nil {
@@ -877,12 +886,11 @@ func (a *App) RunOnceWithFiles(ctx context.Context, prompt string, files []kit.L
 // without printing anything. This is used by --json mode to capture
 // structured output for serialization.
 func (a *App) RunOnceResultWithFiles(ctx context.Context, prompt string, files []kit.LLMFilePart) (*kit.TurnResult, error) {
-	stepCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	a.mu.Lock()
-	a.cancelStep = cancel
-	a.mu.Unlock()
+	stepCtx, finish, err := a.beginOnce(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 
 	return a.executeStep(stepCtx, prompt, nil, files)
 }
@@ -904,12 +912,11 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 // RunOnceWithDisplayAndFiles executes a single agent step synchronously with
 // optional multimodal file attachments, sending intermediate display events.
 func (a *App) RunOnceWithDisplayAndFiles(ctx context.Context, prompt string, eventFn func(Event), files []kit.LLMFilePart) error {
-	stepCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	a.mu.Lock()
-	a.cancelStep = cancel
-	a.mu.Unlock()
+	stepCtx, finish, err := a.beginOnce(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
 
 	result, err := a.executeStep(stepCtx, prompt, eventFn, files)
 	if err != nil {
@@ -1005,6 +1012,10 @@ func (a *App) drainQueue(first queueItem) {
 			// Steer messages go to the front of the queue so they run next.
 			a.queue = append(steerItems, a.queue...)
 		}
+		if a.jobsPending && !a.closed {
+			a.queue = append(a.queue, queueItem{JobsOnly: true})
+			a.jobsPending = false
+		}
 		hasMore := len(a.queue) > 0
 		if hasMore {
 			// Start a new batch with the newly queued items. Give the
@@ -1084,6 +1095,11 @@ func (a *App) runQueueBatch(items []queueItem) {
 	result, err := a.executeBatch(stepCtx, items, eventFn)
 	if err != nil {
 		if stepCtx.Err() != nil {
+			// Do not restart a cancelled wait from notifications already seen
+			// during this step. A later job change can still wake the app.
+			a.mu.Lock()
+			a.jobsPending = false
+			a.mu.Unlock()
 			// Step was cancelled by the user (double-ESC). The SDK
 			// preserves the user message and any completed tool
 			// call/result pairs; only the in-progress message or tool
@@ -1098,7 +1114,9 @@ func (a *App) runQueueBatch(items []queueItem) {
 		return
 	}
 
-	a.sendEvent(StepCompleteEvent{ResponseText: result.Response})
+	if result != nil {
+		a.sendEvent(StepCompleteEvent{ResponseText: result.Response})
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -1109,141 +1127,127 @@ func (a *App) runQueueBatch(items []queueItem) {
 // PromptResult() (or PromptResultWithFiles for multimodal), which handles
 // session persistence, hooks, extension events, and the generation loop.
 func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(Event), files []kit.LLMFilePart) (*kit.TurnResult, error) {
-	// Test hook: bypass SDK entirely.
-	if a.opts.PromptFunc != nil {
-		return a.opts.PromptFunc(ctx, prompt)
-	}
-
-	sendFn := func(msg Event) {
-		if eventFn != nil {
-			eventFn(msg)
-		}
-	}
-
-	// Reset the per-turn usage accumulator. UpdateUsage sums every step in a
-	// turn, so without this the previous turn's tokens carry over.
-	if a.opts.UsageTracker != nil {
-		a.opts.UsageTracker.StartTurn()
-	}
-
-	// Subscribe to SDK events for TUI rendering and per-step usage updates.
-	// The subscription is temporary — it lives only for the duration of this step.
-	var sawStepUsage atomic.Bool
-	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
-	defer unsub()
-
-	// Show spinner while the agent works.
-	sendFn(SpinnerEvent{Show: true})
-
-	var result *kit.TurnResult
-	var err error
-	if len(files) > 0 {
-		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, files)
-	} else {
-		result, err = a.opts.Kit.PromptResult(ctx, prompt)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(result.Messages)
-
-	// Update usage tracker. If per-step usage was already recorded from
-	// StepUsageEvent callbacks, avoid double-counting totals.
-	a.updateUsageFromTurnResult(result, prompt, sawStepUsage.Load())
-
-	return result, nil
+	return a.executePrompt(ctx, prompt, eventFn, files, true)
 }
 
-// executeBatch runs a batch of queue items as a single agent step by delegating
-// to the SDK's PromptResultWithMessages(), which handles session persistence,
-// hooks, extension events, and the generation loop.
+// executePrompt selects a bounded headless drain or a ready-only interactive drain.
+func (a *App) executePrompt(ctx context.Context, prompt string, eventFn func(Event), files []kit.LLMFilePart, waitJobs bool) (*kit.TurnResult, error) {
+	return a.executeTurns(ctx, prompt, eventFn, waitJobs, func() (*kit.TurnResult, error) {
+		if a.opts.PromptFunc != nil {
+			return a.opts.PromptFunc(ctx, prompt)
+		}
+		if len(files) > 0 {
+			return a.opts.Kit.PromptResultWithFiles(ctx, prompt, files)
+		}
+		return a.opts.Kit.PromptResult(ctx, prompt)
+	})
+}
+
+// executeBatch uses the same execution boundary as single prompts and idle jobs.
 func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(Event)) (*kit.TurnResult, error) {
-	// Test hook: bypass SDK entirely (single item only for test compatibility).
-	if a.opts.PromptFunc != nil {
-		if len(items) == 1 {
-			return a.opts.PromptFunc(ctx, items[0].Prompt)
+	var prompts []string
+	var files []kit.LLMFilePart
+	jobsOnly := true
+	for _, item := range items {
+		if !item.JobsOnly {
+			jobsOnly = false
+			prompts = append(prompts, item.Prompt)
+			files = append(files, item.Files...)
 		}
-		// For batch mode with PromptFunc, just use the first item
-		return a.opts.PromptFunc(ctx, items[0].Prompt)
 	}
+	if jobsOnly {
+		return a.executeTurns(ctx, "", eventFn, false, nil)
+	}
+	if len(prompts) == 1 {
+		return a.executePrompt(ctx, prompts[0], eventFn, files, false)
+	}
+	return a.executeTurns(ctx, prompts[len(prompts)-1], eventFn, false, func() (*kit.TurnResult, error) {
+		if a.opts.PromptFunc != nil {
+			return a.opts.PromptFunc(ctx, prompts[0])
+		}
+		if len(files) > 0 {
+			// Keep all queued text and attachments in one user message.
+			return a.opts.Kit.PromptResultWithFiles(ctx, strings.Join(prompts, "\n\n"), files)
+		}
+		return a.opts.Kit.PromptResultWithMessages(ctx, prompts)
+	})
+}
 
-	sendFn := func(msg Event) {
+// executeTurns keeps prompt and continuation events in one serialized app step.
+// Headless calls wait for jobs. Interactive calls process only ready results,
+// including jobs_wait yields, then release the scheduler for user input.
+// Prompt spinners start before execution; continuation spinners start on SDK
+// TurnStartEvent so empty job wakes do not change the display.
+// Do not start an SDK job scheduler outside this execution boundary.
+func (a *App) executeTurns(ctx context.Context, prompt string, eventFn func(Event), waitJobs bool, initial func() (*kit.TurnResult, error)) (*kit.TurnResult, error) {
+	a.stepMu.Lock()
+	defer a.stepMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sendFn := func(e Event) {
 		if eventFn != nil {
-			eventFn(msg)
+			eventFn(e)
 		}
 	}
-
-	// Reset the per-turn usage accumulator. UpdateUsage sums every step in a
-	// turn, so without this the previous turn's tokens carry over.
+	var sawStepUsage atomic.Bool
+	if a.opts.Kit != nil {
+		// The initial prompt starts its spinner below, before SDK work begins.
+		// Continuations start it only on a real turn, not on an empty job wake.
+		var skipInitialStart atomic.Bool
+		skipInitialStart.Store(initial != nil)
+		unsubStart := a.opts.Kit.OnTurnStart(func(kit.TurnStartEvent) {
+			if !skipInitialStart.Swap(false) {
+				sendFn(SpinnerEvent{Show: true})
+			}
+		})
+		defer unsubStart()
+		unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
+		defer unsub()
+	}
 	if a.opts.UsageTracker != nil {
 		a.opts.UsageTracker.StartTurn()
 	}
-
-	// Subscribe to SDK events for TUI rendering and per-step usage updates.
-	// The subscription is temporary — it lives only for the duration of this step.
-	var sawStepUsage atomic.Bool
-	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
-	defer unsub()
-
-	// Show spinner while the agent works.
-	sendFn(SpinnerEvent{Show: true})
-
-	// Check if any items have file attachments
-	hasFiles := false
-	for _, item := range items {
-		if len(item.Files) > 0 {
-			hasFiles = true
-			break
-		}
+	if initial != nil {
+		sendFn(SpinnerEvent{Show: true})
 	}
-
 	var result *kit.TurnResult
 	var err error
-
-	if len(items) == 1 {
-		// Single item: use the original path for compatibility
-		item := items[0]
-		if len(item.Files) > 0 || hasFiles {
-			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
-		} else {
-			result, err = a.opts.Kit.PromptResult(ctx, item.Prompt)
+	if initial != nil {
+		result, err = initial()
+		if err != nil {
+			return result, err
+		}
+		if result != nil {
+			a.store.Replace(result.Messages)
+			a.updateUsageFromTurnResult(result, prompt, sawStepUsage.Load())
+		}
+	}
+	var continuation *kit.TurnResult
+	if waitJobs {
+		if a.opts.RunJobsFunc != nil {
+			continuation, err = a.opts.RunJobsFunc(ctx)
+		} else if a.opts.Kit != nil {
+			continuation, err = a.opts.Kit.RunJobs(ctx)
 		}
 	} else {
-		// Multiple items: batch them together
-		var messages []string
-		for _, item := range items {
-			messages = append(messages, item.Prompt)
-		}
-
-		// File attachments are not supported in batch mode; fall back to
-		// processing only the first item that carries files.
-		if hasFiles {
-			// If files exist, fall back to processing just the first item with files
-			for _, item := range items {
-				if len(item.Files) > 0 {
-					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
-					break
-				}
-			}
-		} else {
-			result, err = a.opts.Kit.PromptResultWithMessages(ctx, messages)
+		if a.opts.RunReadyJobsFunc != nil {
+			continuation, err = a.opts.RunReadyJobsFunc(ctx)
+		} else if a.opts.Kit != nil {
+			continuation, err = a.opts.Kit.RunReadyJobs(ctx)
 		}
 	}
-
+	if continuation != nil {
+		result = continuation
+		a.store.Replace(result.Messages)
+		a.updateUsageFromTurnResult(result, "[background jobs]", sawStepUsage.Load())
+	}
 	if err != nil {
-		return nil, err
+		return result, fmt.Errorf("process background jobs: %w", err)
 	}
-
-	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(result.Messages)
-
-	// Update usage tracker (using last item's prompt for fallback estimation).
-	// If per-step usage was already recorded from StepUsageEvent callbacks,
-	// avoid double-counting totals.
-	a.updateUsageFromTurnResult(result, items[len(items)-1].Prompt, sawStepUsage.Load())
-
+	if result == nil && initial != nil {
+		result = &kit.TurnResult{}
+	}
 	return result, nil
 }
 

@@ -399,6 +399,13 @@ func (h *hookedTool) Run(ctx context.Context, call LLMToolCall) (LLMToolResponse
 
 	// 2. Execute actual tool.
 	resp, err := h.inner.Run(ctx, call)
+	// A nested code-mode call can discard its child response. The per-turn
+	// holder is authoritative, so propagate a job yield through the outer tool.
+	if holder, ok := ctx.Value(haltHolderKey{}).(*haltHolder); ok && holder != nil {
+		if halted, _, _ := holder.snapshot(); halted {
+			resp.StopTurn = true
+		}
+	}
 
 	// 3. AfterToolResult — can modify output.
 	if h.afterToolResult.hasHooks() {

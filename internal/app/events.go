@@ -511,3 +511,8 @@ type SubagentRunEvent struct {
 }
 
 func (SubagentRunEvent) isAppEvent() {}
+
+// JobsUpdatedEvent tells the display to read current background job snapshots.
+type JobsUpdatedEvent struct{}
+
+func (JobsUpdatedEvent) isAppEvent() {}

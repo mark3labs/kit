@@ -1203,6 +1203,9 @@ func runNormalMode(ctx context.Context) error {
 // shared CLIEventHandler — giving --prompt mode the same rich output as
 // interactive mode.
 //
+// All paths retain the app through RunJobs and use its last continuation result.
+// No SDK job scheduler runs alongside the app queue.
+//
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
 func runNonInteractiveModeApp(ctx context.Context, deps runModeDeps, prompt string, quiet, jsonOutput, noExit bool) error {
