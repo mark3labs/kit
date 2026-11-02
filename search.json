@@ -111,6 +111,7 @@
       "title": "Commands",
       "description": "Complete reference for all Kit CLI subcommands.",
       "headings": [
+        "Background jobs in prompt mode",
         "Authentication",
         "Model database",
         "Extension management",
@@ -138,7 +139,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 4415
+      "wordCount": 4670
     },
     {
       "id": "cli/flags",
@@ -444,10 +445,11 @@
         "Sessions",
         "Skills, context and templates",
         "Subagents",
-        "Tools and code mode"
+        "Tools and code mode",
+        "Background jobs"
       ],
       "tags": [],
-      "wordCount": 10183
+      "wordCount": 10314
     },
     {
       "id": "sdk/authentication",
