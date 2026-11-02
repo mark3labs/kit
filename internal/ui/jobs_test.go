@@ -71,3 +71,48 @@ func TestJobCommands(t *testing.T) {
 		t.Fatal("completed job counted as running")
 	}
 }
+
+// TestJobsUpdatedInvalidatesModalLayout ensures job status changes invalidate
+// cached heights before a prompt or overlay can consume the event.
+func TestJobsUpdatedInvalidatesModalLayout(t *testing.T) {
+	for _, mode := range []string{"input", "prompt", "overlay"} {
+		t.Run(mode, func(t *testing.T) {
+			ctrl := &jobsTestController{}
+			m, _, _ := newTestAppModel(ctrl)
+			switch mode {
+			case "prompt":
+				m = sendMsg(m, app.PromptRequestEvent{
+					PromptType: "confirm", Message: "Continue?",
+					ResponseCh: make(chan app.PromptResponse, 1),
+				})
+				if m.state != statePrompt || m.prompt == nil {
+					t.Fatal("prompt did not open")
+				}
+			case "overlay":
+				m = sendMsg(m, app.OverlayRequestEvent{
+					Title: "Jobs", Content: "Job details",
+					ResponseCh: make(chan app.OverlayResponse, 1),
+				})
+				if m.state != stateOverlay || m.overlay == nil {
+					t.Fatal("overlay did not open")
+				}
+			}
+			state := m.state
+			for _, jobs := range [][]kit.Job{
+				{{ID: "job-1", Status: kit.JobRunning}},
+				nil,
+			} {
+				ctrl.jobs = jobs
+				m.layoutDirty = false
+				updated, _ := m.Update(app.JobsUpdatedEvent{})
+				m = updated.(*AppModel)
+				if !m.layoutDirty {
+					t.Fatal("job update left cached layout clean")
+				}
+				if m.state != state {
+					t.Fatal("job update changed modal state")
+				}
+			}
+		})
+	}
+}

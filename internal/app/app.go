@@ -1176,6 +1176,8 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 // executeTurns keeps prompt and continuation events in one serialized app step.
 // Headless calls wait for jobs. Interactive calls process only ready results,
 // including jobs_wait yields, then release the scheduler for user input.
+// Prompt spinners start before execution; continuation spinners start on SDK
+// TurnStartEvent so empty job wakes do not change the display.
 // Do not start an SDK job scheduler outside this execution boundary.
 func (a *App) executeTurns(ctx context.Context, prompt string, eventFn func(Event), waitJobs bool, initial func() (*kit.TurnResult, error)) (*kit.TurnResult, error) {
 	a.stepMu.Lock()
@@ -1190,6 +1192,16 @@ func (a *App) executeTurns(ctx context.Context, prompt string, eventFn func(Even
 	}
 	var sawStepUsage atomic.Bool
 	if a.opts.Kit != nil {
+		// The initial prompt starts its spinner below, before SDK work begins.
+		// Continuations start it only on a real turn, not on an empty job wake.
+		var skipInitialStart atomic.Bool
+		skipInitialStart.Store(initial != nil)
+		unsubStart := a.opts.Kit.OnTurnStart(func(kit.TurnStartEvent) {
+			if !skipInitialStart.Swap(false) {
+				sendFn(SpinnerEvent{Show: true})
+			}
+		})
+		defer unsubStart()
 		unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
 		defer unsub()
 	}

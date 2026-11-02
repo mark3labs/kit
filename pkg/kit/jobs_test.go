@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -68,6 +69,34 @@ func TestJobsDetachedContextAndClose(t *testing.T) {
 	}
 	if _, err := (&turnJobService{kit: k}).Start(context.Background(), "test", func(context.Context) (string, error) { return "", nil }); err == nil {
 		t.Fatal("start after close succeeded")
+	}
+}
+
+// TestJobsDetachedContextCannotAcceptTurn verifies that child work cannot
+// acknowledge the parent turn's notification, even when it runs a new turn.
+func TestJobsDetachedContextCannotAcceptTurn(t *testing.T) {
+	k := newJobsTestKit(t)
+	var accepted atomic.Int32
+	parent := context.WithValue(context.Background(), jobAcceptanceKey{}, func() { accepted.Add(1) })
+	job, err := (&turnJobService{kit: k}).Start(parent, "test", func(ctx context.Context) (string, error) {
+		if _, ok := ctx.Value(jobAcceptanceKey{}).(func()); ok {
+			t.Error("child work retained turn acceptance callback")
+		}
+		result, err := k.PromptResult(ctx, "child turn")
+		if err != nil {
+			return "", fmt.Errorf("run child turn: %w", err)
+		}
+		return result.Response, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitJobTest(t, k, job.ID)
+	if finished.Status != JobCompleted || !strings.Contains(finished.Output, "reply from jobs") {
+		t.Fatalf("child turn did not complete: %+v", finished)
+	}
+	if calls := accepted.Load(); calls != 0 {
+		t.Fatalf("child work invoked turn acceptance callback %d times", calls)
 	}
 }
 
@@ -292,6 +321,8 @@ func TestJobsSubagentReusesRegistry(t *testing.T) {
 	}
 }
 
+// TestJobsConcurrentDrainsConsumeOnce verifies that concurrent drains share
+// one continuation and do not consume the same completion twice.
 func TestJobsConcurrentDrainsConsumeOnce(t *testing.T) {
 	k := newJobsTestKit(t)
 	job, err := (&turnJobService{kit: k}).Start(context.Background(), "test", func(context.Context) (string, error) { return "once", nil })
@@ -303,8 +334,11 @@ func TestJobsConcurrentDrainsConsumeOnce(t *testing.T) {
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for range 2 {
-		wg.Add(1)
-		go func() { defer wg.Done(); r, e := k.RunJobs(context.Background()); results <- r; errs <- e }()
+		wg.Go(func() {
+			r, e := k.RunJobs(context.Background())
+			results <- r
+			errs <- e
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -478,8 +512,12 @@ func (m *jobRetryModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.
 	}
 	return m.echoModel.Stream(ctx, call)
 }
+
+// TestJobsGenerationRetryDoesNotDuplicateNotification verifies that a failed
+// generation can retry without storing the accepted notification again.
 func TestJobsGenerationRetryDoesNotDuplicateNotification(t *testing.T) {
-	model := &jobRetryModel{echoModel: echoModel{provider: "retry", model: "jobs"}, fail: true}
+	model := &jobRetryModel{fail: true}
+	model.provider, model.model = "retry", "jobs"
 	factory := func(context.Context, *ProviderConfig, string) (*ProviderResult, error) {
 		return &ProviderResult{Model: model}, nil
 	}
@@ -599,6 +637,9 @@ type jobCloseSession struct {
 }
 
 func (s *jobCloseSession) Close() error { close(s.closed); return s.SessionManager.Close() }
+
+// TestJobsCloseContinuesAfterTimeoutExactlyOnce verifies that cleanup continues
+// after a caller timeout and concurrent Close calls do not close the session twice.
 func TestJobsCloseContinuesAfterTimeoutExactlyOnce(t *testing.T) {
 	k := newJobsTestKit(t)
 	closed := make(chan struct{})
@@ -623,13 +664,11 @@ func TestJobsCloseContinuesAfterTimeoutExactlyOnce(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := k.Close(); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

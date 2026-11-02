@@ -148,6 +148,8 @@ type turnJobService struct{ kit *Kit }
 
 var _ core.JobService = (*turnJobService)(nil)
 
+// Start detaches work from turn cancellation and callbacks while preserving
+// application values. Kit owns cancellation of the admitted work.
 func (s *turnJobService) Start(ctx context.Context, kind string, work func(context.Context) (string, error)) (Job, error) {
 	state, err := s.kit.initJobs()
 	if err != nil {
@@ -156,9 +158,13 @@ func (s *turnJobService) Start(ctx context.Context, kind string, work func(conte
 	if err := ctx.Err(); err != nil {
 		return Job{}, fmt.Errorf("start background job: %w", err)
 	}
-	// Keep application values, but never retain a turn's stream, halt, or
-	// password callbacks. Lifetime cancellation belongs to Kit, not this turn.
+	// Keep application values, but never retain a turn's stream, halt,
+	// acceptance, or password callbacks. Lifetime cancellation belongs to Kit,
+	// not this turn.
 	detached := context.WithoutCancel(ctx)
+	// Use a non-callable value: a typed nil func would pass the turn's type
+	// assertion and panic when called. Child turns must not acknowledge it.
+	detached = context.WithValue(detached, jobAcceptanceKey{}, struct{}{})
 	detached = context.WithValue(detached, streamCollectorKey{}, (*streamCollector)(nil))
 	detached = context.WithValue(detached, haltHolderKey{}, (*haltHolder)(nil))
 	detached = core.ContextWithToolOutputCallback(detached, nil)

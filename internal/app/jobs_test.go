@@ -326,3 +326,100 @@ func TestJobWakeRecoversCompletionFromSnapshot(t *testing.T) {
 		t.Fatal("snapshot completion must schedule a drain even without a terminal notification")
 	}
 }
+
+// jobsSpinnerModel supplies a local reply so spinner tests use real SDK turns
+// without a network provider. Unused model operations are not called.
+type jobsSpinnerModel struct {
+	kit.LLMLanguageModel
+}
+
+func (jobsSpinnerModel) Provider() string { return "local" }
+func (jobsSpinnerModel) Model() string    { return "jobs-spinner" }
+
+// Stream emits a complete text response for both prompts and job continuations.
+func (jobsSpinnerModel) Stream(context.Context, kit.LLMCall) (kit.LLMStreamResponse, error) {
+	return func(yield func(kit.LLMStreamPart) bool) {
+		for _, part := range []kit.LLMStreamPart{
+			{Type: kit.LLMStreamPartTypeTextStart, ID: "reply"},
+			{Type: kit.LLMStreamPartTypeTextDelta, ID: "reply", Delta: "done"},
+			{Type: kit.LLMStreamPartTypeTextEnd, ID: "reply"},
+			{Type: kit.LLMStreamPartTypeFinish, FinishReason: kit.FinishReasonStop},
+		} {
+			if !yield(part) {
+				return
+			}
+		}
+	}, nil
+}
+
+// TestJobContinuationSpinner follows real SDK TurnStartEvents: a prompt and a
+// jobs-only continuation each start one spinner; a redundant wake starts none.
+func TestJobContinuationSpinner(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opts := &kit.Options{
+		Model: "local/jobs-spinner",
+		Providers: map[string]kit.ProviderFactory{
+			"local": func(context.Context, *kit.ProviderConfig, string) (*kit.ProviderResult, error) {
+				return &kit.ProviderResult{Model: jobsSpinnerModel{}}, nil
+			},
+		},
+		ExtraTools: []kit.Tool{kit.NewTool("shell", "Local shell stub", func(context.Context, struct {
+			Command string `json:"command"`
+		}) (kit.ToolOutput, error) {
+			return kit.ToolOutput{Content: "job output"}, nil
+		})},
+	}
+	kit.Isolated()(opts)
+	k, err := kit.New(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := k.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	a := New(Options{Kit: k}, nil)
+	defer a.Close()
+	var turns atomic.Int32
+	unsub := k.OnTurnStart(func(kit.TurnStartEvent) { turns.Add(1) })
+	defer unsub()
+	spinners := 0
+	var events []Event
+	record := func(e Event) {
+		events = append(events, e)
+		if e, ok := e.(SpinnerEvent); ok && e.Show {
+			spinners++
+		}
+	}
+	if _, err := a.executeBatch(ctx, []queueItem{{Prompt: "start"}}, record); err != nil {
+		t.Fatal(err)
+	}
+	if turns.Load() != 1 || spinners != 1 {
+		t.Fatalf("initial prompt: turns=%d spinners=%d", turns.Load(), spinners)
+	}
+	job, err := k.StartShellJob(ctx, "local command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.WaitJob(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	events = nil
+	result, err := a.executeBatch(ctx, []queueItem{{JobsOnly: true}}, record)
+	if err != nil || result == nil {
+		t.Fatalf("continuation result=%v err=%v", result, err)
+	}
+	if turns.Load() != 2 || spinners != 2 {
+		t.Fatalf("job continuation: turns=%d spinners=%d", turns.Load(), spinners)
+	}
+	if first, ok := events[0].(SpinnerEvent); !ok || !first.Show {
+		t.Fatalf("continuation must start spinner before output, got %T", events[0])
+	}
+	events = nil
+	result, err = a.executeBatch(ctx, []queueItem{{JobsOnly: true}}, record)
+	if err != nil || result != nil || turns.Load() != 2 || spinners != 2 || len(events) != 0 {
+		t.Fatalf("empty wake: result=%v err=%v turns=%d spinners=%d events=%v", result, err, turns.Load(), spinners, events)
+	}
+}
