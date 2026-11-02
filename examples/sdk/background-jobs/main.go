@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/kit/pkg/kit"
 )
 
+// run runs and prints a shell job, optionally asks the model to summarize it, and closes Kit.
 func run(ctx context.Context, managed bool) (err error) {
 	host, err := kit.New(ctx, &kit.Options{
 		Quiet:        true,
@@ -60,6 +61,7 @@ func run(ctx context.Context, managed bool) (err error) {
 	return nil
 }
 
+// main parses managed mode and runs the example with a two-minute deadline, exiting on error.
 func main() {
 	managed := flag.Bool("managed", false, "run a model prompt and drain job continuations")
 	flag.Parse()

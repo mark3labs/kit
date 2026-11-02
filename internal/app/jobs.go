@@ -43,6 +43,7 @@ type jobWake struct {
 	ready  atomic.Bool
 }
 
+// newJobWake creates a wake signal with room for one pending notification.
 func newJobWake() *jobWake {
 	return &jobWake{signal: make(chan struct{}, 1)}
 }
@@ -59,6 +60,7 @@ func (w *jobWake) shouldDrain(snapshot []kit.Job) bool {
 	return ready
 }
 
+// notify records terminal updates and sends a nonblocking, coalesced wake signal.
 func (w *jobWake) notify(job kit.Job) {
 	if job.Status != kit.JobRunning {
 		w.ready.Store(true)

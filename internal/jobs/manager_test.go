@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 )
 
+// testContext supplies a five-second deadline and cancels it during test cleanup.
 func testContext(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -19,6 +20,7 @@ func testContext(t *testing.T) context.Context {
 	return ctx
 }
 
+// testManager creates a manager and registers cleanup to cancel and join its workers.
 func testManager(t *testing.T) *Manager {
 	t.Helper()
 	m := New()
@@ -30,6 +32,7 @@ func testManager(t *testing.T) *Manager {
 	return m
 }
 
+// startJob starts work with fixed test metadata and fails the test on admission errors.
 func startJob(t *testing.T, m *Manager, ctx context.Context, work Work) Job {
 	t.Helper()
 	job, err := m.Start(ctx, "test", "session", "branch", work)
@@ -39,6 +42,7 @@ func startJob(t *testing.T, m *Manager, ctx context.Context, work Work) Job {
 	return job
 }
 
+// waitJob returns a terminal snapshot within the test deadline or fails the test.
 func waitJob(t *testing.T, m *Manager, id string) Job {
 	t.Helper()
 	job, err := m.Wait(testContext(t), id)
@@ -48,6 +52,8 @@ func waitJob(t *testing.T, m *Manager, id string) Job {
 	return job
 }
 
+// TestResults checks snapshots for successful, failed, and panicking work,
+// including metadata preservation and cancellation of an already finished job.
 func TestResults(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
@@ -83,6 +89,8 @@ func TestResults(t *testing.T) {
 	}
 }
 
+// TestOutputLimit checks byte limits for output and errors and verifies that
+// output truncation preserves the UTF-8 character boundary.
 func TestOutputLimit(t *testing.T) {
 	m := testManager(t)
 	text := strings.Repeat("a", MaxOutputBytes-1) + "界" + strings.Repeat("b", 100)
@@ -95,6 +103,8 @@ func TestOutputLimit(t *testing.T) {
 	}
 }
 
+// TestCapacityAndCancellation checks that the worker limit rejects excess work
+// and that a cancelled worker keeps its slot until it returns.
 func TestCapacityAndCancellation(t *testing.T) {
 	m := testManager(t)
 	release := make(chan struct{})
@@ -138,6 +148,8 @@ func TestCapacityAndCancellation(t *testing.T) {
 	}
 }
 
+// TestContextLifetimeAndWaitCancellation checks that cancelling a wait leaves
+// work running, while parent cancellation reaches the worker and discards late output.
 func TestContextLifetimeAndWaitCancellation(t *testing.T) {
 	m := testManager(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -170,6 +182,8 @@ func TestContextLifetimeAndWaitCancellation(t *testing.T) {
 	}
 }
 
+// TestCloseWaitsAndRejectsStart checks that Close cancels work, rejects new jobs,
+// waits for worker exit, and permits repeated calls.
 func TestCloseWaitsAndRejectsStart(t *testing.T) {
 	m := New()
 	release := make(chan struct{})
@@ -207,6 +221,8 @@ func TestCloseWaitsAndRejectsStart(t *testing.T) {
 	}
 }
 
+// TestRetention checks that retention evicts old finished jobs but keeps running
+// jobs, and that changing a snapshot cannot change manager state.
 func TestRetention(t *testing.T) {
 	m := testManager(t)
 	active := startJob(t, m, context.Background(), func(ctx context.Context) (string, error) { <-ctx.Done(); return "", ctx.Err() })
@@ -238,6 +254,8 @@ func TestRetention(t *testing.T) {
 	}
 }
 
+// TestWaitAny checks any/all waits, duplicate removal, input order, empty input,
+// and cancellation while requested work is still running.
 func TestWaitAny(t *testing.T) {
 	m := testManager(t)
 	release := make(chan struct{})
@@ -269,6 +287,8 @@ func TestWaitAny(t *testing.T) {
 	}
 }
 
+// TestSubscribe checks that callbacks run outside the manager lock and that a
+// blocked callback cannot delay work, unsubscribe, or Close.
 func TestSubscribe(t *testing.T) {
 	m := testManager(t)
 	entered := make(chan struct{})
@@ -301,6 +321,7 @@ func TestSubscribe(t *testing.T) {
 	m.Subscribe(func(Job) { t.Error("subscription after close") })()
 }
 
+// TestSubscriberPanic checks that a callback panic does not prevent later notifications.
 func TestSubscriberPanic(t *testing.T) {
 	m := testManager(t)
 	called := make(chan struct{}, 2)
@@ -322,6 +343,7 @@ func TestSubscriberPanic(t *testing.T) {
 	}
 }
 
+// TestErrors checks rejection of nil work, cancelled start contexts, and unknown job IDs.
 func TestErrors(t *testing.T) {
 	m := testManager(t)
 	if _, err := m.Start(context.Background(), "", "", "", nil); !errors.Is(err, ErrInvalidWork) {
@@ -343,6 +365,8 @@ func TestErrors(t *testing.T) {
 	}
 }
 
+// TestConcurrentOperations exercises job access, cancellation, subscriptions,
+// and repeated Close calls from concurrent goroutines.
 func TestConcurrentOperations(t *testing.T) {
 	m := testManager(t)
 	var wg sync.WaitGroup

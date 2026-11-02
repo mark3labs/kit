@@ -26,6 +26,8 @@ type fakeJobService struct {
 	startErr error
 }
 
+// Start counts admission attempts and either returns the configured error or
+// starts work with context values preserved and turn cancellation removed.
 func (s *fakeJobService) Start(ctx context.Context, kind string, work func(context.Context) (string, error)) (jobs.Job, error) {
 	s.starts++
 	if s.startErr != nil {
@@ -33,12 +35,15 @@ func (s *fakeJobService) Start(ctx context.Context, kind string, work func(conte
 	}
 	return s.Manager.Start(context.WithoutCancel(ctx), kind, "session", "branch", jobs.Work(work))
 }
+
+// Yield copies the requested wait IDs and mode and returns the configured scheduler error.
 func (s *fakeJobService) Yield(_ context.Context, ids []string, all bool) error {
 	s.yieldIDs = slices.Clone(ids)
 	s.yieldAll = all
 	return s.yieldErr
 }
 
+// testJobService creates a fake service and closes its manager during test cleanup.
 func testJobService(t *testing.T) *fakeJobService {
 	t.Helper()
 	s := &fakeJobService{Manager: jobs.New()}
@@ -50,6 +55,7 @@ func testJobService(t *testing.T) *fakeJobService {
 	return s
 }
 
+// runJobTool invokes a tool with the supplied JSON input and fails the test on a Go error.
 func runJobTool(t *testing.T, ctx context.Context, tool fantasy.AgentTool, input string) fantasy.ToolResponse {
 	t.Helper()
 	response, err := tool.Run(ctx, fantasy.ToolCall{ID: "job-call", Input: input})
@@ -59,6 +65,7 @@ func runJobTool(t *testing.T, ctx context.Context, tool fantasy.AgentTool, input
 	return response
 }
 
+// startedJob decodes a successful tool response and requires a nonempty job ID.
 func startedJob(t *testing.T, response fantasy.ToolResponse) jobs.Job {
 	t.Helper()
 	if response.IsError {
@@ -74,6 +81,7 @@ func startedJob(t *testing.T, response fantasy.ToolResponse) jobs.Job {
 	return job
 }
 
+// waitJob waits up to three seconds for a terminal job snapshot or fails the test.
 func waitJob(t *testing.T, s *fakeJobService, id string) jobs.Job {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -85,6 +93,9 @@ func waitJob(t *testing.T, s *fakeJobService, id string) jobs.Job {
 	return job
 }
 
+// TestBackgroundShellUsesForegroundOptions checks that background shell work
+// keeps runner options and timeout limits, survives turn cancellation, and does
+// not use the turn output callback.
 func TestBackgroundShellUsesForegroundOptions(t *testing.T) {
 	s := testJobService(t)
 	r := &fakeRunner{res: CommandResult{Output: "result"}}
@@ -102,6 +113,8 @@ func TestBackgroundShellUsesForegroundOptions(t *testing.T) {
 	}
 }
 
+// TestBackgroundShellBufferedAndFailure checks that shell output is buffered
+// without turn streaming and that a nonzero exit records a failed job.
 func TestBackgroundShellBufferedAndFailure(t *testing.T) {
 	for _, tc := range []struct {
 		command string
@@ -127,6 +140,9 @@ func TestBackgroundShellBufferedAndFailure(t *testing.T) {
 	}
 }
 
+// TestBackgroundSubagentCancellationAndValues checks that background subagents
+// keep request fields and context values, ignore turn cancellation, and stop
+// when their job is cancelled.
 func TestBackgroundSubagentCancellationAndValues(t *testing.T) {
 	s := testJobService(t)
 	entered := make(chan context.Context, 1)
@@ -168,6 +184,8 @@ func TestBackgroundSubagentCancellationAndValues(t *testing.T) {
 	}
 }
 
+// TestBackgroundValidationBeforeStart checks that invalid shell and subagent
+// requests are rejected before the service admits work.
 func TestBackgroundValidationBeforeStart(t *testing.T) {
 	s := testJobService(t)
 	ctx := WithSubagentSpawner(WithJobService(context.Background(), s), func(context.Context, SubagentSpawnRequest) (*SubagentSpawnResult, error) {
@@ -197,6 +215,9 @@ func TestBackgroundValidationBeforeStart(t *testing.T) {
 	}
 }
 
+// TestJobToolsAndYield checks job listing, lookup, cancellation, and argument
+// errors, and verifies that jobs_wait registers a scheduler yield without
+// waiting for the running worker.
 func TestJobToolsAndYield(t *testing.T) {
 	s := testJobService(t)
 	ctx := WithJobService(context.Background(), s)
@@ -238,6 +259,8 @@ func TestJobToolsAndYield(t *testing.T) {
 	}
 }
 
+// TestJobServiceUnavailableAndStartError checks tool errors for a missing job
+// service and for a service that rejects work at capacity.
 func TestJobServiceUnavailableAndStartError(t *testing.T) {
 	for _, tool := range []fantasy.AgentTool{NewJobsListTool(), NewJobsGetTool(), NewJobsCancelTool(), NewJobsWaitTool(), NewShellTool()} {
 		if response := runJobTool(t, context.Background(), tool, `{"command":"true","background":true}`); !response.IsError {
@@ -252,6 +275,8 @@ func TestJobServiceUnavailableAndStartError(t *testing.T) {
 	}
 }
 
+// TestJobToolsIncludedByDefault checks that all four job tools are registered
+// and included in the default core tool names.
 func TestJobToolsIncludedByDefault(t *testing.T) {
 	for _, name := range []string{"jobs_list", "jobs_get", "jobs_cancel", "jobs_wait"} {
 		if !slices.Contains(DefaultCoreToolNames(), name) {
@@ -263,6 +288,8 @@ func TestJobToolsIncludedByDefault(t *testing.T) {
 	}
 }
 
+// TestForegroundSubagentKeepsDetachedContext checks that foreground subagents
+// still ignore turn cancellation and return session metadata without starting a job.
 func TestForegroundSubagentKeepsDetachedContext(t *testing.T) {
 	s := testJobService(t)
 	ctx, cancel := context.WithCancel(WithJobService(context.Background(), s))
@@ -284,6 +311,8 @@ func TestForegroundSubagentKeepsDetachedContext(t *testing.T) {
 	}
 }
 
+// TestBackgroundSubagentReturnsForegroundResult checks that completed background
+// subagent output includes both the answer and the resumable session ID.
 func TestBackgroundSubagentReturnsForegroundResult(t *testing.T) {
 	s := testJobService(t)
 	ctx := WithSubagentSpawner(WithJobService(context.Background(), s), func(context.Context, SubagentSpawnRequest) (*SubagentSpawnResult, error) {
@@ -296,6 +325,8 @@ func TestBackgroundSubagentReturnsForegroundResult(t *testing.T) {
 	}
 }
 
+// TestBackgroundSudoPreflightRejectsPasswordPrompt checks that sudo work which
+// needs authorization is rejected before job admission without prompting for a password.
 func TestBackgroundSudoPreflightRejectsPasswordPrompt(t *testing.T) {
 	dir := t.TempDir()
 	// Use a fake sudo so this test does not depend on host credentials.
@@ -312,6 +343,8 @@ func TestBackgroundSudoPreflightRejectsPasswordPrompt(t *testing.T) {
 	}
 }
 
+// TestBackgroundSudoPreflightAcceptsCachedAuthorization checks that background
+// sudo work can complete when a fake sudo reports existing authorization.
 func TestBackgroundSudoPreflightAcceptsCachedAuthorization(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {

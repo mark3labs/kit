@@ -32,11 +32,15 @@ func WithJobService(ctx context.Context, service JobService) context.Context {
 	return context.WithValue(ctx, jobServiceKey{}, service)
 }
 
+// jobServiceFromContext returns the job service in ctx, or nil if none is available.
 func jobServiceFromContext(ctx context.Context) JobService {
 	service, _ := ctx.Value(jobServiceKey{}).(JobService)
 	return service
 }
 
+// startBackgroundJob submits a tool call with encoded arguments and no turn-scoped
+// output callback. It records tool failures as job errors and returns the initial
+// job snapshot as a JSON tool response.
 func startBackgroundJob(ctx context.Context, kind string, call fantasy.ToolCall, args any, execute func(context.Context, fantasy.ToolCall) (fantasy.ToolResponse, error)) (fantasy.ToolResponse, error) {
 	service := jobServiceFromContext(ctx)
 	if service == nil {
@@ -66,6 +70,7 @@ func startBackgroundJob(ctx context.Context, kind string, call fantasy.ToolCall,
 	return jobResponse(job)
 }
 
+// jobResponse encodes a job value as a JSON text response and reports encoding errors.
 func jobResponse(value any) (fantasy.ToolResponse, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -80,6 +85,8 @@ type jobToolArgs struct {
 	All bool     `json:"all,omitempty"`
 }
 
+// newJobTool builds a job tool that validates arguments and dispatches to the
+// context service. Wait requests yield to the scheduler rather than block on work.
 func newJobTool(name, description string, parameters map[string]any, required []string) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{Name: name, Description: description, Parameters: parameters, Required: required},

@@ -13,6 +13,7 @@ import (
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
+// TestJobDrainReturnsLastResult checks that a headless prompt uses the blocking drain and stores and returns its final continuation.
 func TestJobDrainReturnsLastResult(t *testing.T) {
 	final := &kit.TurnResult{Response: "job output", Messages: []kit.LLMMessage{fantasy.NewUserMessage("completed")}}
 	var order []string
@@ -43,6 +44,7 @@ func TestJobDrainReturnsLastResult(t *testing.T) {
 	}
 }
 
+// TestJobDrainPromptPaths checks that each prompt path drains jobs once and display mode reports the final response.
 func TestJobDrainPromptPaths(t *testing.T) {
 	for _, path := range []string{"quiet", "display", "batch", "files"} {
 		t.Run(path, func(t *testing.T) {
@@ -147,6 +149,7 @@ func TestInteractivePromptRunsWhileJobPending(t *testing.T) {
 	}
 }
 
+// TestJobDrainCancellationAndErrors checks that drain errors and cancellation reach the caller and release the busy state.
 func TestJobDrainCancellationAndErrors(t *testing.T) {
 	for _, cancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "error", true: "cancel"}[cancel], func(t *testing.T) {
@@ -190,6 +193,7 @@ func TestJobDrainCancellationAndErrors(t *testing.T) {
 	}
 }
 
+// TestIdleJobNotificationUsesAppQueue checks that an idle wake drains jobs without a user prompt and a closed app ignores later wakes.
 func TestIdleJobNotificationUsesAppQueue(t *testing.T) {
 	started := make(chan struct{})
 	var once sync.Once
@@ -219,6 +223,7 @@ func TestIdleJobNotificationUsesAppQueue(t *testing.T) {
 	}
 }
 
+// TestNoJobContinuationKeepsInitialResult checks that an empty drain preserves the prompt result and an empty idle wake creates no result.
 func TestNoJobContinuationKeepsInitialResult(t *testing.T) {
 	initial := &kit.TurnResult{Response: "no background work"}
 	a := New(Options{
@@ -237,6 +242,7 @@ func TestNoJobContinuationKeepsInitialResult(t *testing.T) {
 	}
 }
 
+// TestCloseStopsHeadlessJobWait checks that closing the app cancels a blocking headless job drain.
 func TestCloseStopsHeadlessJobWait(t *testing.T) {
 	waiting := make(chan struct{})
 	a := New(Options{
@@ -264,6 +270,7 @@ func TestCloseStopsHeadlessJobWait(t *testing.T) {
 	}
 }
 
+// TestRunningJobNotificationsDoNotScheduleDrain checks that running updates coalesce without requesting a drain or hiding a terminal update.
 func TestRunningJobNotificationsDoNotScheduleDrain(t *testing.T) {
 	wake := newJobWake()
 	for range 100 {
@@ -289,6 +296,7 @@ func TestRunningJobNotificationsDoNotScheduleDrain(t *testing.T) {
 	}
 }
 
+// TestInteractiveBatchNeverUsesBlockingDrain checks that interactive prompt, file, and jobs-only batches never call the blocking drain.
 func TestInteractiveBatchNeverUsesBlockingDrain(t *testing.T) {
 	a := New(Options{
 		PromptFunc: func(context.Context, string) (*kit.TurnResult, error) { return &kit.TurnResult{}, nil },
@@ -311,6 +319,7 @@ func TestInteractiveBatchNeverUsesBlockingDrain(t *testing.T) {
 	}
 }
 
+// TestJobWakeRecoversCompletionFromSnapshot checks that a terminal snapshot requests a drain when only a running update was delivered.
 func TestJobWakeRecoversCompletionFromSnapshot(t *testing.T) {
 	wake := newJobWake()
 	// The mailbox delivered only a later running update.
@@ -333,8 +342,11 @@ type jobsSpinnerModel struct {
 	kit.LLMLanguageModel
 }
 
+// Provider returns the local provider name used by the spinner test model.
 func (jobsSpinnerModel) Provider() string { return "local" }
-func (jobsSpinnerModel) Model() string    { return "jobs-spinner" }
+
+// Model returns the spinner test model identifier.
+func (jobsSpinnerModel) Model() string { return "jobs-spinner" }
 
 // Stream emits a complete text response for both prompts and job continuations.
 func (jobsSpinnerModel) Stream(context.Context, kit.LLMCall) (kit.LLMStreamResponse, error) {

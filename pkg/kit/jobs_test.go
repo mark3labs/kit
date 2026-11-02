@@ -16,12 +16,14 @@ import (
 	"github.com/mark3labs/kit/internal/jobs"
 )
 
+// newJobsTestKit creates a Kit with a local recording provider and optional tools.
 func newJobsTestKit(t *testing.T, tools ...Tool) *Kit {
 	t.Helper()
 	rec := &recordingFactory{}
 	return newProviderTestKit(t, &Options{Model: "local/jobs", Providers: map[string]ProviderFactory{"local": rec.factory("local")}, ExtraTools: tools})
 }
 
+// waitJobTest waits up to three seconds for a job to finish and fails the test on error.
 func waitJobTest(t *testing.T, k *Kit, id string) Job {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -33,6 +35,7 @@ func waitJobTest(t *testing.T, k *Kit, id string) Job {
 	return job
 }
 
+// TestJobsDetachedContextAndClose checks that jobs keep application values, discard turn callbacks, and stop with Kit rather than the parent context.
 func TestJobsDetachedContextAndClose(t *testing.T) {
 	k := newJobsTestKit(t)
 	type key struct{}
@@ -100,6 +103,7 @@ func TestJobsDetachedContextCannotAcceptTurn(t *testing.T) {
 	}
 }
 
+// TestJobsShellUsesConfiguredToolAndHooks checks that shell jobs use the configured tool and both tool hooks.
 func TestJobsShellUsesConfiguredToolAndHooks(t *testing.T) {
 	tool := NewTool(core.ShellToolName, "mock shell", func(ctx context.Context, args struct {
 		Command string `json:"command"`
@@ -129,6 +133,7 @@ func TestJobsShellUsesConfiguredToolAndHooks(t *testing.T) {
 	}
 }
 
+// TestJobsWaitCancellationAndSubscription checks that cancelling a wait leaves work running and job cancellation sends a notification.
 func TestJobsWaitCancellationAndSubscription(t *testing.T) {
 	k := newJobsTestKit(t)
 	notified := make(chan struct{}, 1)
@@ -164,6 +169,7 @@ func TestJobsWaitCancellationAndSubscription(t *testing.T) {
 	}
 }
 
+// TestJobsRunDrainAndUntrustedMessage checks that a completion is stored once as untrusted user data and empty drains return no result.
 func TestJobsRunDrainAndUntrustedMessage(t *testing.T) {
 	k := newJobsTestKit(t)
 	if result, err := k.RunJobs(context.Background()); err != nil || result != nil {
@@ -200,6 +206,7 @@ func TestJobsRunDrainAndUntrustedMessage(t *testing.T) {
 	}
 }
 
+// TestJobsRejectOtherBranch checks that drains and explicit waits reject work from another branch.
 func TestJobsRejectOtherBranch(t *testing.T) {
 	k := newJobsTestKit(t)
 	appendTestMessage(t, k, fantasy.NewUserMessage("original branch"))
@@ -222,6 +229,7 @@ func TestJobsRejectOtherBranch(t *testing.T) {
 	}
 }
 
+// TestJobsTurnGateCancellation checks that a prompt waiting for the turn gate respects its context deadline.
 func TestJobsTurnGateCancellation(t *testing.T) {
 	k := newJobsTestKit(t)
 	release, err := k.acquireTurn(context.Background())
@@ -236,6 +244,7 @@ func TestJobsTurnGateCancellation(t *testing.T) {
 	}
 }
 
+// TestJobsCloseContextDeadline checks that CloseContext returns at its deadline when work does not stop.
 func TestJobsCloseContextDeadline(t *testing.T) {
 	k := newJobsTestKit(t)
 	unblock := make(chan struct{})
@@ -254,6 +263,7 @@ func TestJobsCloseContextDeadline(t *testing.T) {
 	}
 }
 
+// TestJobsIdleScheduler checks that a completed job triggers a model continuation while the host is idle.
 func TestJobsIdleScheduler(t *testing.T) {
 	k := newJobsTestKit(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -280,6 +290,7 @@ func TestJobsIdleScheduler(t *testing.T) {
 	}
 }
 
+// TestJobsNestedYieldStopsOuterTool checks that a nested job yield halts the turn even if the outer tool drops the stop flag.
 func TestJobsNestedYieldStopsOuterTool(t *testing.T) {
 	var k *Kit
 	nested := NewTool("nested", "yield through another tool", func(ctx context.Context, _ struct{}) (ToolOutput, error) {
@@ -309,6 +320,7 @@ func TestJobsNestedYieldStopsOuterTool(t *testing.T) {
 	}
 }
 
+// TestJobsSubagentReusesRegistry checks that a background subagent completes through the configured local provider.
 func TestJobsSubagentReusesRegistry(t *testing.T) {
 	k := newJobsTestKit(t)
 	job, err := k.StartSubagent(context.Background(), SubagentConfig{Prompt: "child", NoSession: true})
@@ -359,6 +371,7 @@ func TestJobsConcurrentDrainsConsumeOnce(t *testing.T) {
 	}
 }
 
+// TestJobsYieldAllWaitsForRequestedJobs checks that an all-jobs yield resumes only after every requested job finishes.
 func TestJobsYieldAllWaitsForRequestedJobs(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -397,6 +410,7 @@ func TestJobsYieldAllWaitsForRequestedJobs(t *testing.T) {
 	}
 }
 
+// TestJobsPromptWithJobsDrains checks that a managed prompt consumes the background completion.
 func TestJobsPromptWithJobsDrains(t *testing.T) {
 	k := newJobsTestKit(t)
 	_, err := (&turnJobService{kit: k}).Start(context.Background(), "test", func(context.Context) (string, error) { return "completion", nil })
@@ -413,6 +427,7 @@ func TestJobsPromptWithJobsDrains(t *testing.T) {
 	}
 }
 
+// TestJobsToolServiceRejectsForeignOwner checks that tool access rejects other sessions while host inspection remains available.
 func TestJobsToolServiceRejectsForeignOwner(t *testing.T) {
 	k := newJobsTestKit(t)
 	state, _ := k.initJobs()
@@ -444,6 +459,7 @@ type jobFailOnceSession struct {
 	commit bool
 }
 
+// AppendMessage fails one write, optionally after storing it, then delegates later writes to the session.
 func (s *jobFailOnceSession) AppendMessage(message LLMMessage) (string, error) {
 	if s.fail {
 		s.fail = false
@@ -457,6 +473,7 @@ func (s *jobFailOnceSession) AppendMessage(message LLMMessage) (string, error) {
 	return s.SessionManager.AppendMessage(message)
 }
 
+// jobNotificationCount counts stored text parts that contain the background notification marker.
 func jobNotificationCount(k *Kit) int {
 	count := 0
 	for _, message := range k.session.GetMessages() {
@@ -469,6 +486,7 @@ func jobNotificationCount(k *Kit) int {
 	return count
 }
 
+// TestJobsNotificationWriteRetry checks that retries store one notification after a write error, including an error after storage.
 func TestJobsNotificationWriteRetry(t *testing.T) {
 	for _, commit := range []bool{false, true} {
 		t.Run(fmt.Sprint("commit=", commit), func(t *testing.T) {
@@ -505,6 +523,7 @@ type jobRetryModel struct {
 	fail bool
 }
 
+// Stream fails the first generation and delegates later calls to the echo model.
 func (m *jobRetryModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	if m.fail {
 		m.fail = false
@@ -543,6 +562,7 @@ func TestJobsGenerationRetryDoesNotDuplicateNotification(t *testing.T) {
 	}
 }
 
+// TestJobsYieldConsumedTerminalStillContinues checks that an explicit wait can resume again for an already consumed job.
 func TestJobsYieldConsumedTerminalStillContinues(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -567,6 +587,7 @@ func TestJobsYieldConsumedTerminalStillContinues(t *testing.T) {
 	}
 }
 
+// TestJobsWaitOwnerDoesNotBlockOtherBranch checks that an active wait on one branch does not block completions on another.
 func TestJobsWaitOwnerDoesNotBlockOtherBranch(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -596,6 +617,7 @@ func TestJobsWaitOwnerDoesNotBlockOtherBranch(t *testing.T) {
 	}
 }
 
+// TestJobsExplicitEvictedWaitReportsError checks that an evicted explicit target returns a missing-job error and removes the invalid wait.
 func TestJobsExplicitEvictedWaitReportsError(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -636,6 +658,7 @@ type jobCloseSession struct {
 	closed chan struct{}
 }
 
+// Close signals session closure before delegating to the wrapped session.
 func (s *jobCloseSession) Close() error { close(s.closed); return s.SessionManager.Close() }
 
 // TestJobsCloseContinuesAfterTimeoutExactlyOnce verifies that cleanup continues
@@ -673,6 +696,7 @@ func TestJobsCloseContinuesAfterTimeoutExactlyOnce(t *testing.T) {
 	wg.Wait()
 }
 
+// TestJobsCancellationRetryKeepsNotification checks that a cancelled drain can retry without losing or duplicating its notification.
 func TestJobsCancellationRetryKeepsNotification(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -695,6 +719,7 @@ func TestJobsCancellationRetryKeepsNotification(t *testing.T) {
 	}
 }
 
+// TestJobsCloseWaitsForTurnAfterCallerTimeout checks that cleanup waits for the turn gate even after the close caller times out.
 func TestJobsCloseWaitsForTurnAfterCallerTimeout(t *testing.T) {
 	k := newJobsTestKit(t)
 	closed := make(chan struct{})
@@ -726,6 +751,7 @@ func TestJobsCloseWaitsForTurnAfterCallerTimeout(t *testing.T) {
 	}
 }
 
+// TestJobsToolServiceRejectsSiblingBranch checks that tool access rejects sibling-branch jobs and a missing yield target returns an error.
 func TestJobsToolServiceRejectsSiblingBranch(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -757,6 +783,7 @@ func TestJobsToolServiceRejectsSiblingBranch(t *testing.T) {
 	}
 }
 
+// TestJobsReadyDrainDoesNotWait checks that ready-only drains consume completed work without waiting for or cancelling running work.
 func TestJobsReadyDrainDoesNotWait(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -783,6 +810,7 @@ func TestJobsReadyDrainDoesNotWait(t *testing.T) {
 	}
 }
 
+// TestJobsReadyDrainPreservesExplicitWait checks that ready-only drains retain an unfinished explicit wait and remove it when complete.
 func TestJobsReadyDrainPreservesExplicitWait(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -832,6 +860,7 @@ func TestJobsReadyDrainPreservesExplicitWait(t *testing.T) {
 	}
 }
 
+// TestJobsOwnedHostMethods checks that owned host methods exclude foreign jobs and allow cancellation of owned work.
 func TestJobsOwnedHostMethods(t *testing.T) {
 	k := newJobsTestKit(t)
 	state, _ := k.initJobs()
@@ -861,6 +890,7 @@ func TestJobsOwnedHostMethods(t *testing.T) {
 	}
 }
 
+// TestJobsConsumedRecordsFollowRetention checks that completion acknowledgements are bounded and removed when jobs are evicted.
 func TestJobsConsumedRecordsFollowRetention(t *testing.T) {
 	k := newJobsTestKit(t)
 	service := &turnJobService{kit: k}
@@ -897,6 +927,7 @@ func TestJobsConsumedRecordsFollowRetention(t *testing.T) {
 	}
 }
 
+// TestJobsWorkContextReleasedAfterSuccess checks that successful work releases its context without changing the completed result.
 func TestJobsWorkContextReleasedAfterSuccess(t *testing.T) {
 	k := newJobsTestKit(t)
 	contexts := make(chan context.Context, 1)
@@ -916,6 +947,7 @@ func TestJobsWorkContextReleasedAfterSuccess(t *testing.T) {
 	}
 }
 
+// TestJobsCloseCancelsActiveModelTurn checks that closing Kit cancels an active model turn and waits for it to stop.
 func TestJobsCloseCancelsActiveModelTurn(t *testing.T) {
 	model := &killTestModel{childStarted: make(chan struct{})}
 	model.provider, model.model = "close", "jobs"

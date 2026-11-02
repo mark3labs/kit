@@ -428,6 +428,9 @@ func TestToolsObjectInspection(t *testing.T) {
 	}
 }
 
+// TestNestedStopCannotBeCaught checks that a nested tool stop ends execution
+// without an error or later effects, even through exception handlers, promise
+// callbacks, or an unawaited call followed by an infinite loop.
 func TestNestedStopCannotBeCaught(t *testing.T) {
 	for _, code := range []string{
 		`await tools.echo({}); await tools.fail({});`,

@@ -17,7 +17,10 @@ type jobsTestController struct {
 	cancelled string
 }
 
+// Jobs returns the job snapshots configured for the test controller.
 func (c *jobsTestController) Jobs() []kit.Job { return c.jobs }
+
+// GetJob finds a configured job by ID or returns an unknown-job error.
 func (c *jobsTestController) GetJob(id string) (kit.Job, error) {
 	for _, job := range c.jobs {
 		if job.ID == id {
@@ -26,6 +29,8 @@ func (c *jobsTestController) GetJob(id string) (kit.Job, error) {
 	}
 	return kit.Job{}, fmt.Errorf("unknown job %s", id)
 }
+
+// CancelJob records the cancellation ID only if the configured job exists.
 func (c *jobsTestController) CancelJob(id string) error {
 	if _, err := c.GetJob(id); err != nil {
 		return err
@@ -34,6 +39,7 @@ func (c *jobsTestController) CancelJob(id string) error {
 	return nil
 }
 
+// TestJobCommands checks job command registration, listing, output, cancellation, errors, and running-status counts.
 func TestJobCommands(t *testing.T) {
 	ctrl := &jobsTestController{jobs: []kit.Job{{ID: "job-1", Kind: "shell", Status: kit.JobRunning, Output: "test output"}}}
 	m, _, _ := newTestAppModel(ctrl)

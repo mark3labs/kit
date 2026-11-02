@@ -122,6 +122,8 @@ func (m *Manager) Start(ctx context.Context, kind, sessionID, branchID string, w
 	return snapshot, nil
 }
 
+// run records the worker result and releases its concurrency slot.
+// Cancellation takes precedence over output or errors returned by the worker.
 func (m *Manager) run(ctx context.Context, e *entry, work Work) {
 	defer m.workers.Done()
 	output, err := invoke(ctx, work)
@@ -141,6 +143,7 @@ func (m *Manager) run(ctx context.Context, e *entry, work Work) {
 	m.mu.Unlock()
 }
 
+// invoke runs work and converts a panic into a job error.
 func invoke(ctx context.Context, work Work) (output string, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -150,6 +153,8 @@ func invoke(ctx context.Context, work Work) (output string, err error) {
 	return work(ctx)
 }
 
+// bounded limits text to MaxOutputBytes without splitting a UTF-8 character
+// at the cutoff, and copies truncated text to release the original allocation.
 func bounded(s string) string {
 	if len(s) <= MaxOutputBytes {
 		return s
@@ -163,6 +168,8 @@ func bounded(s string) string {
 	return strings.Clone(s[:end])
 }
 
+// finishLocked records the first terminal state, evicts excess finished jobs,
+// and notifies observers. The caller must hold m.mu.
 func (m *Manager) finishLocked(e *entry, status Status, output, message string) {
 	if e.job.Status != Running {
 		return
@@ -320,6 +327,8 @@ func (m *Manager) Subscribe(callback func(Job)) func() {
 	}
 }
 
+// notifyLocked wakes waiters and replaces each subscriber's pending update
+// with the latest job snapshot. The caller must hold m.mu.
 func (m *Manager) notifyLocked(job Job) {
 	close(m.changed)
 	m.changed = make(chan struct{})

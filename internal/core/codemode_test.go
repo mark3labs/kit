@@ -203,6 +203,9 @@ func TestUnwrapMCPResult(t *testing.T) {
 	}
 }
 
+// TestCodeModeJobsWaitStopsScript checks that a successful jobs_wait yield
+// preserves the outer halt signal and stops later shell effects, including
+// effects in JavaScript catch and finally blocks.
 func TestCodeModeJobsWaitStopsScript(t *testing.T) {
 	for _, code := range []string{
 		`await tools.jobs_wait({ids:["1"]}); await tools.shell({command:"touch should-not-exist"});`,

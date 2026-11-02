@@ -14,6 +14,7 @@ type jobController interface {
 	CancelJob(string) error
 }
 
+// handleJobsCommand shows retained jobs or one job output, reporting unsupported access, invalid arguments, and lookup errors.
 func (m *AppModel) handleJobsCommand(args []string) {
 	ctrl, ok := m.appCtrl.(jobController)
 	if !ok {
@@ -50,6 +51,7 @@ func (m *AppModel) handleJobsCommand(args []string) {
 	m.printSystemMessage(text.String())
 }
 
+// handleCancelJobCommand requests cancellation of one job and reports usage, availability, or controller errors.
 func (m *AppModel) handleCancelJobCommand(args []string) {
 	ctrl, ok := m.appCtrl.(jobController)
 	if !ok {
@@ -67,6 +69,7 @@ func (m *AppModel) handleCancelJobCommand(args []string) {
 	m.printSystemMessage("Cancellation requested for job " + args[0] + ".")
 }
 
+// renderJobStatus returns the running-job count and command hints, or empty text when no jobs run.
 func (m *AppModel) renderJobStatus() string {
 	ctrl, ok := m.appCtrl.(jobController)
 	if !ok {

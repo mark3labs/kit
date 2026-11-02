@@ -55,6 +55,7 @@ type jobState struct {
 	nextNotification uint64
 }
 
+// initJobs creates the job registry and lifetime on first use, unless Kit is closed.
 func (m *Kit) initJobs() (*jobState, error) {
 	m.jobsMu.Lock()
 	defer m.jobsMu.Unlock()
@@ -68,6 +69,7 @@ func (m *Kit) initJobs() (*jobState, error) {
 	return m.jobState, nil
 }
 
+// gate returns the shared turn gate, creating it on first use.
 func (m *Kit) gate() chan struct{} {
 	m.jobsMu.Lock()
 	defer m.jobsMu.Unlock()
@@ -77,6 +79,7 @@ func (m *Kit) gate() chan struct{} {
 	return m.turnGate
 }
 
+// acquireTurnForClose waits for the turn gate without rejecting a closed Kit.
 func (m *Kit) acquireTurnForClose(ctx context.Context) (func(), error) {
 	gate := m.gate()
 	if err := ctx.Err(); err != nil {
@@ -90,6 +93,7 @@ func (m *Kit) acquireTurnForClose(ctx context.Context) (func(), error) {
 	}
 }
 
+// acquireTurn waits for the turn gate and releases it if Kit is closed.
 func (m *Kit) acquireTurn(ctx context.Context) (func(), error) {
 	release, err := m.acquireTurnForClose(ctx)
 	if err != nil {
@@ -105,6 +109,7 @@ func (m *Kit) acquireTurn(ctx context.Context) (func(), error) {
 	return release, nil
 }
 
+// jobOwner returns the current session ID and branch leaf ID, or empty IDs without a session.
 func (m *Kit) jobOwner() (string, string) {
 	if m.session == nil {
 		return "", ""
@@ -117,6 +122,7 @@ func (m *Kit) jobOwner() (string, string) {
 	return m.session.GetSessionID(), ancestor
 }
 
+// ownsJob checks the session ID and whether the job branch is an ancestor of the current branch.
 func (m *Kit) ownsJob(job Job) bool {
 	sessionID, _ := m.jobOwner()
 	if job.SessionID != sessionID {
@@ -142,6 +148,7 @@ type jobValueContext struct {
 	values context.Context
 }
 
+// Value reads values from the sanitized start context rather than the job lifetime context.
 func (ctx jobValueContext) Value(key any) any { return ctx.values.Value(key) }
 
 type turnJobService struct{ kit *Kit }
@@ -183,9 +190,15 @@ func (s *turnJobService) Start(ctx context.Context, kind string, work func(conte
 	})
 	return job, err
 }
+
+// Get returns a retained job only if the current session and branch own it.
 func (s *turnJobService) Get(id string) (Job, error) { return s.kit.GetOwnedJob(id) }
-func (s *turnJobService) List() []Job                { return s.kit.OwnedJobs() }
-func (s *turnJobService) Cancel(id string) error     { return s.kit.CancelOwnedJob(id) }
+
+// List returns retained jobs owned by the current session and branch.
+func (s *turnJobService) List() []Job { return s.kit.OwnedJobs() }
+
+// Cancel cancels a job only if the current session and branch own it.
+func (s *turnJobService) Cancel(id string) error { return s.kit.CancelOwnedJob(id) }
 
 // OwnedJobs returns retained jobs owned by the current session and branch.
 func (m *Kit) OwnedJobs() []Job {
@@ -218,6 +231,7 @@ func (m *Kit) CancelOwnedJob(id string) error {
 	return m.CancelJob(id)
 }
 
+// removeWait removes the matching wait request while holding the state lock.
 func (state *jobState) removeWait(wait *jobWait) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -229,6 +243,7 @@ func (state *jobState) removeWait(wait *jobWait) {
 	}
 }
 
+// WaitAny waits for any or all requested jobs, checking ownership before and after the wait.
 func (s *turnJobService) WaitAny(ctx context.Context, ids []string, all bool) ([]Job, error) {
 	for _, id := range ids {
 		if _, err := s.Get(id); err != nil {
@@ -246,6 +261,8 @@ func (s *turnJobService) WaitAny(ctx context.Context, ids []string, all bool) ([
 	}
 	return result, nil
 }
+
+// Yield registers an owned job wait and halts the active turn without blocking on the jobs.
 func (s *turnJobService) Yield(ctx context.Context, ids []string, all bool) error {
 	state, err := s.kit.initJobs()
 	if err != nil {
@@ -405,6 +422,8 @@ func (m *Kit) RunReadyJobs(ctx context.Context) (*TurnResult, error) {
 	return m.runJobs(ctx, false)
 }
 
+// runJobs serializes owned job continuations and retries pending notifications without duplicate writes.
+// It waits for active jobs only when waitActive is true.
 func (m *Kit) runJobs(ctx context.Context, waitActive bool) (*TurnResult, error) {
 	state, err := m.initJobs()
 	if err != nil {
