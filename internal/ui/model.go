@@ -2513,7 +2513,7 @@ func (m *AppModel) View() tea.View {
 	}
 	subagentView := m.chrome.subagents
 	if !m.chrome.valid {
-		subagentView = m.renderSubagentStatusBar()
+		subagentView = m.renderBackgroundStatus()
 	}
 	if subagentView != "" {
 		parts = append(parts, subagentView)
@@ -3692,6 +3692,10 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleThinkingCommand(args)
 	case "/mode":
 		return m.handleModelModeCommand(args)
+	case "/jobs":
+		m.handleJobsCommand(strings.Fields(args))
+	case "/cancel-job":
+		m.handleCancelJobCommand(strings.Fields(args))
 	case "/subagents":
 		return m.openSubagentInspector()
 	case "/kill-subagent":
@@ -4801,7 +4805,7 @@ func (m *AppModel) distributeHeight() {
 		m.chrome.activity = activityView
 	}
 	var subagentLines int
-	subagentView := m.renderSubagentStatusBar()
+	subagentView := m.renderBackgroundStatus()
 	if subagentView != "" {
 		subagentLines = lipgloss.Height(subagentView)
 		m.chrome.subagents = subagentView
@@ -7563,6 +7567,9 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 
 	case app.MessageCreatedEvent:
 		// Informational — no action needed by parent.
+
+	case app.JobsUpdatedEvent:
+		m.layoutDirty = true
 
 	case app.QueueUpdatedEvent:
 		// drainQueue popped item(s) from the queue. Move consumed

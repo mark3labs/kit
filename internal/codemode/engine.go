@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
@@ -98,6 +99,9 @@ type Call struct {
 type InvokeResult struct {
 	Text    string
 	IsError bool
+	// Stop ends the script successfully without running promise continuations.
+	// JavaScript cannot catch this stop or run catch/finally handlers for it.
+	Stop bool
 }
 
 // Invoker executes one nested tool call. A returned error means the call
@@ -161,6 +165,8 @@ type Diagnostic struct {
 // error; failures are reported in Error.
 type Result struct {
 	OK bool `json:"ok"`
+	// Stopped reports a successful early stop requested by a nested tool.
+	Stopped bool `json:"stopped,omitempty"`
 	// Output is everything the script passed to text() followed by its
 	// return value.
 	Output string   `json:"output,omitempty"`
@@ -175,8 +181,9 @@ type Result struct {
 }
 
 var (
-	errTimeout = errors.New("code mode: time limit exceeded")
-	errMemory  = errors.New("code mode: memory limit exceeded")
+	errGracefulStop = errors.New("code mode: tool requested stop")
+	errTimeout      = errors.New("code mode: time limit exceeded")
+	errMemory       = errors.New("code mode: memory limit exceeded")
 )
 
 // Run executes p and returns its result.
@@ -193,10 +200,13 @@ type runner struct {
 	lim Limits
 	vm  *goja.Runtime
 
-	runCtx context.Context
-	jobs   chan func()
-	done   chan struct{}
-	sem    chan struct{}
+	stop     context.CancelCauseFunc
+	stopped  atomic.Bool
+	stopCall atomic.Pointer[Call]
+	runCtx   context.Context
+	jobs     chan func()
+	done     chan struct{}
+	sem      chan struct{}
 
 	pending   int
 	callCount int
@@ -239,6 +249,7 @@ func (r *runner) run(parent context.Context) Result {
 	runCtx, cancelTimeout := context.WithTimeoutCause(ctx, r.lim.Timeout, errTimeout)
 	defer cancelTimeout()
 	r.runCtx = runCtx
+	r.stop = cancelCause
 	defer close(r.done)
 
 	src := wrapSource(r.p.Code)
@@ -303,13 +314,20 @@ func (r *runner) run(parent context.Context) Result {
 }
 
 func (r *runner) finish(diag *Diagnostic) Result {
+	if r.stopped.Load() {
+		diag = nil
+	}
 	for i := range r.calls {
-		if r.calls[i].Status == CallRunning {
+		if stopped := r.stopCall.Load(); stopped != nil && stopped.ID == r.calls[i].ID {
+			r.calls[i].Status = CallOK
+			r.calls[i].Error = ""
+		} else if r.calls[i].Status == CallRunning {
 			r.calls[i].Status = CallCancelled
 		}
 	}
 	res := Result{
 		OK:               diag == nil,
+		Stopped:          r.stopped.Load(),
 		Output:           r.output.String(),
 		Logs:             r.logs,
 		Calls:            r.calls,
@@ -598,6 +616,16 @@ func (r *runner) startCall(e Entry, arg goja.Value) goja.Value {
 			default:
 				c.Status = CallOK
 			}
+			// A stop never resolves or rejects the promise. Either operation
+			// could run user continuations, including catch/finally handlers.
+			if res.Stop {
+				c.Status = CallOK
+				c.Error = ""
+				if r.p.Observer.OnCallEnd != nil {
+					r.p.Observer.OnCallEnd(*c)
+				}
+				return
+			}
 			// Report the end before settling: settling runs the script's
 			// continuation, whose logs must come after this call's end.
 			if r.p.Observer.OnCallEnd != nil {
@@ -631,7 +659,19 @@ func (r *runner) invoke(call Call) (res InvokeResult, err error) {
 	if r.p.Invoke == nil {
 		return InvokeResult{}, errors.New("no tool invoker configured")
 	}
-	return r.p.Invoke(r.runCtx, call)
+	if r.stopped.Load() || r.runCtx.Err() != nil {
+		return InvokeResult{}, context.Cause(r.runCtx)
+	}
+	res, err = r.p.Invoke(r.runCtx, call)
+	if res.Stop {
+		// Interrupt also stops scripts that did not await the yielding call.
+		// Runtime interrupts cannot be caught by JavaScript.
+		r.stopCall.CompareAndSwap(nil, &call)
+		r.stopped.Store(true)
+		r.vm.Interrupt(errGracefulStop)
+		r.stop(errGracefulStop)
+	}
+	return res, err
 }
 
 func missingRequired(e Entry, argsJSON string) []string {

@@ -6,6 +6,34 @@ ogImage: /og-image.png
 
 # Commands
 
+## Background jobs in prompt mode
+
+All headless prompt paths wait for owned background jobs and run model
+continuations before they return. This includes positional prompts, file attachments,
+`--quiet`, `--json`, and the prompt phase of `--no-exit`. Quiet mode prints the
+last response. JSON mode uses the last turn result. Display mode keeps streaming
+output and tool events through the continuations. A `jobs_wait` tool call yields
+the turn; Kit then waits and resumes through the same app execution queue.
+
+In the interactive TUI, job notifications also wake an idle app. Kit does not
+poll for completions or run a second model scheduler. Interactive job processing
+never waits for active work, including `jobs_wait` targets. The app becomes idle so a new user prompt can run while jobs remain
+active. Completion notifications queue ready results through the same app
+scheduler. Model turns run in sequence, never in parallel with a completion turn.
+
+| Slash command | Action |
+| --- | --- |
+| `/jobs` | List retained job IDs, kinds, states, and the running count |
+| `/jobs <job-id>` | Show status, bounded output, and error text |
+| `/cancel-job <job-id>` | Request cancellation of one job |
+
+A status row shows the number of running jobs. Stopping the current turn does
+not cancel background work. Use `/cancel-job` to stop a job. Exiting Kit
+cancels remaining work. Jobs are in memory and do not resume after a restart.
+The job list, output lookup, cancellation controls, and continuations use only
+work owned by the current session and branch.
+
+
 ## Authentication
 
 Anthropic, OpenAI and GitHub Copilot use OAuth flows. Every other provider

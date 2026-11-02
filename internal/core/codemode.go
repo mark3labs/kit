@@ -240,7 +240,7 @@ func (t *CodeModeTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.
 			text = fmt.Sprintf("[%s result (%s, %d bytes) cannot be passed into a script; call %s directly to see it]",
 				resp.Type, resp.MediaType, len(resp.Data), c.Name)
 		}
-		return codemode.InvokeResult{Text: text, IsError: resp.IsError}, nil
+		return codemode.InvokeResult{Text: text, IsError: resp.IsError, Stop: resp.StopTurn}, nil
 	}
 
 	res := codemode.Run(ctx, codemode.Program{
@@ -278,6 +278,7 @@ func (t *CodeModeTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.
 	} else {
 		resp = fantasy.NewTextErrorResponse(text)
 	}
+	resp.StopTurn = res.Stopped
 	info := CodeModeRunInfo{OK: res.OK, WallTime: res.WallTime, Calls: res.Calls, FullPath: fullPath}
 	if res.Error != nil {
 		info.ErrorKind = string(res.Error.Kind)

@@ -202,3 +202,41 @@ func TestUnwrapMCPResult(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeModeJobsWaitStopsScript(t *testing.T) {
+	for _, code := range []string{
+		`await tools.jobs_wait({ids:["1"]}); await tools.shell({command:"touch should-not-exist"});`,
+		`try { await tools.jobs_wait({ids:["1"]}); } catch (e) { await tools.shell({command:"touch should-not-exist"}); } finally { await tools.shell({command:"touch should-not-exist"}); } await tools.shell({command:"touch should-not-exist"});`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			service := testJobService(t)
+			type haltKey struct{}
+			halt := new(bool)
+			ctx := context.WithValue(WithJobService(context.Background(), service), haltKey{}, halt)
+			wait := NewJobsWaitTool()
+			// This wrapper models the SDK hook: it retains the outer halt holder
+			// and signals StopTurn after the real jobs_wait tool calls Yield.
+			wrapped := &coreTool{info: wait.Info(), handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				response, err := wait.Run(ctx, call)
+				if err == nil && !response.IsError {
+					*ctx.Value(haltKey{}).(*bool) = true
+					response.StopTurn = true
+				}
+				return response, err
+			}}
+			dir := t.TempDir()
+			cm := NewCodeModeTool().(*CodeModeTool)
+			cm.ObserveToolSet([]fantasy.AgentTool{wrapped, NewShellTool(WithWorkDir(dir)), cm})
+			response := runCodeMode(t, cm, ctx, code)
+			if response.IsError || !response.StopTurn || !*halt {
+				t.Fatalf("response = %+v, halt = %v", response, *halt)
+			}
+			if len(service.yieldIDs) != 1 || service.yieldIDs[0] != "1" {
+				t.Fatalf("yield = %v", service.yieldIDs)
+			}
+			if _, err := os.Stat(dir + "/should-not-exist"); !os.IsNotExist(err) {
+				t.Fatalf("shell side effect ran: %v", err)
+			}
+		})
+	}
+}

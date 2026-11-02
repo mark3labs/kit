@@ -302,8 +302,9 @@ const maxShellTimeout = 600 * time.Second
 var bannedCmdRe = regexp.MustCompile(`^(alias|bg|bind|builtin|caller|command|compgen|complete|compopt|coproc|dirs|disown|enable|fc|fg|hash|help|history|jobs|kill|logout|mapfile|popd|pushd|readonly|select|set|shopt|source|suspend|times|trap|type|typeset|ulimit|umask|unalias|wait)\s`)
 
 type shellArgs struct {
-	Command string  `json:"command"`
-	Timeout float64 `json:"timeout,omitempty"`
+	Background bool    `json:"background,omitempty"`
+	Command    string  `json:"command"`
+	Timeout    float64 `json:"timeout,omitempty"`
 }
 
 // NewShellTool creates the shell core tool. It runs one command string through
@@ -334,6 +335,7 @@ func NewShellTool(opts ...ToolOption) fantasy.AgentTool {
 			Name:        ShellToolName,
 			Description: shellToolDescription(cfg.Shell),
 			Parameters: map[string]any{
+				"background": map[string]any{"type": "boolean", "description": "Run as a background job and return its ID immediately (default false)."},
 				"command": map[string]any{
 					"type":        "string",
 					"description": shellCommandParamDescription(cfg.Shell),
@@ -346,10 +348,39 @@ func NewShellTool(opts ...ToolOption) fantasy.AgentTool {
 			Required: []string{"command"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			if cfg.CommandRunner != nil {
-				return executeShellWithRunner(ctx, call, cfg.CommandRunner, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
+			execute := func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				if cfg.CommandRunner != nil {
+					return executeShellWithRunner(ctx, call, cfg.CommandRunner, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
+				}
+				return executeShell(ctx, call, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
 			}
-			return executeShell(ctx, call, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
+			var args shellArgs
+			if err := parseArgs(call.Input, &args); err != nil || args.Command == "" {
+				return fantasy.NewTextErrorResponse("command parameter is required"), nil
+			}
+			if args.Background {
+				if bannedCmdRe.MatchString(args.Command) {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("command '%s' is not allowed", args.Command)), nil
+				}
+				if _, err := resolveShell(cfg.Shell); err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid shell configuration: %v", err)), nil
+				}
+				// Background work must not open a turn-scoped password prompt.
+				// A custom runner owns authentication and has no prompt path.
+				if cfg.CommandRunner == nil && sudoCommandRe.MatchString(args.Command) && sudoPasswordFromContext(ctx) == "" && os.Getenv("SUDO_PASSWORD") == "" {
+					authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					auth := exec.CommandContext(authCtx, "sudo", "-n", "true")
+					auth.Dir = cfg.WorkDir
+					err := auth.Run()
+					cancel()
+					if err != nil {
+						return fantasy.NewTextErrorResponse("Background sudo requires cached authorization or SUDO_PASSWORD. Run 'sudo -v' in your terminal first, or run this command in the foreground to enter a password."), nil
+					}
+				}
+				args.Background = false
+				return startBackgroundJob(ctx, ShellToolName, call, args, execute)
+			}
+			return execute(ctx, call)
 		},
 	}
 }
@@ -405,6 +436,10 @@ func rewriteSudoForStdin(command string) string {
 }
 
 func executeShell(ctx context.Context, call fantasy.ToolCall, workDir string, shell []string, defaultTimeout, maxTimeout time.Duration) (fantasy.ToolResponse, error) {
+	// Authorization can expire after preflight. Never prompt from a job.
+	if background, _ := ctx.Value(backgroundJobKey{}).(bool); background {
+		ctx = ContextWithPasswordPrompt(ctx, nil)
+	}
 	var args shellArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("command parameter is required"), nil

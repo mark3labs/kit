@@ -45,6 +45,14 @@ type ContextFile struct {
 // integration of MCP tools and LLM interactions into Go applications. It manages
 // agents, sessions, and model configurations.
 type Kit struct {
+	jobsMu     sync.Mutex
+	jobState   *jobState
+	jobsClosed bool
+	turnGate   chan struct{}
+	closeOnce  sync.Once
+	closeDone  chan struct{}
+	closeErr   error
+
 	agent       *agent.Agent
 	session     SessionManager
 	modelString string
@@ -2733,6 +2741,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 // All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
+	ctx = core.WithJobService(ctx, &turnJobService{kit: m})
 	// Capture the per-turn stream collector (set by runTurn) so streamed
 	// deltas are recorded into TurnResult.Stream in emit order.
 	collector := streamCollectorFromContext(ctx)
@@ -3129,6 +3138,24 @@ func (m *Kit) persistGenerationRemainder(ctx context.Context, result *agent.Gene
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
 // prompt is the raw user text passed to BeforeTurn hooks.
 func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (*TurnResult, error) {
+	release, err := m.acquireTurn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return m.runTurnLocked(ctx, promptLabel, prompt, preMessages)
+}
+
+func (m *Kit) runTurnLocked(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (*TurnResult, error) {
+	state, initErr := m.initJobs()
+	if initErr != nil {
+		return nil, initErr
+	}
+	ctx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	stopLifetime := context.AfterFunc(state.lifetime, cancelTurn)
+	defer stopLifetime()
+
 	// Expand /<skill-name> commands — reads the skill file, wraps it in a
 	// <skill_content> block, and appends any trailing user args.
 	if expanded := m.expandSkillCommand(prompt); expanded != prompt {
@@ -3175,6 +3202,10 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		m.events.emit(TurnEndEvent{Error: err})
 		m.afterTurn.run(AfterTurnHook{Error: err})
 		return &TurnResult{SessionID: m.GetSessionID(), Messages: m.session.GetMessages(), Incomplete: true}, err
+	}
+
+	if accepted, ok := ctx.Value(jobAcceptanceKey{}).(func()); ok {
+		accepted()
 	}
 
 	// Auto-compact if enabled and conversation is near the context limit.
@@ -3609,6 +3640,11 @@ func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOpti
 // complete when it returns. Per-call overrides in opts are applied for this
 // call only and the agent's prior state is restored before returning.
 func (m *Kit) PromptResultWithOptions(ctx context.Context, msg string, opts PromptOptions) (*TurnResult, error) {
+	release, err := m.acquireTurn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	restore, err := m.applyPromptOptions(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -3621,7 +3657,7 @@ func (m *Kit) PromptResultWithOptions(ctx context.Context, msg string, opts Prom
 	}
 	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
 
-	return m.runTurn(ctx, msg, msg, preMessages)
+	return m.runTurnLocked(ctx, msg, msg, preMessages)
 }
 
 // PromptResult sends a message and returns the full turn result including
@@ -3832,27 +3868,52 @@ func (m *Kit) Close() error {
 	return m.CloseContext(context.Background())
 }
 
-// CloseContext is like [Kit.Close] but accepts a context so graceful shutdown
-// can be bounded by a deadline or cancellation. The context is honored on a
-// best-effort basis: if it is already done when CloseContext is called, the
-// context error is returned after a best-effort cleanup pass.
+// CloseContext starts cleanup once and waits until it completes or ctx ends.
+// Cleanup continues in the background after a caller timeout. Later calls wait
+// for the same cleanup and return its result. Jobs and active turns are
+// cancelled before session and agent resources are released.
 func (m *Kit) CloseContext(ctx context.Context) error {
-	// Emit SessionShutdown for extensions.
-	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
-		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
+	m.closeOnce.Do(func() {
+		m.jobsMu.Lock()
+		m.jobsClosed = true
+		state := m.jobState
+		m.closeDone = make(chan struct{})
+		m.jobsMu.Unlock()
+		if state != nil {
+			state.cancel()
+		}
+		go func() {
+			defer close(m.closeDone)
+			if state != nil {
+				m.closeErr = errors.Join(m.closeErr, state.manager.Close())
+			}
+			release, err := m.acquireTurnForClose(context.Background())
+			if err != nil {
+				m.closeErr = errors.Join(m.closeErr, err)
+				return
+			}
+			defer release()
+			if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
+				_, err := m.extRunner.Emit(extensions.SessionShutdownEvent{})
+				m.closeErr = errors.Join(m.closeErr, err)
+			}
+			if m.session != nil {
+				m.closeErr = errors.Join(m.closeErr, m.session.Close())
+			}
+			if closer, ok := m.authHandler.(interface{ Close() error }); ok {
+				m.closeErr = errors.Join(m.closeErr, closer.Close())
+			}
+			if m.agent != nil {
+				m.closeErr = errors.Join(m.closeErr, m.agent.Close())
+			}
+		}()
+	})
+	select {
+	case <-m.closeDone:
+		return m.closeErr
+	case <-ctx.Done():
+		return fmt.Errorf("close kit: %w", ctx.Err())
 	}
-	if m.session != nil {
-		_ = m.session.Close()
-	}
-	// Release the OAuth callback port if we own the handler.
-	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
-		_ = closer.Close()
-	}
-	err := m.agent.Close()
-	if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
-		return ctxErr
-	}
-	return err
 }
 
 // Conversion helpers are defined in adapter.go.

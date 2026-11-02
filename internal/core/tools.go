@@ -181,6 +181,10 @@ var coreTools = map[string]initTool{
 	"find":        NewFindTool,
 	"ls":          NewLsTool,
 	"subagent":    NewSubagentTool,
+	"jobs_list":   NewJobsListTool,
+	"jobs_get":    NewJobsGetTool,
+	"jobs_cancel": NewJobsCancelTool,
+	"jobs_wait":   NewJobsWaitTool,
 
 	CodeModeToolName: NewCodeModeTool,
 }
@@ -228,6 +232,10 @@ func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 		NewGrepTool(opts...),
 		NewFindTool(opts...),
 		NewLsTool(opts...),
+		NewJobsListTool(opts...),
+		NewJobsGetTool(opts...),
+		NewJobsCancelTool(opts...),
+		NewJobsWaitTool(opts...),
 	}
 }
 

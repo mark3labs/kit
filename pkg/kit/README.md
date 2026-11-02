@@ -1204,3 +1204,76 @@ that could change the session after the caller starts another turn.
 ### SDK configuration resolution
 
 File selection is separate from effective field precedence. An explicit SDK `ConfigFile` loads only that file; otherwise project config is preferred over home config. SDK generation/provider overrides win over environment, then configuration, per-model defaults and fallbacks. Stored credentials win over provider environment variables unless explicitly overridden. See [SDK option precedence](https://go-kit.dev/sdk/options#precedence).
+
+## Background jobs
+
+Use background jobs for shell commands or child agents that must continue after
+an agent turn ends. Jobs use the configured shell, working directory, tools,
+and SDK hooks. Start cancellation prevents admission. After admission, use
+`CancelJob` or close the Kit instance to cancel work.
+
+```go
+job, err := host.StartShellJob(ctx, "printf 'hello\\n'")
+if err != nil {
+    return fmt.Errorf("start shell job: %w", err)
+}
+finished, err := host.WaitJob(ctx, job.ID)
+if err != nil {
+    return fmt.Errorf("wait for shell job: %w", err)
+}
+fmt.Printf("%s: %s\n", finished.Status, finished.Output)
+```
+
+`WaitJob` cancels only its wait when `ctx` ends. Check `Job.Status` and `Job.Error`
+for work failure. `StartSubagent(ctx, SubagentConfig{Prompt: "..."})` starts a
+child through the same subagent registry and cancellation path as `Subagent`.
+`Jobs`, `GetJob`, and `CancelJob` let a host inspect or cancel retained work.
+Use `OwnedJobs`, `GetOwnedJob`, and `CancelOwnedJob` when access must be limited
+to the current session and branch.
+
+### Managed continuation
+
+`PromptWithJobs` runs a prompt, waits for active owned work, and drains model
+continuations. It returns the last turn result. Completion output enters the
+conversation as untrusted data, not as a system instruction.
+
+```go
+result, err := host.PromptWithJobs(ctx, "Run the checks in the background and summarize their results.")
+if err != nil {
+    return fmt.Errorf("run managed prompt: %w", err)
+}
+fmt.Println(result.Response)
+```
+
+After a normal `PromptResult`, call `RunJobs(ctx)` to drain completions and wait
+for active work. For an event-driven UI, call `RunReadyJobs(ctx)` after a job
+notification. It does not wait for active work and preserves unfinished
+explicit waits. Both methods return the last continuation result, or `nil`
+when no continuation ran. Model turns share one context-aware gate.
+
+For automatic continuation while idle, opt in with a scheduler:
+
+```go
+stopScheduler := host.StartJobScheduler(ctx)
+defer stopScheduler()
+```
+
+`SubscribeJobs` provides asynchronous change notifications. A slow listener can
+miss intermediate states; read `OwnedJobs` after a notification. Callbacks must
+not block. Do not run a scheduler if the host must approve each continuation.
+
+Job output and finished-job retention are bounded. Completed notifications are
+acknowledged only after generation succeeds. A failed continuation can be
+retried without adding the accepted notification message again. Branch changes
+do not deliver results from a sibling branch.
+
+`CloseContext` cancels jobs and active turns before closing session and agent
+resources. A caller deadline bounds the wait, not cleanup: cleanup continues
+in the background. A later close call waits for that same cleanup.
+
+Runnable example (requires configured provider credentials):
+
+```bash
+go run ./examples/sdk/background-jobs
+go run ./examples/sdk/background-jobs -managed
+```

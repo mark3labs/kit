@@ -803,3 +803,31 @@ Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
 - [`WithShellTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellTimeout) — WithShellTimeout sets the default per-call timeout for the shell tool.
 - [`WithShell`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShell) — WithShell sets the shell the shell tool runs command strings through: the shell plus its own leading arguments.
 - [`WithWorkDir`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithWorkDir) — WithWorkDir sets the working directory for file-based tools.
+
+## Background jobs
+
+Jobs belong to a session and a captured branch ancestor. Turn cancellation does not cancel an admitted job. Use `CancelJob` or close the Kit instance to cancel work.
+
+`PromptWithJobs` runs a prompt and drains job continuations. `RunJobs` returns the last continuation result, or `nil` when no continuation runs. For automatic continuation while idle, opt in with `StartJobScheduler` and call its returned cancel function to stop it. Model turns share one context-aware gate. Completion output enters model history as untrusted user-role data, not as a system instruction.
+
+- [`Job`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Job)
+- [`JobStatus`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#JobStatus)
+- [`JobRunning`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#JobRunning)
+- [`JobCompleted`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#JobCompleted)
+- [`JobFailed`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#JobFailed)
+- [`JobCancelled`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#JobCancelled)
+- [`Kit.StartShellJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.StartShellJob)
+- [`Kit.StartSubagent`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.StartSubagent)
+- [`Kit.Jobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.Jobs)
+- [`Kit.GetJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetJob)
+- [`Kit.CancelJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CancelJob)
+- [`Kit.WaitJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.WaitJob)
+- [`Kit.WaitAnyJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.WaitAnyJob)
+- [`Kit.SubscribeJobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.SubscribeJobs)
+- [`Kit.RunJobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RunJobs)
+- [`Kit.PromptWithJobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.PromptWithJobs)
+- [`Kit.StartJobScheduler`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.StartJobScheduler)
+- [`Kit.RunReadyJobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.RunReadyJobs)
+- [`Kit.OwnedJobs`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.OwnedJobs)
+- [`Kit.GetOwnedJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetOwnedJob)
+- [`Kit.CancelOwnedJob`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.CancelOwnedJob)
