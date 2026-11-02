@@ -415,15 +415,18 @@ func (m *Kit) RunJobs(ctx context.Context) (*TurnResult, error) {
 }
 
 // RunReadyJobs drains owned job completions without waiting for active jobs.
-// An explicit wait that is not ready remains registered. It returns the last
-// continuation result, or nil if no continuation ran. Model generation and
+// Ready explicit waits run in FIFO order, skipping unfinished waits without
+// removing them. It returns the last continuation result, or nil if no
+// continuation ran. Model generation and
 // acquisition of the shared turn gate can still block until ctx ends.
 func (m *Kit) RunReadyJobs(ctx context.Context) (*TurnResult, error) {
 	return m.runJobs(ctx, false)
 }
 
 // runJobs serializes owned job continuations and retries pending notifications without duplicate writes.
-// It waits for active jobs only when waitActive is true.
+// Explicit waits are selected in FIFO order among ready owned requests. An
+// unfinished request cannot block a later ready request. Blocking drains wait
+// for active jobs across all unfinished owned requests, without polling.
 func (m *Kit) runJobs(ctx context.Context, waitActive bool) (*TurnResult, error) {
 	state, err := m.initJobs()
 	if err != nil {
@@ -458,45 +461,52 @@ func (m *Kit) runJobs(ctx context.Context, waitActive bool) (*TurnResult, error)
 				break
 			}
 		}
-		var wait *jobWait
+		var waits []*jobWait
 		for _, request := range state.waits {
 			if m.ownsJob(request.owner) {
-				wait = request
-				break
+				waits = append(waits, request)
 			}
 		}
 		state.mu.Unlock()
 
+		var wait *jobWait
 		var ready []Job
 		var active []string
-		waitReady := wait == nil
-		if pending == nil && wait != nil {
-			terminal := 0
-			for _, id := range wait.ids {
-				job, getErr := state.manager.Get(id)
-				if getErr != nil {
-					state.removeWait(wait)
-					release()
-					return last, fmt.Errorf("resolve requested job %q: %w", id, getErr)
+		if pending == nil {
+			// Scan every owned request. Keep the first ready request, but
+			// collect running IDs from all unfinished requests for wake-up.
+			for _, request := range waits {
+				var terminal []Job
+				var running []string
+				for _, id := range request.ids {
+					job, getErr := state.manager.Get(id)
+					if getErr != nil {
+						state.removeWait(request)
+						release()
+						return last, fmt.Errorf("resolve requested job %q: %w", id, getErr)
+					}
+					if !m.ownsJob(job) {
+						state.removeWait(request)
+						release()
+						return last, fmt.Errorf("requested job %q belongs to another session or branch", id)
+					}
+					if job.Status != JobRunning {
+						terminal = append(terminal, job)
+					} else {
+						running = append(running, id)
+					}
 				}
-				if !m.ownsJob(job) {
-					state.removeWait(wait)
-					release()
-					return last, fmt.Errorf("requested job %q belongs to another session or branch", id)
-				}
-				if job.Status != JobRunning {
-					terminal++
-					ready = append(ready, job)
+				if len(terminal) == len(request.ids) || (!request.all && len(terminal) > 0) {
+					if wait == nil {
+						wait = request
+						ready = terminal
+					}
 				} else {
-					active = append(active, id)
+					active = append(active, running...)
 				}
-			}
-			waitReady = terminal == len(wait.ids) || (!wait.all && terminal > 0)
-			if !waitReady {
-				ready = nil
 			}
 		}
-		if pending == nil && wait == nil {
+		if pending == nil && len(waits) == 0 {
 			for _, job := range state.manager.List() {
 				if !m.ownsJob(job) || state.consumed[job.ID] {
 					continue
@@ -579,19 +589,14 @@ func (m *Kit) runJobs(ctx context.Context, waitActive bool) (*TurnResult, error)
 			return last, nil
 		}
 		if len(active) == 0 {
-			if !waitReady {
-				continue
-			}
 			return last, nil
 		}
 		if _, err := state.manager.WaitAny(ctx, active, false); err != nil {
-			// A completed job can be evicted between List and WaitAny.
-			// Rescan implicit drains; explicit waits report the missing ID.
+			// A completed job can be evicted between the scan and WaitAny.
+			// Rescan so explicit waits report and remove only the request
+			// with a missing ID; implicit drains skip evicted jobs.
 			if errors.Is(err, jobs.ErrNotFound) {
-				if wait == nil {
-					continue
-				}
-				state.removeWait(wait)
+				continue
 			}
 			return last, fmt.Errorf("wait for background jobs: %w", err)
 		}

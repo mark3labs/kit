@@ -976,3 +976,112 @@ func TestJobsCloseCancelsActiveModelTurn(t *testing.T) {
 		t.Fatal("active turn still blocked")
 	}
 }
+
+// TestJobsExplicitWaitsDeliverReadyBeforeOlderWait checks that both drain modes
+// deliver B while A is still running, retain A's wait, and then deliver A.
+func TestJobsExplicitWaitsDeliverReadyBeforeOlderWait(t *testing.T) {
+	for _, blocking := range []bool{false, true} {
+		t.Run(fmt.Sprintf("blocking=%t", blocking), func(t *testing.T) {
+			k := newJobsTestKit(t)
+			service := &turnJobService{kit: k}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			start := func(output string) (Job, chan struct{}) {
+				unblock := make(chan struct{})
+				job, err := service.Start(ctx, "test", func(ctx context.Context) (string, error) {
+					select {
+					case <-unblock:
+						return output, nil
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return job, unblock
+			}
+			a, finishA := start("wait A output")
+			b, finishB := start("wait B output")
+			yieldCtx := context.WithValue(ctx, haltHolderKey{}, &haltHolder{})
+			for _, job := range []Job{a, b} {
+				if err := service.Yield(yieldCtx, []string{job.ID}, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			state, err := k.initJobs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkWait := func() {
+				t.Helper()
+				state.mu.Lock()
+				defer state.mu.Unlock()
+				if len(state.waits) != 1 || len(state.waits[0].ids) != 1 || state.waits[0].ids[0] != a.ID {
+					t.Fatalf("only A's wait should remain: %+v", state.waits)
+				}
+			}
+			if blocking {
+				ended := make(chan struct{}, 2)
+				k.Subscribe(func(e Event) {
+					if _, ok := e.(TurnEndEvent); ok {
+						ended <- struct{}{}
+					}
+				})
+				done := make(chan error, 1)
+				go func() { _, err := k.RunJobs(ctx); done <- err }()
+				close(finishB)
+				select {
+				case <-ended:
+				case <-ctx.Done():
+					t.Fatal("B did not resume while A was running")
+				}
+				// The event is emitted inside the turn. Take the gate before
+				// reading state so the continuation has finished its bookkeeping.
+				release, err := k.acquireTurn(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				checkWait()
+				release()
+				close(finishA)
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-ctx.Done():
+					t.Fatal("blocking drain did not finish")
+				}
+			} else {
+				close(finishB)
+				waitJobTest(t, k, b.ID)
+				if result, err := k.RunReadyJobs(ctx); err != nil || result == nil {
+					t.Fatalf("B did not resume while A was running: %v %v", result, err)
+				}
+				checkWait()
+				close(finishA)
+				waitJobTest(t, k, a.ID)
+				if result, err := k.RunReadyJobs(ctx); err != nil || result == nil {
+					t.Fatalf("A did not resume: %v %v", result, err)
+				}
+			}
+			var outputs []string
+			for _, message := range k.session.GetMessages() {
+				for _, part := range message.Content {
+					if text, ok := part.(fantasy.TextPart); ok && strings.Contains(text.Text, "Background job notification") {
+						outputs = append(outputs, text.Text)
+					}
+				}
+			}
+			if len(outputs) != 2 || !strings.Contains(outputs[0], "wait B output") || strings.Contains(outputs[0], "wait A output") || !strings.Contains(outputs[1], "wait A output") {
+				t.Fatalf("want separate B then A notifications, got %v", outputs)
+			}
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			if len(state.waits) != 0 {
+				t.Fatal("drained waits remain registered")
+			}
+		})
+	}
+}
