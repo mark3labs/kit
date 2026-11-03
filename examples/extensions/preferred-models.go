@@ -16,25 +16,11 @@ func preferredModels(ctx ext.Context) []string {
 	return strings.Fields(strings.ReplaceAll(ctx.GetOption("preferred-models"), ",", " "))
 }
 
-// switchedTo is the model of the last model switch, as provider/model. It is
-// empty until a switch. OnModelChange sets it.
-var switchedTo string
-
-// currentModel returns the model in use as provider/model. ctx.Model alone
-// is not enough: at startup it is only the model ID, and a model ID can
-// contain "/", as in openrouter/anthropic/claude-opus-5. Until a switch, the
-// configured model is in use, and the model registry gives its provider. The
-// model ID must match ctx.Model, because the registry reports the configured
-// model also after a switch before this extension loaded. If the registry
-// does not know the model, the result is ctx.Model.
+// currentModel returns the model in use as provider/model. ctx.Model is not
+// enough: until the first model switch it is only the model ID, and a model
+// ID can contain "/", as in openrouter/anthropic/claude-opus-5.
 func currentModel(ctx ext.Context) string {
-	if switchedTo != "" {
-		return switchedTo
-	}
-	if caps, errMsg := ctx.GetModelCapabilities(""); errMsg == "" && caps.ModelID == ctx.Model {
-		return caps.Provider + "/" + caps.ModelID
-	}
-	return ctx.Model
+	return ctx.GetCurrentProvider() + "/" + ctx.GetCurrentModelID()
 }
 
 // pickModel returns the model that arg selects. arg is the number of the
@@ -87,12 +73,6 @@ func Init(api ext.API) {
 	api.RegisterOption(ext.OptionDef{
 		Name:        "preferred-models",
 		Description: "Models for /preferred, as provider/model, separated by commas",
-	})
-
-	// Remember every switch: by /preferred, by /model and by other
-	// extensions.
-	api.OnModelChange(func(e ext.ModelChangeEvent, _ ext.Context) {
-		switchedTo = e.NewModel
 	})
 
 	api.RegisterCommand(ext.CommandDef{

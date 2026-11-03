@@ -27,104 +27,104 @@ func loadPreferred(t *testing.T) (*Harness, extensions.CommandDef) {
 	return nil, extensions.CommandDef{}
 }
 
-// preferredContext returns a context for /preferred as Kit gives it. The
-// configured model is openrouter/anthropic/claude-opus-5, and model is
-// ctx.Model. GetModelCapabilities("") describes the configured model, also
-// after a switch.
-func preferredContext(harness *Harness, model string) extensions.Context {
-	ctx := harness.Context().ToContext()
-	ctx.Model = model
-	ctx.GetOption = func(name string) string {
+// preferredKit gives /preferred a context as Kit does. active is the model
+// in use. GetCurrentProvider and GetCurrentModelID report it, and SetModel
+// switches it. ctx.Model is only the model ID until the first switch, and
+// provider/model after it. switched records the models given to SetModel.
+type preferredKit struct {
+	ctx      extensions.Context
+	active   string
+	switched []string
+}
+
+// newPreferredKit returns a preferredKit with active in use. model is the
+// value of ctx.Model.
+func newPreferredKit(harness *Harness, active, model string) *preferredKit {
+	k := &preferredKit{ctx: harness.Context().ToContext(), active: active}
+	k.ctx.Model = model
+	k.ctx.GetOption = func(name string) string {
 		if name == "preferred-models" {
 			return preferredList
 		}
 		return ""
 	}
-	ctx.GetModelCapabilities = func(name string) (extensions.ModelCapabilities, string) {
-		if name != "" {
-			return extensions.ModelCapabilities{}, "model not found in registry"
-		}
-		return extensions.ModelCapabilities{Provider: "openrouter", ModelID: "anthropic/claude-opus-5"}, ""
+	k.ctx.GetCurrentProvider = func() string {
+		provider, _, _ := strings.Cut(k.active, "/")
+		return provider
 	}
-	return ctx
+	k.ctx.GetCurrentModelID = func() string {
+		_, id, _ := strings.Cut(k.active, "/")
+		return id
+	}
+	k.ctx.SetModel = func(model string) error {
+		k.switched = append(k.switched, model)
+		k.active = model
+		k.ctx.Model = model
+		return nil
+	}
+	return k
 }
 
-// TestPreferredModelsExample runs /preferred as Kit does. At startup,
-// ctx.Model is only the model ID: anthropic/claude-opus-5, which is also the
-// name of the second model. After a switch, ctx.Model is provider/model, and
-// Kit sends a ModelChangeEvent.
-func TestPreferredModelsExample(t *testing.T) {
-	harness, cmd := loadPreferred(t)
-
-	var switched []string // the models given to SetModel
-	var shown []string    // the options of the last picker
-	pick := -1            // the option that the picker selects, -1 for Esc
-	ctx := preferredContext(harness, "anthropic/claude-opus-5")
-	// switchModel does what Kit does for a switch by SetModel or by /model.
-	switchModel := func(model, source string) error {
-		previous := ctx.Model
-		ctx.Model = model
-		_, err := harness.Emit(extensions.ModelChangeEvent{NewModel: model, PreviousModel: previous, Source: source})
-		return err
-	}
-	ctx.SetModel = func(model string) error {
-		switched = append(switched, model)
-		return switchModel(model, "extension")
-	}
-	ctx.PromptSelect = func(cfg extensions.PromptSelectConfig) extensions.PromptSelectResult {
+// picker opens the picker with /preferred, selects the option pick (-1 for
+// Esc), and returns the options and the output.
+func (k *preferredKit) picker(t *testing.T, cmd extensions.CommandDef, pick int) ([]string, string) {
+	t.Helper()
+	var shown []string
+	k.ctx.PromptSelect = func(cfg extensions.PromptSelectConfig) extensions.PromptSelectResult {
 		shown = cfg.Options
 		if pick < 0 {
 			return extensions.PromptSelectResult{Cancelled: true}
 		}
 		return extensions.PromptSelectResult{Value: cfg.Options[pick], Index: pick}
 	}
-	run := func(args string) (string, error) {
-		return cmd.Execute(args, ctx)
+	out, err := cmd.Execute("", k.ctx)
+	if err != nil {
+		t.Fatalf("/preferred: %v", err)
 	}
-	// checkPicker opens the picker, closes it with Esc, and compares the
-	// options.
-	checkPicker := func(when string, want []string) {
-		t.Helper()
-		pick = -1
-		if out, err := run(""); out != "" || err != nil {
-			t.Fatalf("/preferred with Esc %s = %q, %v; want no output", when, out, err)
-		}
-		if !reflect.DeepEqual(shown, want) {
-			t.Fatalf("options %s = %q, want %q", when, shown, want)
-		}
-	}
-	onFirst := []string{
+	return shown, out
+}
+
+var (
+	// markFirst and markSecond are the options of the picker with the
+	// first or the second model in use.
+	markFirst = []string{
 		"1  openrouter/anthropic/claude-opus-5  (current)",
 		"2  anthropic/claude-opus-5",
 		"3  ollama/qwen3",
 	}
-	onSecond := []string{
+	markSecond = []string{
 		"1  openrouter/anthropic/claude-opus-5",
 		"2  anthropic/claude-opus-5  (current)",
 		"3  ollama/qwen3",
 	}
+)
 
-	checkPicker("at startup", onFirst)
+// TestPreferredModelsExample runs /preferred from the start. The configured
+// model is openrouter/anthropic/claude-opus-5, so ctx.Model starts as
+// anthropic/claude-opus-5, the name of the second model.
+func TestPreferredModelsExample(t *testing.T) {
+	harness, cmd := loadPreferred(t)
+	k := newPreferredKit(harness, "openrouter/anthropic/claude-opus-5", "anthropic/claude-opus-5")
+
+	if shown, out := k.picker(t, cmd, -1); out != "" || !reflect.DeepEqual(shown, markFirst) {
+		t.Fatalf("picker at the start = %q, output %q; want %q and no output", shown, out, markFirst)
+	}
 	for _, c := range []struct{ args, want string }{
 		{"2", "Switched to anthropic/claude-opus-5"},
 		{"1", "Switched to openrouter/anthropic/claude-opus-5"},
 		{"2", "Switched to anthropic/claude-opus-5"},
+		{"2", "Already using anthropic/claude-opus-5"},
 	} {
-		if out, err := run(c.args); out != c.want || err != nil {
+		if out, err := cmd.Execute(c.args, k.ctx); out != c.want || err != nil {
 			t.Fatalf("/preferred %s = %q, %v; want %q", c.args, out, err, c.want)
 		}
 	}
-	checkPicker("after a switch", onSecond)
-
-	pick = 2
-	if out, err := run(""); out != "Switched to ollama/qwen3" || err != nil {
-		t.Fatalf("/preferred, third option = %q, %v; want the switch", out, err)
+	if shown, _ := k.picker(t, cmd, -1); !reflect.DeepEqual(shown, markSecond) {
+		t.Fatalf("picker after a switch = %q, want %q", shown, markSecond)
 	}
-	// A switch by /model moves the mark too.
-	if err := switchModel("anthropic/claude-opus-5", "user"); err != nil {
-		t.Fatal(err)
+	if _, out := k.picker(t, cmd, 2); out != "Switched to ollama/qwen3" {
+		t.Fatalf("picker, third option = %q, want the switch", out)
 	}
-	checkPicker("after /model", onSecond)
 
 	// A part of a name selects the first model that contains it. The match
 	// ignores case.
@@ -132,50 +132,64 @@ func TestPreferredModelsExample(t *testing.T) {
 		{"OPENROUTER", "Switched to openrouter/anthropic/claude-opus-5"},
 		{"openrouter", "Already using openrouter/anthropic/claude-opus-5"},
 	} {
-		if out, err := run(c.args); out != c.want || err != nil {
+		if out, err := cmd.Execute(c.args, k.ctx); out != c.want || err != nil {
 			t.Errorf("/preferred %s = %q, %v; want %q", c.args, out, err, c.want)
 		}
 	}
 	for _, args := range []string{"0", "4", "gpt"} {
-		if _, err := run(args); err == nil || !strings.Contains(err.Error(), "no preferred model matches") {
+		if _, err := cmd.Execute(args, k.ctx); err == nil || !strings.Contains(err.Error(), "no preferred model matches") {
 			t.Errorf("/preferred %s gave error %v, want no match", args, err)
 		}
 	}
-	wantSwitched := []string{
+	want := []string{
 		"anthropic/claude-opus-5",
 		"openrouter/anthropic/claude-opus-5",
 		"anthropic/claude-opus-5",
 		"ollama/qwen3",
 		"openrouter/anthropic/claude-opus-5",
 	}
-	if !reflect.DeepEqual(switched, wantSwitched) {
-		t.Errorf("SetModel calls = %q, want %q", switched, wantSwitched)
+	if !reflect.DeepEqual(k.switched, want) {
+		t.Errorf("SetModel calls = %q, want %q", k.switched, want)
 	}
 
-	if got := cmd.Complete("anthropic/", ctx); !reflect.DeepEqual(got, []string{"anthropic/claude-opus-5"}) {
+	if got := cmd.Complete("anthropic/", k.ctx); !reflect.DeepEqual(got, []string{"anthropic/claude-opus-5"}) {
 		t.Errorf("Complete(anthropic/) = %q, want [anthropic/claude-opus-5]", got)
 	}
-	if got := cmd.Complete("", ctx); len(got) != 3 {
+	if got := cmd.Complete("", k.ctx); len(got) != 3 {
 		t.Errorf("Complete() = %q, want all three models", got)
 	}
 }
 
-// TestPreferredModelsExampleAfterSwitch loads the example after a switch,
-// as after a reload of the extensions. ctx.Model is then provider/model, and
-// GetModelCapabilities("") still describes the configured model.
-func TestPreferredModelsExampleAfterSwitch(t *testing.T) {
+// TestPreferredModelsExampleAfterReload loads the example after a switch to
+// anthropic/claude-opus-5, as /reload-ext does. ctx.Model is then the same
+// string as at the start with openrouter/anthropic/claude-opus-5.
+func TestPreferredModelsExampleAfterReload(t *testing.T) {
 	harness, cmd := loadPreferred(t)
-	ctx := preferredContext(harness, "ollama/qwen3")
-	var shown []string
-	ctx.PromptSelect = func(cfg extensions.PromptSelectConfig) extensions.PromptSelectResult {
-		shown = cfg.Options
-		return extensions.PromptSelectResult{Cancelled: true}
+	k := newPreferredKit(harness, "anthropic/claude-opus-5", "anthropic/claude-opus-5")
+
+	if shown, _ := k.picker(t, cmd, -1); !reflect.DeepEqual(shown, markSecond) {
+		t.Fatalf("picker after the reload = %q, want %q", shown, markSecond)
 	}
-	if _, err := cmd.Execute("", ctx); err != nil {
-		t.Fatal(err)
+	if out, err := cmd.Execute("1", k.ctx); out != "Switched to openrouter/anthropic/claude-opus-5" || err != nil {
+		t.Fatalf("/preferred 1 after the reload = %q, %v; want the switch", out, err)
 	}
-	if len(shown) != 3 || shown[2] != "3  ollama/qwen3  (current)" || strings.Contains(shown[0], "(current)") {
-		t.Errorf("options = %q, want the mark on ollama/qwen3 only", shown)
+}
+
+// TestPreferredModelsExampleIgnoresInvalidPickerIndex checks that an index
+// outside the list switches nothing.
+func TestPreferredModelsExampleIgnoresInvalidPickerIndex(t *testing.T) {
+	harness, cmd := loadPreferred(t)
+	k := newPreferredKit(harness, "ollama/qwen3", "ollama/qwen3")
+	for _, pick := range []int{-2, 3, 5} {
+		k.ctx.PromptSelect = func(extensions.PromptSelectConfig) extensions.PromptSelectResult {
+			return extensions.PromptSelectResult{Index: pick}
+		}
+		if out, err := cmd.Execute("", k.ctx); out != "" || err != nil {
+			t.Errorf("picker index %d = %q, %v; want no output", pick, out, err)
+		}
+	}
+	if len(k.switched) != 0 {
+		t.Errorf("SetModel calls = %q, want none", k.switched)
 	}
 }
 
