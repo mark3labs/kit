@@ -153,9 +153,6 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 		return nil, "", fmt.Errorf("failed to load system prompt: %w", err)
 	}
 
-	numGPU := int32(v.GetInt("num-gpu-layers"))
-	mainGPU := int32(v.GetInt("main-gpu"))
-
 	cfg := &models.ProviderConfig{
 		UserAgent:              v.GetString("internal-user-agent"),
 		ModelString:            v.GetString("model"),
@@ -166,8 +163,6 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 		ProviderWire:           v.GetString("provider-wire"),
 		MaxTokens:              v.GetInt("max-tokens"),
 		StopSequences:          v.GetStringSlice("stop-sequences"),
-		NumGPU:                 &numGPU,
-		MainGPU:                &mainGPU,
 		TLSSkipVerify:          v.GetBool("tls-skip-verify"),
 		ThinkingLevel:          models.ParseThinkingLevel(v.GetString("thinking-level")),
 		ThinkingLevelInherited: v.GetBool("internal-thinking-level-inherited"),
@@ -196,6 +191,19 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 	if v.IsSet("presence-penalty") {
 		val := float32(v.GetFloat64("presence-penalty"))
 		cfg.PresencePenalty = &val
+	}
+
+	// The Ollama GPU options follow the same rule. Kit sends them with the
+	// request that loads the model, but not with the chat requests. Since
+	// Ollama 0.30.0, a main_gpu value in only one of these requests makes
+	// Ollama load the model again (issue #265).
+	if v.IsSet("num-gpu-layers") {
+		val := int32(v.GetInt("num-gpu-layers"))
+		cfg.NumGPU = &val
+	}
+	if v.IsSet("main-gpu") {
+		val := int32(v.GetInt("main-gpu"))
+		cfg.MainGPU = &val
 	}
 
 	return cfg, systemPrompt, nil
