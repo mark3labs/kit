@@ -24,13 +24,14 @@ type ModelMode struct {
 
 // ModelModes returns catalog modes, including unavailable modes and their reasons.
 func (m *Kit) ModelModes() []ModelMode {
-	info := models.LookupModelForSettings(m.modelString)
+	modelString := m.GetModelString()
+	info := models.LookupModelForSettings(modelString)
 	if info == nil {
 		return nil
 	}
 	result := make([]ModelMode, 0, len(info.Modes))
 	for _, mode := range info.Modes {
-		reason := models.ModeUnsupportedReason(m.modelString, mode.Name, info)
+		reason := models.ModeUnsupportedReason(modelString, mode.Name, info)
 		cost := info.EffectiveCost(mode.Name)
 		result = append(result, ModelMode{Name: mode.Name, Experimental: true, Supported: reason == "", UnsupportedReason: reason, InputCost: cost.Input, OutputCost: cost.Output})
 	}

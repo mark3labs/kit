@@ -89,7 +89,8 @@ func TestBaseContext_GetModelCapabilitiesResolvesActiveModel(t *testing.T) {
 // the model in use through GetModelCapabilities(""), GetCurrentProvider and
 // GetCurrentModelID. That is the configured model at the start, and the new
 // model after SetModel. It does not depend on Context.Model, which is only
-// the model ID until the first switch in the TUI.
+// the model ID until the first switch in the TUI. The switch goes to another
+// provider, so a bridge that keeps the provider from startup fails the test.
 func TestBaseContext_CurrentModelFollowsSwitch(t *testing.T) {
 	ctx := context.Background()
 	host := newTestKit(t)
@@ -114,10 +115,14 @@ func TestBaseContext_CurrentModelFollowsSwitch(t *testing.T) {
 	}
 
 	check("at the start", "anthropic", "claude-sonnet-4-5-20250929")
-	if err := host.SetModel(ctx, "anthropic/claude-opus-4-5"); err != nil {
+	// The key from newTestKit is bound to the provider of the startup model.
+	// The new provider takes its key from the environment. The dummy value
+	// lets the provider construct; the test sends no request.
+	t.Setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+	if err := host.SetModel(ctx, "openai/gpt-4o-mini"); err != nil {
 		t.Fatalf("SetModel: %v", err)
 	}
-	check("after SetModel", "anthropic", "claude-opus-4-5")
+	check("after SetModel", "openai", "gpt-4o-mini")
 }
 
 // TestBaseContext_GetModelCapabilitiesUnknownModel verifies the empty-model
