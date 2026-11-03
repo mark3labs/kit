@@ -1047,12 +1047,18 @@ func environmentSection(cwd string, bare bool) string {
 }
 
 // GetCurrentModel returns the fully qualified "provider/model" string for the
-// model currently in use, as resolved from configuration. Unlike the model
-// name carried on the extension Context — which is a bare display ID — this is
-// always registry-addressable, so it can be passed straight to
-// GetModelCapabilities.
+// model currently in use: the configured model until SetModel switches it.
+// The model name carried on the extension Context is a bare display ID until
+// the first switch. This string is always registry-addressable, so it can be
+// passed straight to GetModelCapabilities.
 func (m *Kit) GetCurrentModel() string {
-	if m == nil || m.v == nil {
+	if m == nil {
+		return ""
+	}
+	if m.modelString != "" {
+		return m.modelString
+	}
+	if m.v == nil {
 		return ""
 	}
 	return m.v.GetString("model")

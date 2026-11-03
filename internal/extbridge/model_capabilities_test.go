@@ -85,6 +85,41 @@ func TestBaseContext_GetModelCapabilitiesResolvesActiveModel(t *testing.T) {
 	}
 }
 
+// TestBaseContext_CurrentModelFollowsSwitch verifies that the bridge reports
+// the model in use through GetModelCapabilities(""), GetCurrentProvider and
+// GetCurrentModelID. That is the configured model at the start, and the new
+// model after SetModel. It does not depend on Context.Model, which is only
+// the model ID until the first switch in the TUI.
+func TestBaseContext_CurrentModelFollowsSwitch(t *testing.T) {
+	ctx := context.Background()
+	host := newTestKit(t)
+	extCtx := BaseContext(ctx, host)
+
+	check := func(when, provider, modelID string) {
+		t.Helper()
+		caps, errStr := extCtx.GetModelCapabilities("")
+		if errStr != "" || caps.Provider != provider || caps.ModelID != modelID {
+			t.Errorf("GetModelCapabilities(\"\") %s = %s/%s %q; want %s/%s",
+				when, caps.Provider, caps.ModelID, errStr, provider, modelID)
+		}
+		if got := extCtx.GetCurrentProvider(); got != provider {
+			t.Errorf("GetCurrentProvider() %s = %q; want %q", when, got, provider)
+		}
+		if got := extCtx.GetCurrentModelID(); got != modelID {
+			t.Errorf("GetCurrentModelID() %s = %q; want %q", when, got, modelID)
+		}
+		if got, want := host.GetCurrentModel(), provider+"/"+modelID; got != want {
+			t.Errorf("GetCurrentModel() %s = %q; want %q", when, got, want)
+		}
+	}
+
+	check("at the start", "anthropic", "claude-sonnet-4-5-20250929")
+	if err := host.SetModel(ctx, "anthropic/claude-opus-4-5"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	check("after SetModel", "anthropic", "claude-opus-4-5")
+}
+
 // TestBaseContext_GetModelCapabilitiesUnknownModel verifies the empty-model
 // fallback does not mask genuine lookup failures.
 func TestBaseContext_GetModelCapabilitiesUnknownModel(t *testing.T) {
