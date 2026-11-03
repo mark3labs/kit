@@ -53,10 +53,11 @@ const sdkDefaultMaxTokens = 8192
 //
 // Keys that participate in "explicit vs unset" precedence downstream —
 // max-tokens, temperature, top-p, top-k, frequency-penalty, presence-penalty,
-// thinking-level — are deliberately NOT registered here. viper.SetDefault
-// causes viper.IsSet() to return true, which would suppress per-model
-// defaults (ApplyModelSettings) and automatic right-sizing (rightSizeMaxTokens)
-// for every SDK-created Kit. Those defaults are instead applied:
+// thinking-level, num-gpu-layers, main-gpu — are deliberately NOT registered
+// here. viper.SetDefault causes viper.IsSet() to return true, which would
+// suppress per-model defaults (ApplyModelSettings) and automatic right-sizing
+// (rightSizeMaxTokens) for every SDK-created Kit. Those defaults are instead
+// applied:
 //
 //   - max-tokens: as a last-resort struct-level floor (sdkDefaultMaxTokens)
 //     in kit.New() after BuildProviderConfig returns, when the resolved
@@ -65,12 +66,12 @@ const sdkDefaultMaxTokens = 8192
 //     which returns models.ThinkingOff.
 //   - sampling params (temperature, top-p, top-k, frequency/presence-penalty):
 //     left as nil pointers so provider libraries apply their own defaults.
+//   - Ollama GPU options (num-gpu-layers, main-gpu): left as nil pointers so
+//     Ollama chooses the GPU placement.
 func setSDKDefaults(v *viper.Viper) {
 	v.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
 	v.SetDefault("system-prompt", defaultSystemPrompt)
 	v.SetDefault("stream", true)
-	v.SetDefault("num-gpu-layers", -1)
-	v.SetDefault("main-gpu", 0)
 }
 
 // InitConfig initializes the process-global configuration store.
