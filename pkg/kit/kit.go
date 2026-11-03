@@ -53,8 +53,15 @@ type Kit struct {
 	closeDone  chan struct{}
 	closeErr   error
 
-	agent       *agent.Agent
-	session     SessionManager
+	agent   *agent.Agent
+	session SessionManager
+	// modelString is the model in use, as "provider/model". setModelLocked
+	// is its only writer after New, and it writes with modelMu held. Reads
+	// that can run on another goroutine go through GetModelString, which
+	// takes modelMu. They must not take promptOptsMu: applyPromptOptions
+	// holds it for a whole PromptWithOptions turn, and extension code that
+	// runs inside the turn reads the model.
+	modelMu     sync.RWMutex
 	modelString string
 	// endpointProvider is the provider the provider-url, provider-api-key
 	// and provider-wire overrides belong to: the provider of the model that
@@ -898,7 +905,9 @@ func (m *Kit) setModelLocked(ctx context.Context, modelString string) error {
 	// block runtime changes while the agent waits for MCP loading.
 	m.applyComposedSystemPrompt()
 
+	m.modelMu.Lock()
 	m.modelString = modelString
+	m.modelMu.Unlock()
 	m.activeModelFromFactory = fromFactory
 	// Keep the selected mode during a same-model provider rebuild. A model
 	// switch uses the new model's default mode.
@@ -1047,12 +1056,18 @@ func environmentSection(cwd string, bare bool) string {
 }
 
 // GetCurrentModel returns the fully qualified "provider/model" string for the
-// model currently in use, as resolved from configuration. Unlike the model
-// name carried on the extension Context — which is a bare display ID — this is
-// always registry-addressable, so it can be passed straight to
-// GetModelCapabilities.
+// model currently in use: the configured model until SetModel switches it.
+// The model name carried on the extension Context is a bare display ID until
+// the first switch. This string is always registry-addressable, so it can be
+// passed straight to GetModelCapabilities.
 func (m *Kit) GetCurrentModel() string {
-	if m == nil || m.v == nil {
+	if m == nil {
+		return ""
+	}
+	if model := m.GetModelString(); model != "" {
+		return model
+	}
+	if m.v == nil {
 		return ""
 	}
 	return m.v.GetString("model")
@@ -1147,7 +1162,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 	if req.Model == "" {
 		// Reuse the active agent's model.
 		llmModel = m.agent.GetModel()
-		usedModel = m.modelString
+		usedModel = m.GetModelString()
 		skipMaxOutputTokens = m.agent.SkipMaxOutputTokens()
 		closer = func() {} // nothing to clean up
 		// A factory-backed model gets the options its factory returned: Kit
@@ -2521,12 +2536,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// Resolve model: fall back to parent's model, and inherit the parent's
 	// provider when only a bare model name is given (e.g. "claude-haiku"
 	// instead of "anthropic/claude-haiku"). This avoids provider guessing.
+	parentModel := m.GetModelString()
 	model := cfg.Model
 	if model == "" {
-		model = m.modelString
+		model = parentModel
 	} else if !strings.Contains(model, "/") {
 		// Bare model name — prepend parent's provider.
-		if parts := strings.SplitN(m.modelString, "/", 2); len(parts) == 2 {
+		if parts := strings.SplitN(parentModel, "/", 2); len(parts) == 2 {
 			model = parts[0] + "/" + model
 		}
 	}
@@ -2536,7 +2552,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// gives the calling agent immediate feedback it can act on — e.g.
 	// correcting a typo — instead of waiting for a full Kit.New() cycle
 	// that silently falls back to the parent model.
-	if model != m.modelString && !m.hasInstanceProvider(model) {
+	if model != parentModel && !m.hasInstanceProvider(model) {
 		if err := models.GetGlobalRegistry().ValidateModelString(model); err != nil {
 			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
 		}
@@ -3745,7 +3761,10 @@ func (m *Kit) ClearSession() {
 
 // GetModelString returns the current model string identifier (e.g.,
 // "anthropic/claude-sonnet-4-5-20250929" or "openai/gpt-4") being used by the agent.
+// It is safe to call while SetModel runs on another goroutine.
 func (m *Kit) GetModelString() string {
+	m.modelMu.RLock()
+	defer m.modelMu.RUnlock()
 	return m.modelString
 }
 
@@ -3753,7 +3772,7 @@ func (m *Kit) GetModelString() string {
 // (capabilities, pricing, limits). Returns nil if the model is not in the
 // registry — this is expected for new models or custom fine-tunes.
 func (m *Kit) GetModelInfo() *ModelInfo {
-	provider, modelID, err := ParseModelString(m.modelString)
+	provider, modelID, err := ParseModelString(m.GetModelString())
 	if err != nil {
 		return nil
 	}
@@ -3805,7 +3824,7 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 //
 // Returns the full vocabulary when no model is selected yet.
 func (m *Kit) SupportedThinkingLevels() []string {
-	provider, modelName, err := ParseModelString(m.modelString)
+	provider, modelName, err := ParseModelString(m.GetModelString())
 	if err != nil {
 		return ThinkingLevels()
 	}

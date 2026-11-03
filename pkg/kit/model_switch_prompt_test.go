@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -189,4 +190,58 @@ func TestSetModelConcurrentWithPromptRefresh(t *testing.T) {
 		}
 	}
 	<-done
+}
+
+// TestSetModelConcurrentWithModelReads switches the model while another
+// goroutine reads it through the accessors that extensions and the TUI call.
+// Run with -race: the accessors must read the model string under its lock.
+func TestSetModelConcurrentWithModelReads(t *testing.T) {
+	requireCatalogModel(t, testCatalogModel)
+	k := newBareTestKit(t, false)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 20 {
+			_ = k.GetModelString()
+			_ = k.GetCurrentModel()
+			_ = k.GetModelInfo()
+			_ = k.SupportedThinkingLevels()
+			_ = k.ModelModes()
+		}
+	}()
+	for i := range 4 {
+		model := testCatalogModel
+		if i%2 == 1 {
+			model = "openai/gpt-4o-mini"
+		}
+		if err := k.SetModel(context.Background(), model); err != nil {
+			t.Errorf("SetModel(%s): %v", model, err)
+			break
+		}
+	}
+	<-done
+}
+
+// TestModelAccessorsDoNotWaitForPromptOptions holds promptOptsMu, as
+// applyPromptOptions does for a whole PromptWithOptions turn, and reads the
+// model from another goroutine. Extension code reads the model inside the
+// turn, in the LLM usage event for example, so a read that waits for
+// promptOptsMu would block the turn.
+func TestModelAccessorsDoNotWaitForPromptOptions(t *testing.T) {
+	k := newBareTestKit(t, false)
+
+	k.promptOptsMu.Lock()
+	defer k.promptOptsMu.Unlock()
+
+	got := make(chan string, 1)
+	go func() { got <- k.GetCurrentModel() }()
+	select {
+	case model := <-got:
+		if model != "openai/gpt-4o-mini" {
+			t.Errorf("GetCurrentModel() = %q; want %q", model, "openai/gpt-4o-mini")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("GetCurrentModel() waits for promptOptsMu")
+	}
 }

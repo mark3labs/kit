@@ -249,10 +249,10 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 			// inspecting the active model's limits or pricing would force
 			// every extension to pass a model string back in by hand.
 			//
-			// Resolve from configuration rather than from the extension
-			// Context: Context.Model is a bare display ID ("claude-opus-5"),
-			// which the registry cannot address unambiguously because many
-			// providers serve the same ID.
+			// Resolve from the Kit rather than from the extension Context.
+			// Until the first model switch, Context.Model is a bare display
+			// ID ("claude-opus-5"). The registry cannot address it
+			// unambiguously, because many providers serve the same ID.
 			if model == "" {
 				model = kitInstance.GetCurrentModel()
 			}
@@ -261,11 +261,14 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		CheckModelAvailable: func(model string) bool {
 			return kit.CheckModelAvailable(model)
 		},
+		// The provider and the model ID come from the Kit too.
+		// Context.Model is only the model ID until the first switch, and
+		// a model ID can contain "/", as in openrouter/anthropic/claude-opus-5.
 		GetCurrentProvider: func() string {
-			return kit.GetCurrentProvider(kitInstance.Extensions().GetContext().Model)
+			return kit.GetCurrentProvider(kitInstance.GetCurrentModel())
 		},
 		GetCurrentModelID: func() string {
-			return kit.GetCurrentModelID(kitInstance.Extensions().GetContext().Model)
+			return kit.GetCurrentModelID(kitInstance.GetCurrentModel())
 		},
 		GetTerminalSize: func() (int, int) {
 			// Read through to the runner rather than snapshotting on Context:
