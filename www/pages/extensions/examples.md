@@ -56,6 +56,7 @@ environment restrictions when input is untrusted.
 | [`inline-bash.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/inline-bash.go) | Inline bash execution |
 | [`interactive-shell.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/interactive-shell.go) | Interactive shell integration |
 | [`notify.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/notify.go) | Desktop notifications |
+| [`preferred-models.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/preferred-models.go) | `/preferred` switches between the models that you list in the option `preferred-models` |
 
 ## Agent and context
 
