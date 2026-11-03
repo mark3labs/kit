@@ -460,7 +460,7 @@ Custom decision providers (an application-supplied `DecisionModel`):
 - [`Kit.GetAvailableModels`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetAvailableModels) — GetAvailableModels returns a list of known models from the registry.
 - [`Kit.GetBufferedDebugMessages`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetBufferedDebugMessages) — GetBufferedDebugMessages returns any debug messages that were buffered during initialization, then clears the buffer.
 - [`Kit.GetContextFiles`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetContextFiles) — GetContextFiles returns the context files.
-- [`Kit.GetCurrentModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetCurrentModel) — GetCurrentModel returns the fully qualified "provider/model" string for the model currently in use, as resolved from configuration.
+- [`Kit.GetCurrentModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetCurrentModel) — GetCurrentModel returns the fully qualified "provider/model" string for the model currently in use: the configured model until SetModel switches it.
 - [`Kit.GetExtensionToolCount`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetExtensionToolCount) — GetExtensionToolCount returns the number of tools registered by extensions.
 - [`Kit.GetExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetExtraTools) — GetExtraTools returns a snapshot of the native extra tools that were added via AddTools / SetExtraTools / RemoveTools or Options.ExtraTools.
 - [`Kit.GetLoadedServerNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Kit.GetLoadedServerNames) — GetLoadedServerNames returns the names of successfully loaded MCP servers.
