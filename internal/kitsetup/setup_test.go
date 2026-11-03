@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// formatInt32Ptr returns the value that p points to, or "nil" if p is nil.
 func formatInt32Ptr(p *int32) string {
 	if p == nil {
 		return "nil"
