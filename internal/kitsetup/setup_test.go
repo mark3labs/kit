@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func int32Ptr(v int32) *int32 { return &v }
-
 func formatInt32Ptr(p *int32) string {
 	if p == nil {
 		return "nil"
@@ -28,8 +26,8 @@ func TestBuildProviderConfigGPUFlags(t *testing.T) {
 		numGPU, mainGPU *int32
 	}{
 		{name: "flags not given"},
-		{name: "main-gpu 0 given", args: []string{"--main-gpu=0"}, mainGPU: int32Ptr(0)},
-		{name: "both given", args: []string{"--num-gpu-layers=20", "--main-gpu=1"}, numGPU: int32Ptr(20), mainGPU: int32Ptr(1)},
+		{name: "main-gpu 0 given", args: []string{"--main-gpu=0"}, mainGPU: new(int32(0))},
+		{name: "both given", args: []string{"--num-gpu-layers=20", "--main-gpu=1"}, numGPU: new(int32(20)), mainGPU: new(int32(1))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := viper.New()
