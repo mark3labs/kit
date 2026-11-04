@@ -824,6 +824,18 @@ var syntaxPosRe = regexp.MustCompile(`Line (\d+):(\d+)`)
 func parseDiagnostic(err error) *Diagnostic {
 	msg := err.Error()
 	d := &Diagnostic{Kind: ErrParse, Hint: "Send plain JavaScript (no TypeScript types, no import/export). The code runs inside an async function."}
+	// goja reports parse errors as *CompilerSyntaxError with a source
+	// offset. Read the position from it instead of from the error text,
+	// whose format changes between goja releases.
+	var se *goja.CompilerSyntaxError
+	if errors.As(err, &se) && se.File != nil {
+		pos := se.File.Position(se.Offset)
+		if pos.Line > 1 {
+			d.Line, d.Column = pos.Line-1, pos.Column
+		}
+		d.Message = fmt.Sprintf("Line %d:%d %s", d.Line, d.Column, se.Message)
+		return d
+	}
 	if m := syntaxPosRe.FindStringSubmatch(msg); m != nil {
 		line, _ := strconv.Atoi(m[1])
 		col, _ := strconv.Atoi(m[2])
