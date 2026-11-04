@@ -3836,18 +3836,6 @@ func (m *AppModel) printSystemMessage(text string) {
 	m.refreshContent()
 }
 
-// printCustomMessage renders a message with a custom alert label into the ScrollList.
-func (m *AppModel) printCustomMessage(text, label string) {
-	now := time.Now()
-
-	msg := NewThemedMessageItem(generateMessageID(), "system", text, func() string {
-		return m.renderer.RenderCustomMessage(text, label, now).Content
-	})
-	m.messages = append(m.messages, msg)
-
-	m.refreshContent()
-}
-
 // printExtensionBlock renders a custom styled block from an extension with
 // caller-chosen border color and optional subtitle into the ScrollList.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
