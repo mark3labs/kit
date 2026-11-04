@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/log"
@@ -736,6 +737,8 @@ type AppModel struct {
 	imagePreview           *imagePreviewModal
 	inputYOffset           int
 	imagePreviewGeneration int
+	// helpModal is the /help reference sheet; nil while closed.
+	helpModal *helpModal
 
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
@@ -2008,7 +2011,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateImagePreview(msg)
 		}
 	}
-	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+o" && !m.modalActive() {
+	// The help sheet owns the keyboard and mouse while it is open.
+	if m.helpModal != nil && m.updateHelpModal(msg) {
+		return m, tea.Batch(cmds...)
+	}
+	if kp, ok := msg.(tea.KeyPressMsg); ok && key.Matches(kp, keys.PreviewImages) && !m.modalActive() {
 		if m.input != nil {
 			if in, ok := m.input.(*InputComponent); ok && len(in.pendingImages) > 0 {
 				return m, m.openImagePreview(0)
@@ -2629,6 +2636,9 @@ func (m *AppModel) View() tea.View {
 
 	if m.imagePreview != nil {
 		finalContent = compositeCentered(finalContent, m.renderImagePreview(), m.width, m.height)
+	}
+	if m.helpModal != nil {
+		finalContent = compositeCentered(finalContent, m.renderHelpModal(), m.width, m.height)
 	}
 	// Notice a repaint. The renderer scrolls the screen to update it, and a
 	// terminal scrolls its images along with the text, so any change to the
@@ -3677,7 +3687,7 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		m.quitting = true
 		return tea.Quit
 	case "/help":
-		m.printHelpMessage()
+		m.openHelpModal()
 	case "/tools":
 		m.printToolsMessage()
 	case "/servers":
@@ -4219,79 +4229,6 @@ func (m *AppModel) refreshMCPToolCount() {
 		return
 	}
 	m.mcpToolCount = m.getMCPToolCount()
-}
-
-// printHelpMessage renders the help text listing all available slash commands.
-func (m *AppModel) printHelpMessage() {
-	help := "## Available Commands\n\n" +
-		"**Info:**\n" +
-		"- `/help`: Show this help message\n" +
-		"- `/tools`: List all available tools\n" +
-		"- `/servers`: List configured MCP servers\n" +
-		"- `/usage`: Show token usage and cost statistics\n" +
-		"- `/session`: Show session info and statistics\n\n" +
-		"**Navigation:**\n" +
-		"- `/tree`: Navigate session tree (switch branches)\n" +
-		"- `/fork`: Branch from an earlier message\n" +
-		"- `/new [prompt]`: Start a new session (discards context, saves old session). With a prompt, runs it as the first message; supports `@file` attachments.\n" +
-		"- `/resume`: Open session picker to switch sessions\n" +
-		"- `/name <name>`: Set a display name for this session\n\n" +
-		"**System:**\n" +
-		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
-		"- `/clear`: Clear message history\n" +
-		"- `/copy`: Copy the last message to the system clipboard\n" +
-		"- `/retry`: Resubmit the last user message (e.g. after a provider error)\n" +
-		"- `/edit [path]`: Open a file in `$EDITOR` (fuzzy-find from cwd)\n" +
-		"- `/export [path]`: Export session as JSONL\n" +
-		"- `/import <path.jsonl>`: Import session from JSONL file\n" +
-		"- `/reset-usage`: Reset usage statistics\n" +
-		"- `/quit`: Exit the application\n\n"
-
-	if len(m.extensionCommands) > 0 {
-		var extHelp strings.Builder
-		extHelp.WriteString("**Extensions:**\n")
-		for _, ec := range m.extensionCommands {
-			fmt.Fprintf(&extHelp, "- `%s`: %s\n", ec.Name, ec.Description)
-		}
-		extHelp.WriteString("\n")
-		help += extHelp.String()
-	}
-
-	if len(m.skillItems) > 0 {
-		var skillHelp strings.Builder
-		skillHelp.WriteString("**Skills:**\n")
-		skillHelp.WriteString("- `/<name> [args]`: Load a skill into context and run with optional args\n")
-		skillHelp.WriteString("  Available skills: ")
-		for i, si := range m.skillItems {
-			if i > 0 {
-				skillHelp.WriteString(", ")
-			}
-			skillHelp.WriteString("`")
-			skillHelp.WriteString(si.Name)
-			skillHelp.WriteString("`")
-		}
-		skillHelp.WriteString("\n\n")
-		help += skillHelp.String()
-	}
-
-	help += "**Shell Commands:**\n" +
-		"- `!command`: Run shell command, output included in LLM context\n" +
-		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
-		"Output appears as the command runs, with the program's own colours. While it\n" +
-		"is running the block follows the newest line; when it ends, read from the top.\n" +
-		"Select the block with `Ctrl+X m`, then `Enter` to expand it, `H`/`L` to scroll\n" +
-		"wide lines sideways, and `y` to copy it.\n\n" +
-		"**Keys:**\n" +
-		"- `Ctrl+C`: Clear input and arm quit (press again to exit)\n" +
-		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
-		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
-		"- `Ctrl+X m`: Move — browse and inspect scrollback messages\n" +
-		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
-		"- `Ctrl+V`: Paste image from clipboard\n" +
-		"- `Ctrl+Alt+A`: Pick a subagent run to inspect\n" +
-		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
-		"You can also just type your message to chat with the AI assistant."
-	m.printCustomMessage(help, "Help")
 }
 
 // printToolsMessage renders the list of available tools.
@@ -6917,8 +6854,8 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd, previewCl
 	if m.scrollList.HasSelection() {
 		m.scrollList.ClearSelection()
 	}
-	switch msg.String() {
-	case "ctrl+c":
+	switch {
+	case key.Matches(msg, keys.Interrupt):
 		// Cancel any active prompt before quitting.
 		if m.promptResponseCh != nil {
 			m.promptResponseCh <- app.PromptResponse{Cancelled: true}
@@ -6981,7 +6918,7 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg, cmds []tea.Cmd, previewCl
 	//
 	// Matched shortcuts are consumed — the key does not propagate
 	// to child components.
-	if msg.String() == "ctrl+alt+a" && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
+	if key.Matches(msg, keys.SubagentRuns) && (m.state == stateInput || m.state == stateWorking) && !m.modalActive() && !m.leaderKeyActive {
 		m.openSubagentRunPicker()
 		return m, tea.Batch(cmds...)
 	}
@@ -7083,22 +7020,22 @@ func (m *AppModel) handleScrollbackKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// already scrolls in that state. Scrolling up clears autoScroll, so
 	// streamed output does not pull the view back to the bottom.
 	if m.state == stateInput || m.state == stateWorking {
-		switch msg.String() {
-		case "pgup":
+		switch {
+		case key.Matches(msg, keys.PageUp):
 			m.scrollList.ScrollBy(-m.scrollList.height)
 			m.scrollList.autoScroll = false
 			return nil, true
-		case "pgdown":
+		case key.Matches(msg, keys.PageDown):
 			m.scrollList.ScrollBy(m.scrollList.height)
 			if m.scrollList.AtBottom() {
 				m.scrollList.autoScroll = true
 			}
 			return nil, true
-		case "ctrl+home":
+		case key.Matches(msg, keys.Top):
 			m.scrollList.GotoTop()
 			m.scrollList.autoScroll = false
 			return nil, true
-		case "ctrl+end":
+		case key.Matches(msg, keys.Bottom):
 			m.scrollList.GotoBottom()
 			m.scrollList.autoScroll = true
 			return nil, true
@@ -7112,8 +7049,7 @@ func (m *AppModel) handleThinkingKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
 	// to avoid conflicts with terminal multiplexers.
 	if m.isReasoningModel {
-		switch msg.String() {
-		case "shift+tab":
+		if key.Matches(msg, keys.CycleThinking) {
 			// Cycle thinking level.
 			m.cycleThinkingLevel()
 			return nil, true
@@ -7179,22 +7115,22 @@ func (m *AppModel) handleMessageNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if m.state == stateMessageNav {
 		// Any navigation key retires the previous acknowledgement, except
 		// the one that produces a fresh copy.
-		if msg.String() != "y" {
+		if !key.Matches(msg, keys.NavCopy) {
 			m.navNotice = ""
 		}
-		switch msg.String() {
-		case "up", "k":
+		switch {
+		case key.Matches(msg, keys.NavUp):
 			m.moveMessageSelection(-1)
 			return nil, true
-		case "down", "j":
+		case key.Matches(msg, keys.NavDown):
 			m.moveMessageSelection(1)
 			return nil, true
-		case "home", "g":
+		case key.Matches(msg, keys.NavFirst):
 			if idx := m.firstSelectableIndex(); idx >= 0 {
 				m.selectMessage(idx)
 			}
 			return nil, true
-		case "end", "G":
+		case key.Matches(msg, keys.NavLast):
 			if idx := m.lastSelectableIndex(); idx >= 0 {
 				m.selectMessage(idx)
 			}
@@ -7202,15 +7138,15 @@ func (m *AppModel) handleMessageNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		// Jump between the user's own turns. "Scroll back to what I asked"
 		// is the dominant reason to enter navigation at all, and stepping
 		// there one tool result at a time is a lot of keypresses.
-		case "u":
+		case key.Matches(msg, keys.NavPrevUser):
 			m.jumpToRole("user", -1)
 			return nil, true
-		case "U":
+		case key.Matches(msg, keys.NavNextUser):
 			m.jumpToRole("user", 1)
 			return nil, true
-		case "y":
+		case key.Matches(msg, keys.NavCopy):
 			return m.copySelectedMessage(), true
-		case "enter":
+		case key.Matches(msg, keys.NavOpen):
 			// A shell block expands in place rather than opening the
 			// inspector: the whole point is to read the output where the
 			// conversation is, with the rest of the turn still in view.
@@ -7222,18 +7158,18 @@ func (m *AppModel) handleMessageNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			}
 			m.inspectSelectedMessage()
 			return nil, true
-		case "o", "space":
+		case key.Matches(msg, keys.NavExpand):
 			if item := m.selectedShellRun(); item != nil {
 				m.toggleShellRunExpansion(item)
 				return nil, true
 			}
-		case "H", "shift+left":
+		case key.Matches(msg, keys.NavLeft):
 			m.scrollSelectedShellRun(-1)
 			return nil, true
-		case "L", "shift+right":
+		case key.Matches(msg, keys.NavRight):
 			m.scrollSelectedShellRun(1)
 			return nil, true
-		case "esc", "q":
+		case key.Matches(msg, keys.NavExit):
 			m.exitMessageNav()
 			return nil, true
 		}
@@ -7253,8 +7189,8 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// the prefix doesn't leak to child components.
 	if m.leaderKeyActive {
 		m.leaderKeyActive = false
-		switch msg.String() {
-		case "s":
+		switch {
+		case key.Matches(msg, keys.Steer):
 			// Ctrl+X s → Steer: inject the current input as a steering
 			// message into the running agent turn.
 			if m.state == stateWorking && m.appCtrl != nil {
@@ -7320,7 +7256,7 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 					}
 				}
 			}
-		case "t":
+		case key.Matches(msg, keys.ToggleThinking):
 			// Ctrl+X t → Toggle thinking block visibility.
 			if m.isReasoningModel {
 				m.thinkingVisible = !m.thinkingVisible
@@ -7330,10 +7266,10 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 					}
 				}
 			}
-		case "m":
+		case key.Matches(msg, keys.MessageNav):
 			// Ctrl+X m → Move: navigate messages in the scrollback.
 			m.enterMessageNav()
-		case "e":
+		case key.Matches(msg, keys.ExternalEditor):
 			// Ctrl+X e → open $EDITOR to compose/edit the prompt.
 			editorApp := os.Getenv("VISUAL")
 			if editorApp == "" {
@@ -7377,8 +7313,8 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return tea.Batch(cmds...), true
 	}
 
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, keys.Cancel):
 		if m.state == stateWorking {
 			if m.canceling {
 				// Second ESC within the timer window — cancel the step.
@@ -7395,7 +7331,7 @@ func (m *AppModel) handleLeaderChord(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		// In other states pass ESC through to children below.
 
-	case "ctrl+x":
+	case key.Matches(msg, keys.Leader):
 		// Activate leader key prefix — the next keypress completes the chord.
 		m.leaderKeyActive = true
 		return tea.Batch(cmds...), true

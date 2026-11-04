@@ -241,7 +241,7 @@ These commands are available inside the Kit TUI during an interactive session:
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show available commands |
+| `/help` | Open the help sheet with all commands and key bindings |
 | `/tools` | List available MCP tools |
 | `/servers` | Show connected MCP servers |
 | `/model [name]` | Switch model or open model selector. The selector lists every model in the catalogue; models whose provider has no credentials are dimmed and cannot be selected — use `/connect` to add a key. Search ranks by match quality alone, so dimmed models stay findable (e.g. type `openrouter/sonnet`). |

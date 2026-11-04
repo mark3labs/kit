@@ -232,10 +232,7 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 
 	// Override InsertNewline so only ctrl+j and shift+enter insert newlines.
 	// Enter always submits the input.
-	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("ctrl+j", "shift+enter"),
-		key.WithHelp("ctrl+j", "insert newline"),
-	)
+	ta.KeyMap.InsertNewline = keys.Newline
 
 	// Style the textarea using theme colors. Every span the textarea emits
 	// carries the composer background explicitly: a Background() set only on
@@ -1071,15 +1068,15 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	if !s.showPopup {
-		switch msg.String() {
-		case "enter":
+		switch {
+		case key.Matches(msg, keys.Submit):
 			value := s.textarea.Value()
 			s.pushHistory(value)
 			s.textarea.SetValue("")
 			s.textarea.CursorEnd()
 			s.lastValue = ""
 			return s, s.handleSubmit(value)
-		case "up":
+		case key.Matches(msg, keys.HistoryPrev):
 			// Navigate prompt history backward (older entries).
 			if len(s.history) > 0 {
 				if !s.browsingHistory {
@@ -1096,7 +1093,7 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 				return s, nil
 			}
-		case "down":
+		case key.Matches(msg, keys.HistoryNext):
 			// Navigate prompt history forward (newer entries).
 			if s.browsingHistory {
 				if s.historyIndex < len(s.history)-1 {
@@ -1115,10 +1112,10 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 				return s, nil
 			}
-		case "ctrl+v":
+		case key.Matches(msg, keys.PasteImage):
 			// Try to read an image from the clipboard asynchronously.
 			return s, readClipboardImageCmd()
-		case "ctrl+u":
+		case key.Matches(msg, keys.ClearImages):
 			// Clear all pending image attachments.
 			if len(s.pendingImages) > 0 {
 				cleanup := s.releaseImages()
@@ -1132,19 +1129,19 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Handle popup navigation
 	if s.showPopup {
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up"))):
+		case key.Matches(msg, keys.PopupUp):
 			if s.selected > 0 {
 				s.selected--
 			}
 			return s, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down"))):
+		case key.Matches(msg, keys.PopupDown):
 			if s.selected < len(s.filtered)-1 {
 				s.selected++
 			}
 			return s, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+		case key.Matches(msg, keys.PopupAccept):
 			if s.selected < len(s.filtered) {
 				if s.emojiMode {
 					s.applyEmojiCompletion(s.selected)
@@ -1163,7 +1160,7 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return s, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		case key.Matches(msg, keys.PopupRun):
 			if s.selected < len(s.filtered) {
 				if s.emojiMode {
 					// Insert the emoji but don't submit.
@@ -1199,7 +1196,7 @@ func (s *InputComponent) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return s, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		case key.Matches(msg, keys.PopupClose):
 			s.showPopup = false
 			s.emojiMode = false
 			s.selected = 0
