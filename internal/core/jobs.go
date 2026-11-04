@@ -88,6 +88,11 @@ type jobToolArgs struct {
 // newJobTool builds a job tool that validates arguments and dispatches to the
 // context service. Wait requests yield to the scheduler rather than block on work.
 func newJobTool(name, description string, parameters map[string]any, required []string) fantasy.AgentTool {
+	// A nil slice serializes as "required": null, which OpenAI rejects
+	// ("null is not of type array"). Always send an empty array.
+	if required == nil {
+		required = []string{}
+	}
 	return &coreTool{
 		info: fantasy.ToolInfo{Name: name, Description: description, Parameters: parameters, Required: required},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {

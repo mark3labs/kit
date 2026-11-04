@@ -361,3 +361,21 @@ func TestBackgroundSudoPreflightAcceptsCachedAuthorization(t *testing.T) {
 		t.Fatalf("job = %+v", done)
 	}
 }
+
+// TestJobToolsRequiredNeverNull guards against "required": null in the tool
+// schema, which OpenAI rejects with "null is not of type array".
+func TestJobToolsRequiredNeverNull(t *testing.T) {
+	for _, tool := range []fantasy.AgentTool{NewJobsListTool(), NewJobsGetTool(), NewJobsCancelTool(), NewJobsWaitTool()} {
+		info := tool.Info()
+		if info.Required == nil {
+			t.Errorf("%s: Required is nil, want empty slice", info.Name)
+		}
+		data, err := json.Marshal(info.Required)
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", info.Name, err)
+		}
+		if string(data) == "null" {
+			t.Errorf("%s: required serializes as null", info.Name)
+		}
+	}
+}
