@@ -246,7 +246,7 @@ func (m *AppModel) navActive() bool {
 // disappears behind it for free; a terminal image painted over the screen does
 // not, and would be the one thing on screen a dialog could not cover.
 func (m *AppModel) modalActive() bool {
-	if m.imagePreview != nil || m.helpModal != nil {
+	if m.imagePreview != nil || m.sheet != nil {
 		return true
 	}
 	switch m.state {

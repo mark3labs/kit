@@ -49,13 +49,14 @@ func TestJobCommands(t *testing.T) {
 		}
 	}
 	m = sendMsg(m, core.SubmitMsg{Text: "/jobs"})
-	if text := lastKillMessage(m); !strings.Contains(text, "job-1") || !strings.Contains(text, "1 running") {
+	if text := sheetPlain(m); !strings.Contains(text, "job-1") || !strings.Contains(text, "1 running") {
 		t.Fatalf("list: %q", text)
 	}
 	m = sendMsg(m, core.SubmitMsg{Text: "/jobs job-1"})
-	if text := lastKillMessage(m); !strings.Contains(text, "test output") {
+	if text := sheetPlain(m); !strings.Contains(text, "test output") {
 		t.Fatalf("output: %q", text)
 	}
+	m.sheet = nil
 	m = sendMsg(m, core.SubmitMsg{Text: "/cancel-job job-1"})
 	if ctrl.cancelled != "job-1" {
 		t.Fatal("job not cancelled")

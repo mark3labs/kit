@@ -34,7 +34,7 @@ func helpTestModel(w, h int) *AppModel {
 func TestHelpModalLinesHaveEqualWidth(t *testing.T) {
 	for _, size := range [][2]int{{40, 20}, {80, 24}, {120, 40}, {200, 60}} {
 		m := helpTestModel(size[0], size[1])
-		box := m.renderHelpModal()
+		box := m.renderSheet()
 		lines := strings.Split(box, "\n")
 		want := lipgloss.Width(lines[0])
 		for i, l := range lines {
@@ -84,8 +84,8 @@ func TestHelpModalListsEverything(t *testing.T) {
 	// Scroll through the whole sheet and collect what is drawn.
 	var drawn strings.Builder
 	for range 200 {
-		drawn.WriteString(xansi.Strip(m.renderHelpModal()))
-		m.updateHelpModal(tea.KeyPressMsg{Code: tea.KeyPgDown})
+		drawn.WriteString(xansi.Strip(m.renderSheet()))
+		m.updateSheet(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	}
 	if !strings.Contains(drawn.String(), "/a-really-long-skill-name-that-overflows") {
 		t.Error("long command name was truncated")
@@ -95,29 +95,29 @@ func TestHelpModalListsEverything(t *testing.T) {
 // TestHelpModalKeys checks scrolling bounds and that esc closes the sheet.
 func TestHelpModalKeys(t *testing.T) {
 	m := helpTestModel(80, 24)
-	_ = m.renderHelpModal()
-	if m.helpModal.maxOff == 0 {
+	_ = m.renderSheet()
+	if m.sheet.maxOff == 0 {
 		t.Fatal("expected the sheet to scroll at 80x24")
 	}
 
-	m.updateHelpModal(tea.KeyPressMsg{Code: tea.KeyUp})
-	if m.helpModal.scrollOff != 0 {
-		t.Errorf("scrolled above the top: %d", m.helpModal.scrollOff)
+	m.updateSheet(tea.KeyPressMsg{Code: tea.KeyUp})
+	if m.sheet.scrollOff != 0 {
+		t.Errorf("scrolled above the top: %d", m.sheet.scrollOff)
 	}
-	m.updateHelpModal(tea.KeyPressMsg{Code: tea.KeyEnd})
-	if m.helpModal.scrollOff != m.helpModal.maxOff {
-		t.Errorf("end: offset %d, want %d", m.helpModal.scrollOff, m.helpModal.maxOff)
+	m.updateSheet(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if m.sheet.scrollOff != m.sheet.maxOff {
+		t.Errorf("end: offset %d, want %d", m.sheet.scrollOff, m.sheet.maxOff)
 	}
-	m.updateHelpModal(tea.KeyPressMsg{Code: tea.KeyDown})
-	if m.helpModal.scrollOff != m.helpModal.maxOff {
-		t.Errorf("scrolled past the end: %d", m.helpModal.scrollOff)
+	m.updateSheet(tea.KeyPressMsg{Code: tea.KeyDown})
+	if m.sheet.scrollOff != m.sheet.maxOff {
+		t.Errorf("scrolled past the end: %d", m.sheet.scrollOff)
 	}
 	if !m.modalActive() {
 		t.Error("modalActive should be true while help is open")
 	}
 
-	m.updateHelpModal(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.helpModal != nil {
+	m.updateSheet(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.sheet != nil {
 		t.Error("esc did not close the help sheet")
 	}
 }

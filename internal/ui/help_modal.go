@@ -1,13 +1,10 @@
 package ui
 
 import (
-	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -15,25 +12,16 @@ import (
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
-// helpModal is the /help reference sheet: every slash command and key
-// binding, laid out in columns over the transcript.
+// The /help reference sheet lists every slash command and key binding, laid
+// out in columns over the transcript. It is a sheetModal.
 //
 // Its content is gathered when it renders, from the same sources the app
 // dispatches on: the composer's live command list and the appKeyMap. Nothing
 // here is a hand-written copy, so the sheet cannot drift from the app.
-type helpModal struct {
-	scrollOff int
-	// pageSize and maxOff come from the last render; the key handler pages
-	// and clamps with them.
-	pageSize int
-	maxOff   int
-}
 
-// Help modal geometry. The padding and gaps are generous on purpose: this is
+// Help sheet geometry. The padding and gaps are generous on purpose: this is
 // a reference sheet, and white space is what makes it quick to scan.
 const (
-	helpPadX   = 3
-	helpPadY   = 1
 	helpColGap = 5
 	// Commands carry long descriptions, so they get fewer, wider columns
 	// than key bindings.
@@ -45,69 +33,26 @@ const (
 	helpMaxCols    = 3
 	helpMaxBoxW    = 150
 	helpKeyDescGap = 2
-	// helpMaxDescLines caps how many lines one description may take.
+	// helpMaxDescLines caps how many lines one description may take in the
+	// help sheet. Other sheets pass 0, for no cap.
 	helpMaxDescLines = 3
 )
 
-// helpModalKeys are the bindings the open modal answers to. The footer hint
-// is rendered from them.
-var helpModalKeys = struct {
-	Up, Down, PageUp, PageDown, Top, Bottom, Close key.Binding
-}{
-	Up:       bind("↑/k", "up", "up", "k"),
-	Down:     bind("↓/j", "down", "down", "j"),
-	PageUp:   bind("pgup", "page up", "pgup", "shift+space"),
-	PageDown: bind("pgdn/space", "page down", "pgdown", "space"),
-	Top:      bind("g", "top", "home", "g"),
-	Bottom:   bind("G", "bottom", "end", "G"),
-	Close:    bind("esc/q", "close", "esc", "q", "enter", "ctrl+c"),
-}
-
 // openHelpModal shows the help sheet.
 func (m *AppModel) openHelpModal() {
-	m.helpModal = &helpModal{}
+	m.openSheet("◆ Help", "Chat with the agent, or type / to find a command.", helpMaxBoxW, m.helpBody)
 }
 
-// updateHelpModal handles input while the help sheet is open. It owns the
-// keyboard; every other message passes through to the app.
-func (m *AppModel) updateHelpModal(msg tea.Msg) (handled bool) {
-	h := m.helpModal
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, helpModalKeys.Close):
-			m.helpModal = nil
-		case key.Matches(msg, helpModalKeys.Up):
-			h.scrollBy(-1)
-		case key.Matches(msg, helpModalKeys.Down):
-			h.scrollBy(1)
-		case key.Matches(msg, helpModalKeys.PageUp):
-			h.scrollBy(-max(1, h.pageSize-1))
-		case key.Matches(msg, helpModalKeys.PageDown):
-			h.scrollBy(max(1, h.pageSize-1))
-		case key.Matches(msg, helpModalKeys.Top):
-			h.scrollOff = 0
-		case key.Matches(msg, helpModalKeys.Bottom):
-			h.scrollOff = h.maxOff
-		}
-		return true
-	case tea.MouseWheelMsg:
-		switch msg.Button {
-		case tea.MouseWheelUp:
-			h.scrollBy(-3)
-		case tea.MouseWheelDown:
-			h.scrollBy(3)
-		}
-		return true
-	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
-		// Do not let clicks select transcript text under the sheet.
-		return true
-	}
-	return false
-}
-
-func (h *helpModal) scrollBy(delta int) {
-	h.scrollOff = max(0, min(h.maxOff, h.scrollOff+delta))
+// helpBody renders the help sheet body: the commands, then the keys.
+func (m *AppModel) helpBody(width int, s helpStyles) []string {
+	blank := s.bg.Render(strings.Repeat(" ", width))
+	var body []string
+	body = append(body, helpGroupHeading("Commands", width, s), blank)
+	body = append(body, layoutHelpGrid(m.helpCommandSections(), width, helpCmdMinColW, helpMaxDescLines, s)...)
+	body = append(body, blank, blank)
+	body = append(body, helpGroupHeading("Keyboard", width, s), blank)
+	body = append(body, layoutHelpGrid(m.helpKeySections(), width, helpKeyMinColW, helpMaxDescLines, s)...)
+	return body
 }
 
 // helpCommandSections groups the live slash command list by category.
@@ -150,10 +95,16 @@ func (m *AppModel) helpCommandSections() []helpSection {
 func (m *AppModel) helpKeySections() []helpSection {
 	secs := keys.keyHelpSections()
 	secs = append(secs, composerSyntaxSection())
+	return append(secs, m.shortcutSections()...)
+}
 
+// shortcutSections returns the shortcuts that extensions registered, one
+// section per extension.
+func (m *AppModel) shortcutSections() []helpSection {
 	if m.getShortcutList == nil {
-		return secs
+		return nil
 	}
+	var secs []helpSection
 	var current *helpSection
 	for _, sc := range m.getShortcutList() {
 		title := "Extension: " + strings.TrimSuffix(filepath.Base(sc.Source), filepath.Ext(sc.Source))
@@ -202,8 +153,26 @@ func (s helpStyles) padLine(line string, width int) string {
 	return line
 }
 
+// cleanCell makes text from outside the app (extension descriptions, job
+// output) safe for one cell: escape sequences are removed, and tabs and
+// newlines become spaces, since any of them would break the line widths.
+func cleanCell(text string) string {
+	text = xansi.Strip(text)
+	text = strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || r == '\r' {
+			return ' '
+		}
+		if r < ' ' || r == 0x7f {
+			return -1
+		}
+		return r
+	}, text)
+	return strings.TrimSpace(text)
+}
+
 // renderHelpSection renders one titled section as lines exactly colW wide.
-func renderHelpSection(sec helpSection, colW int, s helpStyles) []string {
+// maxDesc caps the lines of one description; 0 means no cap.
+func renderHelpSection(sec helpSection, colW, maxDesc int, s helpStyles) []string {
 	lines := []string{s.padLine(s.section.Render(xansi.Truncate(sec.Title, colW, "…")), colW)}
 
 	// The key column fits the longest key that is not over the cap, so
@@ -211,7 +180,7 @@ func renderHelpSection(sec helpSection, colW int, s helpStyles) []string {
 	keyCap := max(6, colW/helpMaxKeyFrac)
 	keyW := 0
 	for _, e := range sec.Entries {
-		if w := lipgloss.Width(e.Key); w <= keyCap {
+		if w := lipgloss.Width(cleanCell(e.Key)); w <= keyCap {
 			keyW = max(keyW, w)
 		}
 	}
@@ -219,6 +188,7 @@ func renderHelpSection(sec helpSection, colW int, s helpStyles) []string {
 	indent := s.bg.Render(strings.Repeat(" ", keyW+helpKeyDescGap))
 
 	for _, e := range sec.Entries {
+		e.Key, e.Desc, e.Note = cleanCell(e.Key), cleanCell(e.Desc), cleanCell(e.Note)
 		var keyCell string
 		if lipgloss.Width(e.Key) > keyW {
 			// Too long for the key column: the key takes a full line and
@@ -235,9 +205,9 @@ func renderHelpSection(sec helpSection, colW int, s helpStyles) []string {
 		// Some descriptions (skills especially) are written for the model
 		// and run to a paragraph. The sheet is for scanning, so keep the
 		// first lines; the / popup shows the rest.
-		if len(descLines) > helpMaxDescLines {
-			descLines = descLines[:helpMaxDescLines]
-			last := helpMaxDescLines - 1
+		if maxDesc > 0 && len(descLines) > maxDesc {
+			descLines = descLines[:maxDesc]
+			last := maxDesc - 1
 			descLines[last] = xansi.Truncate(descLines[last], descW-1, "") + "…"
 		}
 		rendered := make([]string, len(descLines))
@@ -268,7 +238,7 @@ func renderHelpSection(sec helpSection, colW int, s helpStyles) []string {
 // layoutHelpGrid places sections in columns. Each section goes to the
 // shortest column so far, which keeps the columns close in height without
 // reordering the sections.
-func layoutHelpGrid(secs []helpSection, width, minColW int, s helpStyles) []string {
+func layoutHelpGrid(secs []helpSection, width, minColW, maxDesc int, s helpStyles) []string {
 	if len(secs) == 0 {
 		return nil
 	}
@@ -288,7 +258,7 @@ func layoutHelpGrid(secs []helpSection, width, minColW int, s helpStyles) []stri
 		if len(stacks[idx]) > 0 {
 			stacks[idx] = append(stacks[idx], blank)
 		}
-		stacks[idx] = append(stacks[idx], renderHelpSection(sec, colW, s)...)
+		stacks[idx] = append(stacks[idx], renderHelpSection(sec, colW, maxDesc, s)...)
 	}
 
 	height := 0
@@ -319,83 +289,4 @@ func helpGroupHeading(name string, width int, s helpStyles) string {
 	label := s.group.Render(strings.ToUpper(name))
 	rule := max(0, width-lipgloss.Width(label)-1)
 	return s.padLine(label+s.bg.Render(" ")+s.rule.Render(strings.Repeat("─", rule)), width)
-}
-
-// renderHelpModal draws the help sheet, scrolled to the current offset.
-func (m *AppModel) renderHelpModal() string {
-	h := m.helpModal
-	theme := style.GetTheme()
-	s := newHelpStyles(theme)
-
-	boxW := max(20, min(m.width-4, helpMaxBoxW))
-	innerW := max(10, boxW-2-2*helpPadX)
-
-	blank := s.bg.Render(strings.Repeat(" ", innerW))
-	header := []string{
-		s.padLine(s.title.Render("◆ Help"), innerW),
-		s.padLine(s.subtitle.Render(xansi.Truncate("Chat with the agent, or type / to find a command.", innerW, "…")), innerW),
-		blank,
-	}
-
-	var body []string
-	body = append(body, helpGroupHeading("Commands", innerW, s), blank)
-	body = append(body, layoutHelpGrid(m.helpCommandSections(), innerW, helpCmdMinColW, s)...)
-	body = append(body, blank, blank)
-	body = append(body, helpGroupHeading("Keyboard", innerW, s), blank)
-	body = append(body, layoutHelpGrid(m.helpKeySections(), innerW, helpKeyMinColW, s)...)
-
-	// The box may use the full height less a one-row margin top and bottom.
-	maxBoxH := max(8, m.height-2)
-	footerH := 2
-	viewH := max(1, maxBoxH-2-2*helpPadY-len(header)-footerH)
-	scrollable := len(body) > viewH
-	if !scrollable {
-		viewH = len(body)
-	}
-	h.pageSize = viewH
-	h.maxOff = max(0, len(body)-viewH)
-	h.scrollOff = min(h.scrollOff, h.maxOff)
-	visible := body[h.scrollOff : h.scrollOff+viewH]
-
-	lines := append([]string{}, header...)
-	lines = append(lines, visible...)
-	lines = append(lines, blank, m.helpFooter(scrollable, len(body), viewH, innerW, s))
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
-		BorderBackground(theme.Background).
-		Background(theme.Background).
-		Padding(helpPadY, helpPadX).
-		Render(strings.Join(lines, "\n"))
-}
-
-// helpFooter renders the key hints and, when the sheet scrolls, the position.
-func (m *AppModel) helpFooter(scrollable bool, total, viewH, width int, s helpStyles) string {
-	hint := func(b key.Binding) string {
-		hb := b.Help()
-		return s.hintKey.Render(hb.Key) + s.hintDesc.Render(" "+hb.Desc)
-	}
-	sep := s.hintDesc.Render("   ")
-	var parts []string
-	if scrollable {
-		parts = append(parts, hint(helpModalKeys.Up), hint(helpModalKeys.Down), hint(helpModalKeys.PageDown))
-	}
-	parts = append(parts, hint(helpModalKeys.Close))
-	left := strings.Join(parts, sep)
-
-	right := ""
-	if scrollable {
-		h := m.helpModal
-		pct := 100
-		if h.maxOff > 0 {
-			pct = h.scrollOff * 100 / h.maxOff
-		}
-		right = s.hintDesc.Render(fmt.Sprintf("%d–%d of %d · %d%%", h.scrollOff+1, h.scrollOff+viewH, total, pct))
-	}
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 2 {
-		return s.padLine(xansi.Truncate(left, width, "…"), width)
-	}
-	return left + s.bg.Render(strings.Repeat(" ", gap)) + right
 }

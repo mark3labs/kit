@@ -737,8 +737,9 @@ type AppModel struct {
 	imagePreview           *imagePreviewModal
 	inputYOffset           int
 	imagePreviewGeneration int
-	// helpModal is the /help reference sheet; nil while closed.
-	helpModal *helpModal
+	// sheet is the open read-only sheet (/help and the info commands); nil
+	// while closed.
+	sheet *sheetModal
 
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
@@ -2011,9 +2012,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateImagePreview(msg)
 		}
 	}
-	// The help sheet owns the keyboard and mouse while it is open.
-	if m.helpModal != nil && m.updateHelpModal(msg) {
-		return m, tea.Batch(cmds...)
+	// An open sheet owns the keyboard and mouse.
+	if m.sheet != nil {
+		if handled, cmd := m.updateSheet(msg); handled {
+			return m, tea.Batch(append(cmds, previewCleanup, cmd)...)
+		}
 	}
 	if kp, ok := msg.(tea.KeyPressMsg); ok && key.Matches(kp, keys.PreviewImages) && !m.modalActive() {
 		if m.input != nil {
@@ -2637,8 +2640,8 @@ func (m *AppModel) View() tea.View {
 	if m.imagePreview != nil {
 		finalContent = compositeCentered(finalContent, m.renderImagePreview(), m.width, m.height)
 	}
-	if m.helpModal != nil {
-		finalContent = compositeCentered(finalContent, m.renderHelpModal(), m.width, m.height)
+	if m.sheet != nil {
+		finalContent = compositeCentered(finalContent, m.renderSheet(), m.width, m.height)
 	}
 	// Notice a repaint. The renderer scrolls the screen to update it, and a
 	// terminal scrolls its images along with the text, so any change to the
@@ -3689,11 +3692,11 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 	case "/help":
 		m.openHelpModal()
 	case "/tools":
-		m.printToolsMessage()
+		m.openToolsSheet()
 	case "/servers":
-		m.printServersMessage()
+		m.openServersSheet()
 	case "/usage":
-		m.printUsageMessage()
+		m.openUsageSheet()
 	case "/reset-usage":
 		m.printResetUsage()
 	case "/model":
@@ -4219,55 +4222,6 @@ func (m *AppModel) refreshMCPToolCount() {
 	m.mcpToolCount = m.getMCPToolCount()
 }
 
-// printToolsMessage renders the list of available tools.
-func (m *AppModel) printToolsMessage() {
-	var content string
-	content = "## Available Tools\n\n"
-	if len(m.toolNames) == 0 {
-		content += "No tools are currently available."
-	} else {
-		for i, tool := range m.toolNames {
-			content += fmt.Sprintf("%d. `%s`\n", i+1, tool)
-		}
-	}
-	m.printSystemMessage(content)
-}
-
-// printServersMessage renders the list of configured MCP servers.
-func (m *AppModel) printServersMessage() {
-	var content string
-	content = "## Configured MCP Servers\n\n"
-	if len(m.serverNames) == 0 {
-		content += "No MCP servers are currently configured."
-	} else {
-		for i, server := range m.serverNames {
-			content += fmt.Sprintf("%d. `%s`\n", i+1, server)
-		}
-	}
-	m.printSystemMessage(content)
-}
-
-// printUsageMessage renders token usage statistics.
-func (m *AppModel) printUsageMessage() {
-	if m.usageTracker == nil {
-		m.printSystemMessage("Usage tracking is not available for this model.")
-		return
-	}
-
-	sessionStats := m.usageTracker.GetSessionStats()
-	turnStats := m.usageTracker.GetTurnStats()
-
-	content := "## Usage Statistics\n\n"
-	if turnStats != nil {
-		content += fmt.Sprintf("**Last Turn:** %d input + %d output tokens = $%.6f\n",
-			turnStats.InputTokens, turnStats.OutputTokens, turnStats.TotalCost)
-	}
-	content += fmt.Sprintf("**Session Total:** %d input + %d output tokens = $%.6f (%d requests)\n",
-		sessionStats.TotalInputTokens, sessionStats.TotalOutputTokens, sessionStats.TotalCost, sessionStats.RequestCount)
-
-	m.printSystemMessage(content)
-}
-
 // printResetUsage resets usage statistics and prints a confirmation.
 func (m *AppModel) printResetUsage() {
 	if m.usageTracker == nil {
@@ -4297,48 +4251,6 @@ func (m *AppModel) handleReloadExtCommand() tea.Cmd {
 		err := reload()
 		return extReloadResultMsg{err: err}
 	}
-}
-
-// handleShortcutsCommand lists the keyboard shortcuts registered by
-// extensions, grouped by the file that registered them.
-func (m *AppModel) handleShortcutsCommand() tea.Cmd {
-	if m.getShortcutList == nil {
-		m.printSystemMessage("No extensions loaded, so no shortcuts are registered.")
-		return nil
-	}
-	list := m.getShortcutList()
-	if len(list) == 0 {
-		m.printSystemMessage("No extension shortcuts are registered.")
-		return nil
-	}
-
-	// Width of the key column, so descriptions line up.
-	keyWidth := 0
-	for _, sc := range list {
-		if w := len([]rune(sc.Key)); w > keyWidth {
-			keyWidth = w
-		}
-	}
-
-	var b strings.Builder
-	b.WriteString("Extension keyboard shortcuts\n")
-	currentSource := ""
-	for _, sc := range list {
-		if sc.Source != currentSource {
-			currentSource = sc.Source
-			b.WriteString("\n")
-			b.WriteString(currentSource)
-			b.WriteString("\n")
-		}
-		desc := sc.Description
-		if desc == "" {
-			desc = "(no description)"
-		}
-		fmt.Fprintf(&b, "  %-*s  %s\n", keyWidth, sc.Key, desc)
-	}
-
-	m.printSystemMessage(strings.TrimRight(b.String(), "\n"))
-	return nil
 }
 
 func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
@@ -6099,39 +6011,6 @@ func (m *AppModel) renderSessionHistory() {
 	m.refreshContent()
 	m.layoutDirty = true
 	m.pendingGotoBottom = true
-}
-
-// handleSessionInfoCommand shows session statistics.
-func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
-	snap, ok := m.appCtrl.SessionSnapshot()
-	if !ok {
-		m.printSystemMessage("No tree session active.")
-		return nil
-	}
-
-	info := fmt.Sprintf("## Session Info\n\n"+
-		"- **ID:** `%s`\n"+
-		"- **File:** `%s`\n"+
-		"- **Working Dir:** `%s`\n"+
-		"- **Created:** %s\n"+
-		"- **Entries:** %d\n"+
-		"- **Messages:** %d\n"+
-		"- **Current Leaf:** `%s`\n",
-		snap.ID,
-		snap.FilePath,
-		snap.Cwd,
-		snap.Created.Format(time.RFC3339),
-		snap.EntryCount,
-		snap.MessageCount,
-		snap.LeafID,
-	)
-
-	if snap.Name != "" {
-		info += fmt.Sprintf("- **Name:** %s\n", snap.Name)
-	}
-
-	m.printSystemMessage(info)
-	return nil
 }
 
 // --------------------------------------------------------------------------
