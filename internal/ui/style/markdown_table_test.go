@@ -29,7 +29,7 @@ func TestToMarkdownFitsWideTables(t *testing.T) {
 		if strings.Contains(out, placeholderToken) {
 			t.Fatalf("width %d: placeholder leaked:\n%s", width, out)
 		}
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			if w := lipgloss.Width(line); w > width {
 				t.Errorf("width %d: line is %d wide: %q", width, w, line)
 			}
