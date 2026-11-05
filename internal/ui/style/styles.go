@@ -207,6 +207,14 @@ func ToMarkdown(content string, width int) string {
 	ty := GetMarkdownTypography()
 	rendered := heraldmd.Render(ty, []byte(content))
 	if width > 0 {
+		// herald draws tables at their natural width. Wrapping a table that
+		// is too wide cuts its lines into broken fragments, so render such
+		// tables again with columns that fit.
+		if lipgloss.Width(rendered) > width {
+			if fitted, ok := fitMarkdownTables(ty, []byte(content), width); ok {
+				rendered = fitted
+			}
+		}
 		rendered = lipgloss.Wrap(rendered, width, "")
 	}
 	return rendered

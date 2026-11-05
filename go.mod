@@ -33,6 +33,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/tmc/go-iroh v0.3.0
 	github.com/traefik/yaegi v0.16.2
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/image v0.47.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
@@ -127,7 +128,6 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/xo/terminfo v1.3.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	github.com/yuin/goldmark v1.8.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
