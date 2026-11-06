@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -90,7 +91,14 @@ func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fant
 			break
 		}
 		name := entry.Name()
-		if entry.IsDir() {
+		isDir := entry.IsDir()
+		if !isDir && entry.Type()&os.ModeSymlink != 0 {
+			info, err := os.Stat(filepath.Join(dirPath, name))
+			if err == nil {
+				isDir = info.IsDir()
+			}
+		}
+		if isDir {
 			name += "/"
 		}
 		result.WriteString(name + "\n")

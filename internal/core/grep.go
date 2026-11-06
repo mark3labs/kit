@@ -97,6 +97,7 @@ func executeGrep(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		"--line-number",
 		"--no-heading",
 		"--color=never",
+		"-L", // follow symlinks
 		"--max-count=" + strconv.Itoa(limit),
 	}
 

@@ -86,6 +86,7 @@ func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fan
 	fdArgs := []string{
 		"--glob", pattern,
 		"--hidden",
+		"-L", // follow symlinks
 		"--max-results", strconv.Itoa(limit),
 		".", // search current or specified path
 	}
@@ -111,7 +112,7 @@ func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fan
 
 func findWithFind(ctx context.Context, pattern, searchPath string, limit int) (fantasy.ToolResponse, error) {
 	// Use find with -name for simple patterns
-	findArgs := []string{searchPath, "-name", pattern, "-type", "f"}
+	findArgs := []string{"-L", searchPath, "-name", pattern, "-type", "f"}
 
 	cmd := exec.CommandContext(ctx, "find", findArgs...)
 	var stdout bytes.Buffer
