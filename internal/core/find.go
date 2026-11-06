@@ -83,6 +83,7 @@ func executeFind(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	return findWithFind(ctx, args.Pattern, searchPath, limit)
 }
 
+// findWithFd executes the fd binary to perform fast, glob-based file searches following symlinks.
 func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fantasy.ToolResponse, error) {
 	fdArgs := []string{
 		"--glob", pattern,
@@ -111,6 +112,7 @@ func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fan
 	return fantasy.NewTextResponse(tr.Content), nil
 }
 
+// findWithFind executes standard find as a fallback, streaming results and stopping early upon reaching the limit.
 func findWithFind(ctx context.Context, pattern, searchPath string, limit int) (fantasy.ToolResponse, error) {
 	// Use find with -name for simple patterns
 	findArgs := []string{"-L", searchPath, "-name", pattern, "-type", "f"}

@@ -42,6 +42,7 @@ func NewLsTool(opts ...ToolOption) fantasy.AgentTool {
 	}
 }
 
+// executeLs lists directory contents, indicating subdirectories and symlinked directories with a trailing slash.
 func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err

@@ -239,6 +239,7 @@ func listDirs(dir string, includeHidden bool) ([]listedDir, error) {
 	return out, nil
 }
 
+// statWithTimeout stats path in a background goroutine, timing out if the target is unresponsive.
 func statWithTimeout(path string, timeout time.Duration) (os.FileInfo, error) {
 	ch := make(chan struct {
 		fi  os.FileInfo

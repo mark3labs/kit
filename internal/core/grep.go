@@ -68,6 +68,7 @@ func NewGrepTool(opts ...ToolOption) fantasy.AgentTool {
 	}
 }
 
+// executeGrep runs ripgrep (or standard grep fallback) to search file contents for a pattern.
 func executeGrep(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args grepArgs
 	if err := parseArgs(call.Input, &args); err != nil {
