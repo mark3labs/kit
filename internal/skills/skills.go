@@ -254,7 +254,13 @@ func (s *Skill) Resources() []string {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			isDir := e.IsDir()
+			if !isDir && e.Type()&os.ModeSymlink != 0 {
+				if info, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
+					isDir = info.IsDir()
+				}
+			}
+			if isDir {
 				continue
 			}
 			out = append(out, sub+"/"+e.Name())
