@@ -642,6 +642,10 @@ func TestSkillResources_Symlinks(t *testing.T) {
 	if err := os.Symlink(extSubdir, filepath.Join(skillDir, "scripts", "linked-dir")); err != nil {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
+	// Broken/dangling symlink into scripts (should be skipped)
+	if err := os.Symlink(filepath.Join(extDir, "nonexistent.sh"), filepath.Join(skillDir, "scripts", "dangling.sh")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
 
 	s := &Skill{Name: "my-skill", Path: filepath.Join(skillDir, "SKILL.md")}
 	res := s.Resources()

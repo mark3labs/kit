@@ -254,20 +254,23 @@ func (s *Skill) Resources() []string {
 			continue
 		}
 		for _, e := range entries {
+			if len(out) >= maxResources {
+				sort.Strings(out)
+				return out
+			}
 			isDir := e.IsDir()
 			if !isDir && e.Type()&os.ModeSymlink != 0 {
-				if info, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
-					isDir = info.IsDir()
+				info, err := os.Stat(filepath.Join(dir, e.Name()))
+				if err != nil {
+					// Skip unresolvable symlinks (e.g. broken or inaccessible target)
+					continue
 				}
+				isDir = info.IsDir()
 			}
 			if isDir {
 				continue
 			}
 			out = append(out, sub+"/"+e.Name())
-			if len(out) >= maxResources {
-				sort.Strings(out)
-				return out
-			}
 		}
 	}
 	sort.Strings(out)

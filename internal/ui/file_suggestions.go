@@ -312,6 +312,10 @@ func listFilesReadDir(dir string) []FileSuggestion {
 		"__pycache__": true, ".venv": true, "vendor": true,
 	}
 
+	// Limit synchronous symlink stat checks to prevent blocking autocomplete.
+	const maxSymlinkStats = 50
+	symlinkStats := 0
+
 	var results []FileSuggestion
 	for _, e := range entries {
 		name := e.Name()
@@ -323,7 +327,8 @@ func listFilesReadDir(dir string) []FileSuggestion {
 			continue
 		}
 		isDir := e.IsDir()
-		if !isDir && e.Type()&os.ModeSymlink != 0 {
+		if !isDir && e.Type()&os.ModeSymlink != 0 && symlinkStats < maxSymlinkStats {
+			symlinkStats++
 			if stat, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
 				isDir = stat.IsDir()
 			}

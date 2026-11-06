@@ -185,6 +185,7 @@ func findExtensionsInDir(dir string) []string {
 	}
 
 	var results []string
+	seen := make(map[string]bool)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -200,12 +201,24 @@ func findExtensionsInDir(dir string) []string {
 			}
 		}
 
+		var targetPath string
 		if !isDir && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
-			results = append(results, full)
+			targetPath = full
 		} else if isDir {
 			main := filepath.Join(full, "main.go")
 			if _, err := os.Stat(main); err == nil {
-				results = append(results, main)
+				targetPath = main
+			}
+		}
+
+		if targetPath != "" {
+			realPath := targetPath
+			if resolved, err := filepath.EvalSymlinks(targetPath); err == nil {
+				realPath = resolved
+			}
+			if !seen[realPath] {
+				seen[realPath] = true
+				results = append(results, targetPath)
 			}
 		}
 	}
@@ -311,6 +324,17 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 				// Check if there's an include filter for this package
 				identity := fmt.Sprintf("%s/%s/%s", host.Name(), owner.Name(), repo.Name())
 				includes, hasFilter := includeMap[identity]
+				if !hasFilter {
+					// Fall back to resolving aliases relative to gitRoot
+					if realRepo, err := filepath.EvalSymlinks(repoPath); err == nil {
+						if realGitRoot, err := filepath.EvalSymlinks(gitRoot); err == nil {
+							if rel, err := filepath.Rel(realGitRoot, realRepo); err == nil {
+								rel = filepath.ToSlash(rel)
+								includes, hasFilter = includeMap[rel]
+							}
+						}
+					}
+				}
 
 				if hasFilter {
 					// Only include specific paths
@@ -330,7 +354,21 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 		}
 	}
 
-	return results
+	// Deduplicate candidates by their resolved target
+	seen := make(map[string]bool)
+	var deduped []string
+	for _, p := range results {
+		realPath := p
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			realPath = resolved
+		}
+		if !seen[realPath] {
+			seen[realPath] = true
+			deduped = append(deduped, p)
+		}
+	}
+
+	return deduped
 }
 
 // SearchPath is one directory that extension auto-discovery scans, paired

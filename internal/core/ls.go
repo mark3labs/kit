@@ -86,6 +86,9 @@ func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fant
 	var result strings.Builder
 	count := 0
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return fantasy.ToolResponse{}, err
+		}
 		if count >= limit {
 			fmt.Fprintf(&result, "\n[truncated: showing %d of %d entries]", limit, len(entries))
 			break

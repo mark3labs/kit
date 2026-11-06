@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -193,22 +195,43 @@ func listDirs(dir string, includeHidden bool) ([]listedDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %w", dir, err)
 	}
-	var out []listedDir
-	for _, e := range entries {
-		isDir := e.IsDir()
-		if !isDir && e.Type()&os.ModeSymlink != 0 {
-			if stat, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
-				isDir = stat.IsDir()
-			}
-		}
-		if !isDir {
-			continue
-		}
+
+	type checkResult struct {
+		name  string
+		isDir bool
+	}
+
+	results := make([]checkResult, len(entries))
+	var wg sync.WaitGroup
+
+	for i, e := range entries {
 		name := e.Name()
 		if strings.HasPrefix(name, ".") && !includeHidden {
 			continue
 		}
-		out = append(out, listedDir{name: name, path: filepath.Join(dir, name)})
+		if e.IsDir() {
+			results[i] = checkResult{name: name, isDir: true}
+		} else if e.Type()&os.ModeSymlink != 0 {
+			wg.Add(1)
+			go func(idx int, entryName string) {
+				defer wg.Done()
+				full := filepath.Join(dir, entryName)
+				if stat, err := statWithTimeout(full, 150*time.Millisecond); err == nil && stat.IsDir() {
+					results[idx] = checkResult{name: entryName, isDir: true}
+				}
+			}(i, name)
+		}
+	}
+	wg.Wait()
+
+	var out []listedDir
+	for _, res := range results {
+		if res.isDir {
+			out = append(out, listedDir{
+				name: res.name,
+				path: filepath.Join(dir, res.name),
+			})
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].name) < strings.ToLower(out[j].name)
@@ -216,6 +239,25 @@ func listDirs(dir string, includeHidden bool) ([]listedDir, error) {
 	return out, nil
 }
 
+func statWithTimeout(path string, timeout time.Duration) (os.FileInfo, error) {
+	ch := make(chan struct {
+		fi  os.FileInfo
+		err error
+	}, 1)
+	go func() {
+		fi, err := os.Stat(path)
+		ch <- struct {
+			fi  os.FileInfo
+			err error
+		}{fi, err}
+	}()
+	select {
+	case res := <-ch:
+		return res.fi, res.err
+	case <-time.After(timeout):
+		return nil, os.ErrDeadlineExceeded
+	}
+}
 func (m *dirPickerModel) View() tea.View {
 	// Leave alt screen on the final render so the terminal returns to the
 	// normal buffer cleanly — mirrors AppModel's quitting behavior. Without

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -130,6 +131,21 @@ func executeGrep(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 				return fantasy.NewTextResponse("No matches found."), nil
 			}
 			if exitErr.ExitCode() == 2 {
+				// Non-fatal errors (e.g., symlink loops, unreadable files). If we got matches, return them.
+				if stdout.Len() > 0 {
+					output := stdout.String()
+					lines := strings.Split(output, "\n")
+					for i, line := range lines {
+						lines[i] = truncateLine(line, grepMaxLineLen)
+					}
+					output = strings.Join(lines, "\n")
+					tr := truncateHead(output, limit, defaultMaxBytes)
+					warn := strings.TrimSpace(stderr.String())
+					if warn != "" {
+						return fantasy.NewTextResponse(fmt.Sprintf("%s\n\n[Warning: %s]", tr.Content, warn)), nil
+					}
+					return fantasy.NewTextResponse(tr.Content), nil
+				}
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("grep error: %s", stderr.String())), nil
 			}
 		}
@@ -155,7 +171,7 @@ func executeGrep(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 
 // grepFallback uses standard grep when rg is not available.
 func grepFallback(ctx context.Context, args grepArgs, searchPath string, limit int) (fantasy.ToolResponse, error) {
-	grepArgs := []string{"-rn", "--color=never"}
+	grepArgs := []string{"-Rn", "--color=never"}
 
 	if args.IgnoreCase {
 		grepArgs = append(grepArgs, "-i")
@@ -173,16 +189,42 @@ func grepFallback(ctx context.Context, args grepArgs, searchPath string, limit i
 	grepArgs = append(grepArgs, args.Pattern, searchPath)
 
 	cmd := exec.CommandContext(ctx, "grep", grepArgs...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fantasy.ToolResponse{}, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
 
-	_ = cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return fantasy.ToolResponse{}, fmt.Errorf("grep failed to start: %w", err)
+	}
 
-	output := stdout.String()
-	if output == "" {
+	var result strings.Builder
+	scanner := bufio.NewScanner(stdout)
+	count := 0
+	for scanner.Scan() {
+		if count >= limit {
+			break
+		}
+		result.WriteString(truncateLine(scanner.Text(), grepMaxLineLen) + "\n")
+		count++
+	}
+
+	if count >= limit && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+
+	_ = cmd.Wait()
+
+	if count == 0 {
+		if stderr.Len() > 0 {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("grep error: %s", strings.TrimSpace(stderr.String()))), nil
+		}
 		return fantasy.NewTextResponse("No matches found."), nil
 	}
 
+	output := result.String()
 	tr := truncateHead(output, limit, defaultMaxBytes)
 	return fantasy.NewTextResponse(tr.Content), nil
 }
