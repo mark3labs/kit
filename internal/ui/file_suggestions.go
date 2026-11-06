@@ -322,7 +322,13 @@ func listFilesReadDir(dir string) []FileSuggestion {
 		if strings.HasPrefix(name, ".") && name != ".env" && name != ".gitignore" {
 			continue
 		}
-		if e.IsDir() {
+		isDir := e.IsDir()
+		if !isDir && e.Type()&os.ModeSymlink != 0 {
+			if stat, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
+				isDir = stat.IsDir()
+			}
+		}
+		if isDir {
 			results = append(results, FileSuggestion{RelPath: name + "/", IsDir: true})
 		} else {
 			results = append(results, FileSuggestion{RelPath: name, IsDir: false})

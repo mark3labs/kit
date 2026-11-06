@@ -195,7 +195,13 @@ func listDirs(dir string, includeHidden bool) ([]listedDir, error) {
 	}
 	var out []listedDir
 	for _, e := range entries {
-		if !e.IsDir() {
+		isDir := e.IsDir()
+		if !isDir && e.Type()&os.ModeSymlink != 0 {
+			if stat, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
+				isDir = stat.IsDir()
+			}
+		}
+		if !isDir {
 			continue
 		}
 		name := e.Name()
