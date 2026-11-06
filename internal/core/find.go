@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -82,10 +83,12 @@ func executeFind(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	return findWithFind(ctx, args.Pattern, searchPath, limit)
 }
 
+// findWithFd executes the fd binary to perform fast, glob-based file searches following symlinks.
 func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fantasy.ToolResponse, error) {
 	fdArgs := []string{
 		"--glob", pattern,
 		"--hidden",
+		"-L", // follow symlinks
 		"--max-results", strconv.Itoa(limit),
 		".", // search current or specified path
 	}
@@ -109,29 +112,50 @@ func findWithFd(ctx context.Context, pattern, searchPath string, limit int) (fan
 	return fantasy.NewTextResponse(tr.Content), nil
 }
 
+// findWithFind executes standard find as a fallback, streaming results and stopping early upon reaching the limit.
 func findWithFind(ctx context.Context, pattern, searchPath string, limit int) (fantasy.ToolResponse, error) {
 	// Use find with -name for simple patterns
-	findArgs := []string{searchPath, "-name", pattern, "-type", "f"}
+	findArgs := []string{"-L", searchPath, "-name", pattern, "-type", "f"}
 
 	cmd := exec.CommandContext(ctx, "find", findArgs...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fantasy.ToolResponse{}, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
 
-	_ = cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return fantasy.ToolResponse{}, fmt.Errorf("find failed to start: %w", err)
+	}
 
-	output := strings.TrimSpace(stdout.String())
-	if output == "" {
+	var result strings.Builder
+	scanner := bufio.NewScanner(stdout)
+	count := 0
+	for scanner.Scan() {
+		if count >= limit {
+			fmt.Fprintf(&result, "\n[truncated: showing %d of more results]", limit)
+			break
+		}
+		result.WriteString(scanner.Text() + "\n")
+		count++
+	}
+
+	// Terminate process early if we reached our limit to prevent unbounded traversal.
+	if count >= limit && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+
+	_ = cmd.Wait()
+
+	if count == 0 {
+		if stderr.Len() > 0 {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("find error: %s", strings.TrimSpace(stderr.String()))), nil
+		}
 		return fantasy.NewTextResponse("No files found."), nil
 	}
 
-	// Apply limit
-	lines := strings.Split(output, "\n")
-	if len(lines) > limit {
-		lines = lines[:limit]
-		output = strings.Join(lines, "\n")
-		output += fmt.Sprintf("\n[truncated: showing %d of more results]", limit)
-	}
-
+	output := strings.TrimSpace(result.String())
 	tr := truncateHead(output, limit, defaultMaxBytes)
 	return fantasy.NewTextResponse(tr.Content), nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -41,6 +42,7 @@ func NewLsTool(opts ...ToolOption) fantasy.AgentTool {
 	}
 }
 
+// executeLs lists directory contents, indicating subdirectories and symlinked directories with a trailing slash.
 func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
@@ -85,12 +87,22 @@ func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fant
 	var result strings.Builder
 	count := 0
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return fantasy.ToolResponse{}, err
+		}
 		if count >= limit {
 			fmt.Fprintf(&result, "\n[truncated: showing %d of %d entries]", limit, len(entries))
 			break
 		}
 		name := entry.Name()
-		if entry.IsDir() {
+		isDir := entry.IsDir()
+		if !isDir && entry.Type()&os.ModeSymlink != 0 {
+			info, err := os.Stat(filepath.Join(dirPath, name))
+			if err == nil {
+				isDir = info.IsDir()
+			}
+		}
+		if isDir {
 			name += "/"
 		}
 		result.WriteString(name + "\n")
