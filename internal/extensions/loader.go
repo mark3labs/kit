@@ -193,9 +193,16 @@ func findExtensionsInDir(dir string) []string {
 
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+		isDir := entry.IsDir()
+		if !isDir && entry.Type()&os.ModeSymlink != 0 {
+			if stat, err := os.Stat(full); err == nil {
+				isDir = stat.IsDir()
+			}
+		}
+
+		if !isDir && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
 			results = append(results, full)
-		} else if entry.IsDir() {
+		} else if isDir {
 			main := filepath.Join(full, "main.go")
 			if _, err := os.Stat(main); err == nil {
 				results = append(results, main)
@@ -254,10 +261,16 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 	}
 
 	for _, host := range hosts {
-		if !host.IsDir() {
+		hostPath := filepath.Join(gitRoot, host.Name())
+		isHostDir := host.IsDir()
+		if !isHostDir && host.Type()&os.ModeSymlink != 0 {
+			if stat, err := os.Stat(hostPath); err == nil {
+				isHostDir = stat.IsDir()
+			}
+		}
+		if !isHostDir {
 			continue
 		}
-		hostPath := filepath.Join(gitRoot, host.Name())
 
 		// Walk through owner directories (e.g., github.com/user/)
 		owners, err := os.ReadDir(hostPath)
@@ -266,10 +279,16 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 		}
 
 		for _, owner := range owners {
-			if !owner.IsDir() {
+			ownerPath := filepath.Join(hostPath, owner.Name())
+			isOwnerDir := owner.IsDir()
+			if !isOwnerDir && owner.Type()&os.ModeSymlink != 0 {
+				if stat, err := os.Stat(ownerPath); err == nil {
+					isOwnerDir = stat.IsDir()
+				}
+			}
+			if !isOwnerDir {
 				continue
 			}
-			ownerPath := filepath.Join(hostPath, owner.Name())
 
 			// Walk through repo directories (e.g., github.com/user/repo/)
 			repos, err := os.ReadDir(ownerPath)
@@ -278,10 +297,16 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 			}
 
 			for _, repo := range repos {
-				if !repo.IsDir() {
+				repoPath := filepath.Join(ownerPath, repo.Name())
+				isRepoDir := repo.IsDir()
+				if !isRepoDir && repo.Type()&os.ModeSymlink != 0 {
+					if stat, err := os.Stat(repoPath); err == nil {
+						isRepoDir = stat.IsDir()
+					}
+				}
+				if !isRepoDir {
 					continue
 				}
-				repoPath := filepath.Join(ownerPath, repo.Name())
 
 				// Check if there's an include filter for this package
 				identity := fmt.Sprintf("%s/%s/%s", host.Name(), owner.Name(), repo.Name())
