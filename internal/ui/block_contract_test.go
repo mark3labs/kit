@@ -348,6 +348,32 @@ func TestBlockFitsWidth(t *testing.T) {
 	}
 }
 
+// TestBlockKeepsPromisedWidth pins the other side of the width contract.
+// Widgets and extension blocks get widgetContentWidth for their content, and
+// a line of that width must pass through the block unwrapped. A block that
+// wraps it moves the last character onto a new line, and every line of a
+// fitted markdown table breaks.
+func TestBlockKeepsPromisedWidth(t *testing.T) {
+	for _, w := range widths {
+		for _, noBorder := range []bool{false, true} {
+			name := "border/w" + itoa(w)
+			opts := []renderingOption{WithAlign(lipgloss.Left)}
+			if noBorder {
+				name = "noborder/w" + itoa(w)
+				opts = append(opts, WithNoBorder())
+			}
+			t.Run(name, func(t *testing.T) {
+				line := strings.Repeat("x", widgetContentWidth(w, noBorder))
+				got := visibleLines(renderContentBlock(line, w, opts...))
+				if len(got) != 1 {
+					t.Errorf("line of %d columns wrapped into %d lines:\n%s",
+						len(line), len(got), strings.Join(got, "\n"))
+				}
+			})
+		}
+	}
+}
+
 // TestBlockTextColumn pins the left edge: a marker in column 0, text at
 // ContentOffset. A block that starts anywhere else makes the whole column
 // look ragged even when it is internally consistent.

@@ -121,7 +121,6 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 
 	// Resolve border configuration.
 	hasBorder := !renderer.noBorder
-	borderChars := 0
 
 	borderAlign := lipgloss.Left
 	if renderer.align != nil {
@@ -131,10 +130,6 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	var borderColor color.Color = lipgloss.NoColor{}
 	if renderer.borderColor != nil {
 		borderColor = *renderer.borderColor
-	}
-
-	if hasBorder {
-		borderChars = 1
 	}
 
 	theme := style.GetTheme()
@@ -176,7 +171,10 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	}
 
 	if renderer.fullWidth {
-		blockStyle = blockStyle.Width(renderer.width - borderChars)
+		// lipgloss v2 counts the border as part of Width. The full
+		// container width leaves exactly widgetContentWidth columns for
+		// the text, with or without the border.
+		blockStyle = blockStyle.Width(renderer.width)
 	}
 
 	content = blockStyle.Render(content)
