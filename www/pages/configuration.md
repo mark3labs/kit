@@ -39,6 +39,8 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
+| `max-subagents` | int | `10` | Maximum concurrent subagents the agent can run (-1 for unlimited, 0 to disable) |
+| `max-nested-subagents` | int | `3` | Maximum concurrent nested subagents a subagent can run (-1 for unlimited, 0 to disable) |
 | `thinking-level` | string | `off` | Model-specific reasoning effort. `/thinking` lists catalog choices; explicit unsupported CLI/SDK values return an error. `off` omits effort; `none` is literal. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |

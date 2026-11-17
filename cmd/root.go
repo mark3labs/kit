@@ -42,8 +42,10 @@ var (
 	quietFlag       bool
 	jsonFlag        bool
 	noExitFlag      bool
-	maxSteps        int
-	streamFlag      bool // Enable streaming output
+	maxSteps           int
+	maxSubagents       int
+	maxNestedSubagents int
+	streamFlag         bool // Enable streaming output
 	autoCompactFlag bool // Enable auto-compaction near context limit
 
 	// Session management
@@ -418,6 +420,10 @@ func init() {
 	rootCmd.PersistentFlags().
 		IntVar(&maxSteps, "max-steps", 0, "maximum number of agent steps (0 for unlimited)")
 	rootCmd.PersistentFlags().
+		IntVar(&maxSubagents, "max-subagents", 10, "maximum concurrent subagents the agent can run (use -1 for unlimited, 0 to disable)")
+	rootCmd.PersistentFlags().
+		IntVar(&maxNestedSubagents, "max-nested-subagents", 3, "maximum concurrent nested subagents a subagent can run (use -1 for unlimited, 0 to disable)")
+	rootCmd.PersistentFlags().
 		BoolVar(&streamFlag, "stream", true, "enable streaming output for faster response display")
 	rootCmd.PersistentFlags().
 		BoolVar(&autoCompactFlag, "auto-compact", false, "auto-compact conversation when near context limit")
@@ -510,6 +516,8 @@ func init() {
 	_ = viper.BindPFlag("decision-model", rootCmd.PersistentFlags().Lookup("decision-model"))
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
+	_ = viper.BindPFlag("max-subagents", rootCmd.PersistentFlags().Lookup("max-subagents"))
+	_ = viper.BindPFlag("max-nested-subagents", rootCmd.PersistentFlags().Lookup("max-nested-subagents"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
 	_ = viper.BindPFlag("auto-compact", rootCmd.PersistentFlags().Lookup("auto-compact"))
 

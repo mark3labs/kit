@@ -271,8 +271,10 @@ type LimitConfig struct {
 type Config struct {
 	MCPServers     map[string]MCPServerConfig `json:"mcpServers" yaml:"mcpServers"`
 	Model          string                     `json:"model,omitempty" yaml:"model,omitempty"`
-	MaxSteps       int                        `json:"max-steps,omitempty" yaml:"max-steps,omitempty"`
-	Debug          bool                       `json:"debug,omitempty" yaml:"debug,omitempty"`
+	MaxSteps           int                        `json:"max-steps,omitempty" yaml:"max-steps,omitempty"`
+	MaxSubagents       int                        `json:"max-subagents,omitempty" yaml:"max-subagents,omitempty"`
+	MaxNestedSubagents int                        `json:"max-nested-subagents,omitempty" yaml:"max-nested-subagents,omitempty"`
+	Debug              bool                       `json:"debug,omitempty" yaml:"debug,omitempty"`
 	SystemPrompt   string                     `json:"system-prompt,omitempty" yaml:"system-prompt,omitempty"`
 	ProviderAPIKey string                     `json:"provider-api-key,omitempty" yaml:"provider-api-key,omitempty"`
 	ProviderURL    string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`
@@ -513,6 +515,8 @@ mcpServers:
 # model: "anthropic/claude-sonnet-4-5-20250929"  # Default model to use
 # decision-model: "openrouter/typesafe/jev-1.14" # Default model for extension Decide calls
 # max-steps: 10                                # Maximum agent steps (0 for unlimited)
+# max-subagents: 10                            # Maximum concurrent subagents the agent can run (-1 for unlimited, 0 to disable)
+# max-nested-subagents: 3                      # Maximum concurrent nested subagents a subagent can run (-1 for unlimited, 0 to disable)
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file
 

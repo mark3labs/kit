@@ -107,7 +107,7 @@ type NamedAgentSpec struct {
 const subagentBaseDescription = `Spawn a subagent to perform a task autonomously.
 
 The subagent runs as a separate in-process Kit instance with full tool access
-(except spawning further subagents). Use this to:
+(with configured limits on spawning nested subagents). Use this to:
 - Delegate independent subtasks that can run in parallel
 - Perform research or analysis without blocking your main work
 - Execute tasks that benefit from a fresh context window

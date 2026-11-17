@@ -48,7 +48,15 @@ subagent(
 )
 ```
 
-Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+Subagents run as separate in-process Kit instances and inherit the parent's active tools; named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+### Spawning limits and nested subagents
+
+Kit provides control over subagent concurrency via CLI flags and configuration. When the LLM requests to spawn more subagents than the configured limit, the extra requests are **queued** and will automatically run as active subagents finish their tasks.
+
+- **Root subagents (`--max-subagents`, default `10`):** Limits how many concurrent subagents the host agent can run (`-1` for unlimited, `0` to disable).
+- **Nested subagents (`--max-nested-subagents`, default `3`):** Allows subagents to run nested child subagents concurrently up to the configured limit (`-1` for unlimited, `0` to disable nested delegation).
+- **Strict recursion cap:** Nested subagents (depth &ge; 2) have the `subagent` tool stripped from their toolset and cannot spawn further subagents.
 
 ### Subagent status bar
 
@@ -167,7 +175,7 @@ Two built-in agents ship with Kit:
 
 ### Tool allowlists
 
-An agent without a `tools:` list gets the default subagent tool set (everything except `subagent`, preventing recursion). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
+An agent without a `tools:` list gets the default subagent tool set (including `subagent` if nested subagents are enabled and depth < 2). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
 
 Disable named-agent discovery entirely with `--no-agents`, the `no-agents` config key, or `KIT_NO_AGENTS=true`.
 

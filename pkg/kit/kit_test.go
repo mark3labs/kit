@@ -681,25 +681,75 @@ func TestGetToolsForSubagent(t *testing.T) {
 		t.Fatalf("Failed to create Kit: %v", err)
 	}
 	defer func() { _ = host.Close() }()
-	toolsForSubagent := host.GetToolsForSubagent()
-	if len(toolsForSubagent) != 2 {
-		t.Fatalf("`GetToolsForSubagent()` should return 2 tools but has: %d", len(toolsForSubagent))
-	}
-	hasTool := func(name string) bool {
-		for _, tool := range toolsForSubagent {
+
+	hasTool := func(tools []kit.Tool, name string) bool {
+		for _, tool := range tools {
 			if tool.Info().Name == name {
 				return true
 			}
 		}
 		return false
 	}
-	if hasTool("subagent") {
-		t.Errorf("`GetToolsForSubagent()` unexpectedly includes the `subagent` tool")
+
+	// 1. By default, nested subagents are enabled (default 3), so depth 0 includes subagent.
+	toolsDefault := host.GetToolsForSubagent()
+	if len(toolsDefault) != 3 {
+		t.Fatalf("`GetToolsForSubagent()` with nested subagents should return 3 tools but has: %d", len(toolsDefault))
 	}
-	if !hasTool("hello") {
+	if !hasTool(toolsDefault, "subagent") {
+		t.Errorf("`GetToolsForSubagent()` should include `subagent` by default")
+	}
+	if !hasTool(toolsDefault, "hello") {
 		t.Errorf("`GetToolsForSubagent()` is missing the `hello` tool")
 	}
-	if !hasTool("shell") {
+	if !hasTool(toolsDefault, "shell") {
 		t.Errorf("`GetToolsForSubagent()` is missing the `shell` tool")
+	}
+
+	// 2. When max-nested-subagents is 0 (disabled), subagent is excluded.
+	zeroNested := 0
+	hostNoNested, err := kit.New(ctx, &kit.Options{
+		Model:              "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:              true,
+		NoSession:          true,
+		NoSkills:           true,
+		NoExtensions:       true,
+		CoreToolList:       []string{"subagent", "bash"},
+		ExtraTools:         []kit.Tool{helloTool},
+		MaxNestedSubagents: &zeroNested,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit with zero nested: %v", err)
+	}
+	defer func() { _ = hostNoNested.Close() }()
+	toolsNoNested := hostNoNested.GetToolsForSubagent()
+	if len(toolsNoNested) != 2 {
+		t.Fatalf("`GetToolsForSubagent()` with 0 nested should return 2 tools but has: %d", len(toolsNoNested))
+	}
+	if hasTool(toolsNoNested, "subagent") {
+		t.Errorf("`GetToolsForSubagent()` unexpectedly includes `subagent` when max-nested-subagents=0")
+	}
+
+	// 3. When depth >= 1, subagent is excluded to prevent recursion beyond depth 2.
+	hostDepth1, err := kit.New(ctx, &kit.Options{
+		Model:         "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:         true,
+		NoSession:     true,
+		NoSkills:      true,
+		NoExtensions:  true,
+		CoreToolList:  []string{"subagent", "bash"},
+		ExtraTools:    []kit.Tool{helloTool},
+		SubagentDepth: 1,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit with depth 1: %v", err)
+	}
+	defer func() { _ = hostDepth1.Close() }()
+	toolsDepth1 := hostDepth1.GetToolsForSubagent()
+	if len(toolsDepth1) != 2 {
+		t.Fatalf("`GetToolsForSubagent()` for depth 1 should return 2 tools but has: %d", len(toolsDepth1))
+	}
+	if hasTool(toolsDepth1, "subagent") {
+		t.Errorf("`GetToolsForSubagent()` unexpectedly includes `subagent` for depth >= 1")
 	}
 }

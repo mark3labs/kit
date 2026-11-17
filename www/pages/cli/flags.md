@@ -38,6 +38,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--json` | — | `false` | Output response as JSON (non-interactive only) |
 | `--no-exit` | — | `false` | Enter interactive mode after prompt completes |
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
+| `--max-subagents` | — | `10` | Maximum concurrent subagents the agent can run (-1 for unlimited, 0 to disable) |
+| `--max-nested-subagents` | — | `3` | Maximum concurrent nested subagents a subagent can run (-1 for unlimited, 0 to disable) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
 | `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. The daemon uses this flag for any [detachable session](/cli/commands#detachable-sessions) that has no directory of its own — `kit attach --new`, or a remote client |

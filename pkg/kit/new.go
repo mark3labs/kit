@@ -48,9 +48,11 @@ type resolvedConfig struct {
 
 	debug           bool
 	noExtensions    bool
-	toolList        []string
-	maxSteps        int
-	streaming       bool
+	toolList           []string
+	maxSteps           int
+	maxSubagents       int
+	maxNestedSubagents int
+	streaming          bool
 	shellTimeout    int
 	shellMaxTimeout int
 	shell           []string
@@ -150,6 +152,12 @@ func applyOptionOverrides(v *viper.Viper, opts *Options) {
 	}
 	if opts.MaxSteps > 0 {
 		v.Set("max-steps", opts.MaxSteps)
+	}
+	if opts.MaxSubagents != nil {
+		v.Set("max-subagents", *opts.MaxSubagents)
+	}
+	if opts.MaxNestedSubagents != nil {
+		v.Set("max-nested-subagents", *opts.MaxNestedSubagents)
 	}
 	// Only override streaming when the caller explicitly set it. Otherwise
 	// leave the precedence chain (env → config → default true) untouched so a
@@ -459,6 +467,8 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 	}
 
 	rc.maxSteps = v.GetInt("max-steps")
+	rc.maxSubagents = v.GetInt("max-subagents")
+	rc.maxNestedSubagents = v.GetInt("max-nested-subagents")
 	rc.streaming = v.GetBool("stream")
 	// Each of the two timeouts has a shell-named form and the bash-named
 	// form it had before the tool's shell became configurable; see
