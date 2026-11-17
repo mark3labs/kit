@@ -1354,9 +1354,9 @@ type Options struct {
 	// The wrapper must return a non-nil transport and be safe for concurrent use.
 	HTTPTransport func(base http.RoundTripper) http.RoundTripper
 
-	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
-	SystemPrompt string // Override system prompt
-	ConfigFile   string // Override config file path
+	Model              string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
+	SystemPrompt       string // Override system prompt
+	ConfigFile         string // Override config file path
 	MaxSteps           int    // Override max steps (0 = use default)
 	MaxSubagents       *int   // Override max subagents (default: 10, -1 = unlimited, 0 = disabled)
 	MaxNestedSubagents *int   // Override max nested subagents (default: 3, -1 = unlimited, 0 = disabled)

@@ -46,20 +46,20 @@ type resolvedConfig struct {
 	loadedSkills []*Skill
 	namedAgents  []*AgentDefinition
 
-	debug           bool
-	noExtensions    bool
+	debug              bool
+	noExtensions       bool
 	toolList           []string
 	maxSteps           int
 	maxSubagents       int
 	maxNestedSubagents int
 	streaming          bool
-	shellTimeout    int
-	shellMaxTimeout int
-	shell           []string
-	imageMaxEdge    int
-	imageMaxBytes   int
-	imageNoResize   bool
-	codeMode        core.CodeModeConfig
+	shellTimeout       int
+	shellMaxTimeout    int
+	shell              []string
+	imageMaxEdge       int
+	imageMaxBytes      int
+	imageNoResize      bool
+	codeMode           core.CodeModeConfig
 
 	hasCustomSystemPrompt bool
 	systemPromptSource    string

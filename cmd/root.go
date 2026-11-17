@@ -39,14 +39,14 @@ var (
 	positionalPrompt  string        // set by processPositionalArgs from CLI positional args
 	positionalFiles   []ui.FilePart // binary @file parts from processPositionalArgs
 
-	quietFlag       bool
-	jsonFlag        bool
-	noExitFlag      bool
+	quietFlag          bool
+	jsonFlag           bool
+	noExitFlag         bool
 	maxSteps           int
 	maxSubagents       int
 	maxNestedSubagents int
 	streamFlag         bool // Enable streaming output
-	autoCompactFlag bool // Enable auto-compaction near context limit
+	autoCompactFlag    bool // Enable auto-compaction near context limit
 
 	// Session management
 	sessionPath             string
