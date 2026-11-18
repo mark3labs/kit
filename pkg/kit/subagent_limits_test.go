@@ -45,15 +45,17 @@ func (m *blockingModel) Stream(ctx context.Context, call LLMCall) (LLMStreamResp
 func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 	started := make(chan struct{}, 10)
 	release := make(chan struct{})
+	slotWaiting := make(chan struct{}, 10)
 
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
 	maxSubs := 2
 	k := newProviderTestKit(t, &Options{
-		Model:        "mock/test",
-		Providers:    map[string]ProviderFactory{"mock": factory},
-		MaxSubagents: &maxSubs,
+		Model:              "mock/test",
+		Providers:          map[string]ProviderFactory{"mock": factory},
+		MaxSubagents:       &maxSubs,
+		onSubagentSlotWait: func() { slotWaiting <- struct{}{} },
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -85,12 +87,11 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 		}
 	}
 
-	// 2. Verify the 3rd subagent is blocked in the queue.
+	// 2. Verify the 3rd request reaches the limiter's wait point while both model calls remain blocked.
 	select {
-	case <-started:
-		t.Fatalf("3rd subagent became active, but limit is 2")
-	case <-time.After(50 * time.Millisecond):
-		// correctly blocked
+	case <-slotWaiting:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for 3rd subagent to reach the limiter's wait point")
 	}
 
 	// 3. Release one active subagent.
@@ -144,6 +145,7 @@ func TestSubagent_MaxSubagentsDisabled(t *testing.T) {
 func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 	started := make(chan struct{}, 10)
 	release := make(chan struct{})
+	slotWaiting := make(chan struct{}, 10)
 
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
@@ -154,6 +156,7 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		Providers:          map[string]ProviderFactory{"mock": factory},
 		SubagentDepth:      1,
 		MaxNestedSubagents: &maxNested,
+		onSubagentSlotWait: func() { slotWaiting <- struct{}{} },
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -184,10 +187,11 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		}
 	}
 
+	// Verify the 3rd request reaches the limiter's wait point while both model calls remain blocked.
 	select {
-	case <-started:
-		t.Fatalf("3rd nested subagent became active, but limit is 2")
-	case <-time.After(50 * time.Millisecond):
+	case <-slotWaiting:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for 3rd nested subagent to reach the limiter's wait point")
 	}
 
 	release <- struct{}{}

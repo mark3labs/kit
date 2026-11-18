@@ -170,6 +170,7 @@ type Kit struct {
 	maxNestedSubagents int
 	subagentSemMu      sync.Mutex
 	subagentSem        chan struct{}
+	onSubagentSlotWait func()
 
 	// skillCache holds skills discovered for this Kit instance.
 	// Using a per-instance cache avoids cross-contamination when multiple
@@ -262,13 +263,22 @@ func (m *Kit) acquireSubagentSlot(ctx context.Context) (func(), error) {
 		m.subagentSem = make(chan struct{}, limit)
 	}
 	sem := m.subagentSem
+	onWait := m.onSubagentSlotWait
 	m.subagentSemMu.Unlock()
 
 	select {
 	case sem <- struct{}{}:
 		return func() { <-sem }, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	default:
+		if onWait != nil {
+			onWait()
+		}
+		select {
+		case sem <- struct{}{}:
+			return func() { <-sem }, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
@@ -1361,6 +1371,7 @@ type Options struct {
 	MaxSubagents       *int   // Override max subagents (default: 10, -1 = unlimited, 0 = disabled)
 	MaxNestedSubagents *int   // Override max nested subagents (default: 3, -1 = unlimited, 0 = disabled)
 	SubagentDepth      int    // Nesting depth of this instance (0 = root, 1 = subagent, 2 = nested subagent)
+	onSubagentSlotWait func() // Internal callback fired when a subagent is about to wait for a concurrency slot
 	ModelMode          string // Model mode to select (empty selects the model default)
 
 	// DecisionModel is the default decision model in "provider/model"
@@ -1965,6 +1976,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		subagentDepth:         opts.SubagentDepth,
 		maxSubagents:          rc.maxSubagents,
 		maxNestedSubagents:    rc.maxNestedSubagents,
+		onSubagentSlotWait:    opts.onSubagentSlotWait,
 	}
 	// The agent setup above built the model with the same factory lookup.
 	k.activeModelFromFactory = k.factoryBacked(rc.modelString)
@@ -2695,6 +2707,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		SubagentDepth:      m.subagentDepth + 1,
 		MaxSubagents:       &maxSubs,
 		MaxNestedSubagents: &maxNested,
+		onSubagentSlotWait: m.onSubagentSlotWait,
 	}
 
 	// Inherit the parent's effective provider/runtime configuration. Since #40
