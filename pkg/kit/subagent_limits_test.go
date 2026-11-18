@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,11 +56,21 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 		MaxSubagents: &maxSubs,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		cancel()
+		wg.Wait()
+	})
+
 	errCh := make(chan error, 3)
 
 	for i := range 3 {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
 			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "test", NoSession: true, Tools: []Tool{}})
 			errCh <- err
 		}(i)
@@ -145,11 +156,21 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		MaxNestedSubagents: &maxNested,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		cancel()
+		wg.Wait()
+	})
+
 	errCh := make(chan error, 3)
 
 	for i := range 3 {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
 			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "nested", NoSession: true, Tools: []Tool{}})
 			errCh <- err
 		}(i)
@@ -248,11 +269,24 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 		MaxSubagents: &unlimited,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	var releaseOnce sync.Once
+	openRelease := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	t.Cleanup(func() {
+		openRelease()
+		cancel()
+		wg.Wait()
+	})
+
 	errCh := make(chan error, 15)
 
 	for i := range 15 {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
 			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "unlimited", NoSession: true, Tools: []Tool{}})
 			errCh <- err
 		}(i)
@@ -267,9 +301,7 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 		}
 	}
 
-	for range 15 {
-		release <- struct{}{}
-	}
+	openRelease()
 
 	for range 15 {
 		select {
