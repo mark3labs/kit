@@ -94,8 +94,26 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 		t.Fatal("timed out waiting for 3rd subagent to reach the limiter's wait point")
 	}
 
+	finished := 0
+	sendRelease := func() {
+		t.Helper()
+		for {
+			select {
+			case release <- struct{}{}:
+				return
+			case err := <-errCh:
+				finished++
+				if err != nil {
+					t.Fatalf("worker failed: %v", err)
+				}
+			case <-time.After(1 * time.Second):
+				t.Fatal("timed out sending to release channel")
+			}
+		}
+	}
+
 	// 3. Release one active subagent.
-	release <- struct{}{}
+	sendRelease()
 
 	// 4. Verify the 3rd subagent now unblocks and becomes active.
 	select {
@@ -105,13 +123,14 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 	}
 
 	// Release the remaining two.
-	release <- struct{}{}
-	release <- struct{}{}
+	sendRelease()
+	sendRelease()
 
 	// Ensure all finished without error.
-	for range 3 {
+	for finished < 3 {
 		select {
 		case err := <-errCh:
+			finished++
 			if err != nil {
 				t.Fatalf("subagent spawn failed (queueing failed): %v", err)
 			}
@@ -194,7 +213,25 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		t.Fatal("timed out waiting for 3rd nested subagent to reach the limiter's wait point")
 	}
 
-	release <- struct{}{}
+	finished := 0
+	sendRelease := func() {
+		t.Helper()
+		for {
+			select {
+			case release <- struct{}{}:
+				return
+			case err := <-errCh:
+				finished++
+				if err != nil {
+					t.Fatalf("worker failed: %v", err)
+				}
+			case <-time.After(1 * time.Second):
+				t.Fatal("timed out sending to release channel")
+			}
+		}
+	}
+
+	sendRelease()
 
 	select {
 	case <-started:
@@ -202,12 +239,13 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		t.Fatalf("3rd nested subagent did not become active after a slot was released")
 	}
 
-	release <- struct{}{}
-	release <- struct{}{}
+	sendRelease()
+	sendRelease()
 
-	for range 3 {
+	for finished < 3 {
 		select {
 		case err := <-errCh:
+			finished++
 			if err != nil {
 				t.Fatalf("nested subagent spawn failed (queueing failed): %v", err)
 			}
