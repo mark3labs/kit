@@ -190,6 +190,8 @@ func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	callerActive := ctx.Err() == nil
+
 	var args subagentArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("task parameter is required"), nil
@@ -240,11 +242,14 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	spawnCtx := ctx
 	if background, _ := ctx.Value(backgroundJobKey{}).(bool); !background {
 		spawnCtx = context.WithoutCancel(valuesContext{parent: ctx})
-		// If the caller context was alive on entry, propagate cancellation
+		// If the caller context was active at handler entry, propagate cancellation
 		// to the spawned subagent so a killed or timed-out parent promptly
 		// cancels in-flight nested delegation instead of leaving it running
 		// and blocking concurrency slots until its independent timeout expires.
-		if ctx.Err() == nil {
+		// If the caller context was already canceled when the handler began,
+		// keep the detached context without cancellation propagation so the
+		// subagent can start cleanly with its own timeout.
+		if callerActive {
 			var cancel context.CancelFunc
 			spawnCtx, cancel = context.WithCancel(spawnCtx)
 			stop := context.AfterFunc(ctx, func() { cancel() })
