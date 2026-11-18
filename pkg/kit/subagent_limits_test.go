@@ -66,7 +66,7 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 	}
 
 	// 1. Verify that exactly maxSubs (2) subagents become active.
-	for i := 0; i < maxSubs; i++ {
+	for i := range maxSubs {
 		select {
 		case <-started:
 		case <-time.After(1 * time.Second):
@@ -155,7 +155,7 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < maxNested; i++ {
+	for i := range maxNested {
 		select {
 		case <-started:
 		case <-time.After(1 * time.Second):
@@ -259,7 +259,7 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 	}
 
 	// Verify all 15 become active immediately because limits are unbounded
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		select {
 		case <-started:
 		case <-time.After(1 * time.Second):
@@ -267,7 +267,7 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		release <- struct{}{}
 	}
 
