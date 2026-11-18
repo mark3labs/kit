@@ -240,6 +240,16 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	spawnCtx := ctx
 	if background, _ := ctx.Value(backgroundJobKey{}).(bool); !background {
 		spawnCtx = context.WithoutCancel(valuesContext{parent: ctx})
+		// If the caller context was alive on entry, propagate cancellation
+		// to the spawned subagent so a killed or timed-out parent promptly
+		// cancels in-flight nested delegation instead of leaving it running
+		// and blocking concurrency slots until its independent timeout expires.
+		if ctx.Err() == nil {
+			var cancel context.CancelFunc
+			spawnCtx, cancel = context.WithCancel(spawnCtx)
+			stop := context.AfterFunc(ctx, func() { cancel() })
+			defer stop()
+		}
 	}
 
 	// Spawn in-process subagent.

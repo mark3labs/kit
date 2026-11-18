@@ -4,13 +4,49 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/kit/internal/core"
 )
 
+type blockingModel struct {
+	*echoModel
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingModel) Generate(ctx context.Context, call LLMCall) (*LLMResponse, error) {
+	select {
+	case m.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-m.release:
+		return m.echoModel.Generate(ctx, call)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (m *blockingModel) Stream(ctx context.Context, call LLMCall) (LLMStreamResponse, error) {
+	select {
+	case m.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-m.release:
+		return m.echoModel.Stream(ctx, call)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func TestSubagent_MaxSubagentsLimit(t *testing.T) {
+	started := make(chan struct{}, 10)
+	release := make(chan struct{})
+
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
-		return &ProviderResult{Model: &echoModel{provider: "mock", model: name}}, nil
+		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
 	maxSubs := 2
 	k := newProviderTestKit(t, &Options{
@@ -20,9 +56,8 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	// Since maxSubs is 2, running 3 concurrently should not fail but simply queue.
-	// We verify they all finish without the "limit reached" error.
 	errCh := make(chan error, 3)
+
 	for i := range 3 {
 		go func(id int) {
 			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "test", NoSession: true, Tools: []Tool{}})
@@ -30,9 +65,46 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 		}(i)
 	}
 
+	// 1. Verify that exactly maxSubs (2) subagents become active.
+	for i := 0; i < maxSubs; i++ {
+		select {
+		case <-started:
+		case <-time.After(1 * time.Second):
+			t.Fatalf("expected subagent %d to become active, but it blocked", i+1)
+		}
+	}
+
+	// 2. Verify the 3rd subagent is blocked in the queue.
+	select {
+	case <-started:
+		t.Fatalf("3rd subagent became active, but limit is 2")
+	case <-time.After(50 * time.Millisecond):
+		// correctly blocked
+	}
+
+	// 3. Release one active subagent.
+	release <- struct{}{}
+
+	// 4. Verify the 3rd subagent now unblocks and becomes active.
+	select {
+	case <-started:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("3rd subagent did not become active after a slot was released")
+	}
+
+	// Release the remaining two.
+	release <- struct{}{}
+	release <- struct{}{}
+
+	// Ensure all finished without error.
 	for range 3 {
-		if err := <-errCh; err != nil {
-			t.Fatalf("subagent spawn failed (queueing failed): %v", err)
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("subagent spawn failed (queueing failed): %v", err)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatalf("subagent did not return")
 		}
 	}
 }
@@ -59,8 +131,11 @@ func TestSubagent_MaxSubagentsDisabled(t *testing.T) {
 }
 
 func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
+	started := make(chan struct{}, 10)
+	release := make(chan struct{})
+
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
-		return &ProviderResult{Model: &echoModel{provider: "mock", model: name}}, nil
+		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
 	maxNested := 2
 	k := newProviderTestKit(t, &Options{
@@ -71,8 +146,8 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	// Since maxNested is 2, running 3 concurrently should not fail but simply queue.
 	errCh := make(chan error, 3)
+
 	for i := range 3 {
 		go func(id int) {
 			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "nested", NoSession: true, Tools: []Tool{}})
@@ -80,9 +155,39 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 		}(i)
 	}
 
+	for i := 0; i < maxNested; i++ {
+		select {
+		case <-started:
+		case <-time.After(1 * time.Second):
+			t.Fatalf("expected nested subagent %d to become active, but it blocked", i+1)
+		}
+	}
+
+	select {
+	case <-started:
+		t.Fatalf("3rd nested subagent became active, but limit is 2")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	release <- struct{}{}
+
+	select {
+	case <-started:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("3rd nested subagent did not become active after a slot was released")
+	}
+
+	release <- struct{}{}
+	release <- struct{}{}
+
 	for range 3 {
-		if err := <-errCh; err != nil {
-			t.Fatalf("nested subagent spawn failed (queueing failed): %v", err)
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("nested subagent spawn failed (queueing failed): %v", err)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatalf("nested subagent did not return")
 		}
 	}
 }
@@ -130,8 +235,11 @@ func TestSubagent_Depth2CannotSpawn(t *testing.T) {
 }
 
 func TestSubagent_UnlimitedSubagents(t *testing.T) {
+	started := make(chan struct{}, 15)
+	release := make(chan struct{})
+
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
-		return &ProviderResult{Model: &echoModel{provider: "mock", model: name}}, nil
+		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
 	unlimited := -1
 	k := newProviderTestKit(t, &Options{
@@ -141,10 +249,36 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 	})
 
 	ctx := context.Background()
+	errCh := make(chan error, 15)
+
 	for i := range 15 {
-		_, err := k.Subagent(ctx, SubagentConfig{Prompt: "unlimited", NoSession: true, Tools: []Tool{}})
-		if err != nil {
-			t.Fatalf("subagent spawn %d failed: %v", i+1, err)
+		go func(id int) {
+			_, err := k.Subagent(ctx, SubagentConfig{Prompt: "unlimited", NoSession: true, Tools: []Tool{}})
+			errCh <- err
+		}(i)
+	}
+
+	// Verify all 15 become active immediately because limits are unbounded
+	for i := 0; i < 15; i++ {
+		select {
+		case <-started:
+		case <-time.After(1 * time.Second):
+			t.Fatalf("expected subagent %d to become active, but it blocked", i+1)
+		}
+	}
+
+	for i := 0; i < 15; i++ {
+		release <- struct{}{}
+	}
+
+	for range 15 {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("subagent spawn failed: %v", err)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatalf("subagent did not return")
 		}
 	}
 }

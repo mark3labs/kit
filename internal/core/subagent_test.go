@@ -118,6 +118,59 @@ func TestSpawnContext_PreservesSpawnerValue(t *testing.T) {
 	}
 }
 
+func TestSpawnContext_PropagatesCancellationWhileRunning(t *testing.T) {
+	// Verify that if the parent context is alive on entry but is cancelled
+	// WHILE the subagent is executing, the detached context is cancelled
+	// promptly so the nested subagent doesn't block concurrency slots.
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel() // fallback
+
+	childCtxCh := make(chan context.Context, 1)
+	spawner := SubagentSpawnFunc(func(ctx context.Context, req SubagentSpawnRequest) (*SubagentSpawnResult, error) {
+		childCtxCh <- ctx
+		<-ctx.Done() // Block until cancelled
+		return &SubagentSpawnResult{Response: "cancelled"}, ctx.Err()
+	})
+
+	ctx := WithSubagentSpawner(parent, spawner)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := executeSubagent(ctx, fantasy.ToolCall{ID: "tc1", Input: `{"task":"test"}`})
+		errCh <- err
+	}()
+
+	// Wait for the subagent tool to begin execution and extract its context.
+	var childCtx context.Context
+	select {
+	case childCtx = <-childCtxCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("subagent did not start in time")
+	}
+
+	// Prove it is alive.
+	if childCtx.Err() != nil {
+		t.Fatalf("child context should be alive, got: %v", childCtx.Err())
+	}
+
+	// Cancel the parent context.
+	cancel()
+
+	// Prove the child context cancels promptly.
+	select {
+	case <-childCtx.Done():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("child context did not propagate cancellation promptly")
+	}
+
+	// Prove the execute function unblocks.
+	select {
+	case <-errCh:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("executeSubagent did not unblock after cancellation")
+	}
+}
+
 func TestExecuteSubagent_ForwardsSessionID(t *testing.T) {
 	// Issue #87: the optional session_id argument must reach the spawner so
 	// the parent Kit can resume the existing subagent session.
