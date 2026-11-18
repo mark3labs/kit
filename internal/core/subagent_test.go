@@ -125,10 +125,16 @@ func TestSpawnContext_PropagatesCancellationWhileRunning(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	defer cancel() // fallback
 
+	stop := make(chan struct{})
+	defer close(stop)
+
 	childCtxCh := make(chan context.Context, 1)
 	spawner := SubagentSpawnFunc(func(ctx context.Context, req SubagentSpawnRequest) (*SubagentSpawnResult, error) {
 		childCtxCh <- ctx
-		<-ctx.Done() // Block until cancelled
+		select {
+		case <-ctx.Done():
+		case <-stop:
+		}
 		return &SubagentSpawnResult{Response: "cancelled"}, ctx.Err()
 	})
 
