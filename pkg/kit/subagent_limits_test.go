@@ -51,10 +51,12 @@ func TestSubagent_MaxSubagentsLimit(t *testing.T) {
 		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
 	maxSubs := 2
+	otherNested := 3
 	k := newProviderTestKit(t, &Options{
 		Model:              "mock/test",
 		Providers:          map[string]ProviderFactory{"mock": factory},
 		MaxSubagents:       &maxSubs,
+		MaxNestedSubagents: &otherNested,
 		onSubagentSlotWait: func() { slotWaiting <- struct{}{} },
 	})
 
@@ -169,11 +171,13 @@ func TestSubagent_MaxNestedSubagentsLimit(t *testing.T) {
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
+	otherSubs := 3
 	maxNested := 2
 	k := newProviderTestKit(t, &Options{
 		Model:              "mock/test",
 		Providers:          map[string]ProviderFactory{"mock": factory},
 		SubagentDepth:      1,
+		MaxSubagents:       &otherSubs,
 		MaxNestedSubagents: &maxNested,
 		onSubagentSlotWait: func() { slotWaiting <- struct{}{} },
 	})
