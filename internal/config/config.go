@@ -515,8 +515,8 @@ mcpServers:
 # model: "anthropic/claude-sonnet-4-5-20250929"  # Default model to use
 # decision-model: "openrouter/typesafe/jev-1.14" # Default model for extension Decide calls
 # max-steps: 10                                # Maximum agent steps (0 for unlimited)
-# max-subagents: 10                            # Maximum concurrent subagents the agent can run (-1 for unlimited, 0 to disable)
-# max-nested-subagents: 3                      # Maximum concurrent nested subagents a subagent can run (-1 for unlimited, 0 to disable)
+# max-subagents: 10                            # Maximum concurrent subagents the agent can run (0 for unlimited, -1 to disable)
+# max-nested-subagents: 3                      # Maximum concurrent nested subagents a subagent can run (0 for unlimited, -1 to disable)
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file
 

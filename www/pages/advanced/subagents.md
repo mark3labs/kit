@@ -54,8 +54,8 @@ Subagents run as separate in-process Kit instances and inherit the parent's acti
 
 Kit provides control over subagent concurrency via CLI flags and configuration. When the LLM requests to spawn more subagents than the configured limit, the extra requests are **queued** and will automatically run as active subagents finish their tasks.
 
-- **Root subagents (`--max-subagents`, default `10`):** Limits how many concurrent subagents the host agent can run (`-1` for unlimited, `0` to disable).
-- **Nested subagents (`--max-nested-subagents`, default `3`):** Allows subagents to run nested child subagents concurrently up to the configured limit (`-1` for unlimited, `0` to disable nested delegation).
+- **Root subagents (`--max-subagents`, default `10`):** Limits how many concurrent subagents the host agent can run (`0` for unlimited, `-1` to disable).
+- **Nested subagents (`--max-nested-subagents`, default `3`):** Allows subagents to run nested child subagents concurrently up to the configured limit (`0` for unlimited, `-1` to disable nested delegation).
 - **Strict recursion cap:** Nested subagents (depth &ge; 2) have the `subagent` tool stripped from their toolset and cannot spawn further subagents.
 
 ### Subagent status bar

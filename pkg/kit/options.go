@@ -70,11 +70,11 @@ func WithStreaming(b bool) Option {
 func WithMaxTokens(n int) Option { return func(o *Options) { o.MaxTokens = n } }
 
 // WithMaxSubagents sets the maximum number of concurrent subagents the agent can run.
-// Default is 10 (-1 for unlimited, 0 to disable).
+// Default is 10 (0 for unlimited, -1 to disable).
 func WithMaxSubagents(n int) Option { return func(o *Options) { o.MaxSubagents = &n } }
 
 // WithMaxNestedSubagents sets the maximum number of concurrent nested subagents a subagent can run.
-// Default is 3 (-1 for unlimited, 0 to disable).
+// Default is 3 (0 for unlimited, -1 to disable).
 func WithMaxNestedSubagents(n int) Option { return func(o *Options) { o.MaxNestedSubagents = &n } }
 
 // WithModelMode selects a named mode for the selected model. Empty selects its default.

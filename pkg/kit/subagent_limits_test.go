@@ -146,7 +146,7 @@ func TestSubagent_MaxSubagentsDisabled(t *testing.T) {
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &echoModel{provider: "mock", model: name}}, nil
 	}
-	maxSubs := 0
+	maxSubs := -1
 	k := newProviderTestKit(t, &Options{
 		Model:        "mock/test",
 		Providers:    map[string]ProviderFactory{"mock": factory},
@@ -263,12 +263,12 @@ func TestSubagent_NestedSubagentsDisabled(t *testing.T) {
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &echoModel{provider: "mock", model: name}}, nil
 	}
-	zeroNested := 0
+	disabledNested := -1
 	k := newProviderTestKit(t, &Options{
 		Model:              "mock/test",
 		Providers:          map[string]ProviderFactory{"mock": factory},
 		SubagentDepth:      1,
-		MaxNestedSubagents: &zeroNested,
+		MaxNestedSubagents: &disabledNested,
 	})
 
 	ctx := context.Background()
@@ -308,7 +308,7 @@ func TestSubagent_UnlimitedSubagents(t *testing.T) {
 	factory := func(_ context.Context, _ *ProviderConfig, name string) (*ProviderResult, error) {
 		return &ProviderResult{Model: &blockingModel{echoModel: &echoModel{provider: "mock", model: name}, started: started, release: release}}, nil
 	}
-	unlimited := -1
+	unlimited := 0
 	k := newProviderTestKit(t, &Options{
 		Model:        "mock/test",
 		Providers:    map[string]ProviderFactory{"mock": factory},
@@ -394,23 +394,36 @@ func TestGetToolsForSubagent_Limits(t *testing.T) {
 		t.Errorf("expected GetToolsForSubagent() to include dummy tool")
 	}
 
-	// 2. When max-nested-subagents is 0 (disabled), subagent is excluded.
-	zeroNested := 0
+	// 2. When max-nested-subagents is -1 (disabled), subagent is excluded.
+	disabledNested := -1
 	kNoNested := newProviderTestKit(t, &Options{
 		Model:              "mock/test",
 		Providers:          map[string]ProviderFactory{"mock": factory},
 		Tools:              []Tool{subTool, dummyTool},
-		MaxNestedSubagents: &zeroNested,
+		MaxNestedSubagents: &disabledNested,
 	})
 	toolsNoNested := kNoNested.GetToolsForSubagent()
 	if hasTool(toolsNoNested, "subagent") {
-		t.Errorf("expected GetToolsForSubagent() to exclude subagent when max-nested-subagents=0")
+		t.Errorf("expected GetToolsForSubagent() to exclude subagent when max-nested-subagents=-1")
 	}
 	if !hasTool(toolsNoNested, "dummy") {
 		t.Errorf("expected GetToolsForSubagent() to include dummy tool")
 	}
 
-	// 3. When depth >= 1, subagent is excluded to prevent recursion beyond depth 2.
+	// 3. When max-nested-subagents is 0 (unlimited), subagent is included.
+	unlimitedNested := 0
+	kUnlimitedNested := newProviderTestKit(t, &Options{
+		Model:              "mock/test",
+		Providers:          map[string]ProviderFactory{"mock": factory},
+		Tools:              []Tool{subTool, dummyTool},
+		MaxNestedSubagents: &unlimitedNested,
+	})
+	toolsUnlimitedNested := kUnlimitedNested.GetToolsForSubagent()
+	if !hasTool(toolsUnlimitedNested, "subagent") {
+		t.Errorf("expected GetToolsForSubagent() to include subagent when max-nested-subagents=0")
+	}
+
+	// 4. When depth >= 1, subagent is excluded to prevent recursion beyond depth 2.
 	kDepth1 := newProviderTestKit(t, &Options{
 		Model:         "mock/test",
 		Providers:     map[string]ProviderFactory{"mock": factory},

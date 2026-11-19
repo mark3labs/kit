@@ -227,8 +227,8 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `MCPTaskTimeout` | MCPTaskTimeout is the maximum wall-clock duration to wait for a task-augmented tool call to reach a terminal state. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MCPTokenStoreFactory` | MCPTokenStoreFactory, if non-nil, is called to create a token store for each remote MCP server that requires OAuth. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxSteps` | Override max steps (0 = use default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
-| `MaxSubagents` | MaxSubagents limits how many concurrent subagents this Kit instance can run (default: 10, -1 = unlimited, 0 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
-| `MaxNestedSubagents` | MaxNestedSubagents limits how many concurrent nested subagents a subagent can run (default: 3, -1 = unlimited, 0 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxSubagents` | MaxSubagents limits how many concurrent subagents this Kit instance can run (default: 10, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxNestedSubagents` | MaxNestedSubagents limits how many concurrent nested subagents a subagent can run (default: 3, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `SubagentDepth` | SubagentDepth tracks the nesting depth of this Kit instance (0 = root, 1 = subagent, 2 = nested subagent). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxTokens` | MaxTokens overrides the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ModelMode` | Model mode to select (empty selects the model default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |

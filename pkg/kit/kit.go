@@ -254,7 +254,8 @@ func (m *Kit) acquireSubagentSlot(ctx context.Context) (func(), error) {
 	if m.subagentDepth == 1 {
 		limit = m.effectiveMaxNestedSubagents()
 	}
-	if limit < 0 {
+	// 0 means unlimited concurrency (matching max-steps convention).
+	if limit == 0 {
 		return func() {}, nil
 	}
 
@@ -283,14 +284,14 @@ func (m *Kit) acquireSubagentSlot(ctx context.Context) (func(), error) {
 }
 
 // GetToolsForSubagent returns the tool set passed to a child subagent.
-// When nested subagents are enabled (subagentDepth == 0 and maxNestedSubagents != 0),
+// When nested subagents are enabled (subagentDepth == 0 and maxNestedSubagents >= 0),
 // the "subagent" tool is retained so the child subagent can spawn nested subagents.
 // For depth >= 1, the "subagent" tool is excluded so nested subagents cannot spawn further.
 func (m *Kit) GetToolsForSubagent() []Tool {
 	var tools []Tool
 	for _, t := range m.agent.GetTools() {
 		if t.Info().Name == "subagent" {
-			if m.subagentDepth >= 1 || m.effectiveMaxNestedSubagents() == 0 {
+			if m.subagentDepth >= 1 || m.effectiveMaxNestedSubagents() < 0 {
 				continue
 			}
 		}
@@ -1368,8 +1369,8 @@ type Options struct {
 	SystemPrompt       string // Override system prompt
 	ConfigFile         string // Override config file path
 	MaxSteps           int    // Override max steps (0 = use default)
-	MaxSubagents       *int   // Override max subagents (default: 10, -1 = unlimited, 0 = disabled)
-	MaxNestedSubagents *int   // Override max nested subagents (default: 3, -1 = unlimited, 0 = disabled)
+	MaxSubagents       *int   // Override max subagents (default: 10, 0 = unlimited, -1 = disabled)
+	MaxNestedSubagents *int   // Override max nested subagents (default: 3, 0 = unlimited, -1 = disabled)
 	SubagentDepth      int    // Nesting depth of this instance (0 = root, 1 = subagent, 2 = nested subagent)
 	onSubagentSlotWait func() // Internal callback fired when a subagent is about to wait for a concurrency slot
 	ModelMode          string // Model mode to select (empty selects the model default)
@@ -2499,7 +2500,7 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // parent replaced its core tools with Options.Tools, the child gets those
 // same tools (minus subagent), not the built-in ones.
 func (m *Kit) subagentDefaultTools() []Tool {
-	includeSubagent := m.subagentDepth < 1 && m.effectiveMaxNestedSubagents() != 0
+	includeSubagent := m.subagentDepth < 1 && m.effectiveMaxNestedSubagents() >= 0
 	if len(m.customTools) > 0 {
 		tools := make([]Tool, 0, len(m.customTools))
 		for _, t := range m.customTools {
@@ -2549,16 +2550,16 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 
 	// Enforce subagent spawn configuration:
 	// - Depth >= 2: nested subagents cannot spawn further subagents.
-	// - Depth 0: check if subagents are disabled (maxSubagents == 0).
-	// - Depth 1: check if nested subagents are disabled (maxNestedSubagents == 0).
+	// - Depth 0: check if subagents are disabled (maxSubagents < 0).
+	// - Depth 1: check if nested subagents are disabled (maxNestedSubagents < 0).
 	if m.subagentDepth >= 2 {
 		return nil, fmt.Errorf("nested subagents cannot spawn further subagents (maximum depth reached)")
 	}
-	if m.subagentDepth == 0 && m.effectiveMaxSubagents() == 0 {
-		return nil, fmt.Errorf("subagents are disabled (max-subagents = 0)")
+	if m.subagentDepth == 0 && m.effectiveMaxSubagents() < 0 {
+		return nil, fmt.Errorf("subagents are disabled (max-subagents < 0)")
 	}
-	if m.subagentDepth == 1 && m.effectiveMaxNestedSubagents() == 0 {
-		return nil, fmt.Errorf("nested subagents are disabled (max-nested-subagents = 0)")
+	if m.subagentDepth == 1 && m.effectiveMaxNestedSubagents() < 0 {
+		return nil, fmt.Errorf("nested subagents are disabled (max-nested-subagents < 0)")
 	}
 
 	start := time.Now()

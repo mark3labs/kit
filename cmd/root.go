@@ -420,9 +420,9 @@ func init() {
 	rootCmd.PersistentFlags().
 		IntVar(&maxSteps, "max-steps", 0, "maximum number of agent steps (0 for unlimited)")
 	rootCmd.PersistentFlags().
-		IntVar(&maxSubagents, "max-subagents", 10, "maximum concurrent subagents the agent can run (use -1 for unlimited, 0 to disable)")
+		IntVar(&maxSubagents, "max-subagents", 10, "maximum concurrent subagents the agent can run (0 for unlimited, -1 to disable)")
 	rootCmd.PersistentFlags().
-		IntVar(&maxNestedSubagents, "max-nested-subagents", 3, "maximum concurrent nested subagents a subagent can run (use -1 for unlimited, 0 to disable)")
+		IntVar(&maxNestedSubagents, "max-nested-subagents", 3, "maximum concurrent nested subagents a subagent can run (0 for unlimited, -1 to disable)")
 	rootCmd.PersistentFlags().
 		BoolVar(&streamFlag, "stream", true, "enable streaming output for faster response display")
 	rootCmd.PersistentFlags().
