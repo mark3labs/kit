@@ -120,6 +120,7 @@ func applyProviderOverrides(providers map[string]ProviderInfo, overrides map[str
 		}
 		if o.BaseURL != "" {
 			info.API = o.BaseURL
+			info.apiOverridden = true
 		}
 		if len(o.APIKeyEnv) > 0 {
 			info.Env = o.APIKeyEnv
