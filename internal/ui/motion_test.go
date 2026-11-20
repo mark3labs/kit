@@ -445,22 +445,22 @@ func toastRow(m *AppModel) int {
 	return rowOf(m.View().Content, "Copied to the test")
 }
 
-// TestToastShowsAndHides checks that a toast with motion off is drawn in the
-// top right corner on the first frame, with no transition to wait for, and is
-// gone when its time is up.
+// TestToastShowsAndHides checks a toast with motion off. It is drawn in the
+// top right corner on the first frame, no animation runs for it, and one
+// timer takes it down.
 func TestToastShowsAndHides(t *testing.T) {
 	m, _, _ := newTestAppModel(&stubAppController{})
 	m.input = NewInputComponent(80, nil)
 
 	if cmd := m.showToast("Copied to the test"); cmd == nil {
-		t.Fatal("showToast returned no command: nothing would hide the toast")
+		t.Fatal("showToast returned no command: nothing would take the toast down")
 	}
 	fxs := m.fxState()
-	if fxs.toast.Progress() != 0 {
-		t.Fatalf("toast progress = %v before its first frame: the test needs it at 0", fxs.toast.Progress())
+	if fxs.animating() || fxs.toast.Visible() {
+		t.Fatal("a toast shown with motion off started an animation")
 	}
 
-	// No frame of the presence has run. The toast must be there already.
+	// The toast must be there already, in its place.
 	view := m.View().Content
 	row := rowOf(view, "Copied to the test")
 	if row != 1 {
@@ -474,11 +474,42 @@ func TestToastShowsAndHides(t *testing.T) {
 		t.Fatalf("frame height with a toast = %d, want %d", got, m.height)
 	}
 
-	now := time.Now()
-	fxs.toast.HideAt(now)
-	fxs.toast.Advance(now.Add(time.Second))
+	if _, cmd := m.Update(toastExpiredMsg{gen: fxs.toastGen}); cmd != nil {
+		t.Fatal("the timer of a toast started more work")
+	}
 	if toastRow(m) >= 0 {
-		t.Fatal("the toast is still drawn after it hid")
+		t.Fatal("the toast is still drawn after its time was up")
+	}
+}
+
+// TestToastTimerBelongsToItsToast checks that the timer of a toast that was
+// replaced does not take down the toast that replaced it, and does not flush
+// the buffered stream chunks as an event would.
+func TestToastTimerBelongsToItsToast(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fxs := m.fxState()
+
+	m.showToast("first toast")
+	first := fxs.toastGen
+	m.showToast("Copied to the test")
+	second := fxs.toastGen
+	if first == second {
+		t.Fatal("two toasts have the same number")
+	}
+
+	m.pendingStreamChunks = []pendingStreamChunk{{role: "assistant", content: "buffered"}}
+	m.Update(toastExpiredMsg{gen: first})
+	if toastRow(m) < 0 {
+		t.Fatal("the timer of the first toast took down the second")
+	}
+	if len(m.pendingStreamChunks) != 1 {
+		t.Fatal("the timer of a toast flushed the buffered stream chunks")
+	}
+
+	m.Update(toastExpiredMsg{gen: second})
+	if toastRow(m) >= 0 {
+		t.Fatal("the second toast is still drawn after its own timer")
 	}
 }
 

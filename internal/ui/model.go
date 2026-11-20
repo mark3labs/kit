@@ -1712,6 +1712,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if isMotionMsg(msg) {
 		return m, m.updateMotionMsg(msg)
 	}
+	// The timer of a toast shown with motion off. Like an animation frame,
+	// it is not an event for the rest of the model.
+	if expired, ok := msg.(toastExpiredMsg); ok {
+		m.fxState().expireToast(expired)
+		return m, nil
+	}
 
 	// Before any mode can consume them: the next key, paste or click ends
 	// the selection kept after a mouse copy, and a failed write to the
@@ -2361,7 +2367,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					started = m.scrollList.HandleMouseDown(msg.X, viewY)
 				})
 				if started {
-					m.scrollList.autoScroll = false
+					// Stop following the bottom, from the line that is
+					// at the top of the transcript on screen.
+					m.scrollList.stopFollowingAt(vpHeight)
 				}
 			}
 		}
@@ -2547,6 +2555,11 @@ func (m *AppModel) View() tea.View {
 	m.scrollbackYOffset = m.lastHeaderHeight
 	m.streamDrawnRows = regionRows(frame, regionStream)
 	m.streamGliding = animate && m.streamDrawnRows != m.scrollList.height
+	if !m.streamGliding {
+		// The transcript is at its own height. No frame needs the line it
+		// showed before its height changed.
+		m.scrollList.releaseAnchor()
+	}
 	m.inputYOffset = m.height
 	var anchors gfxAnchors
 	if frame != nil {

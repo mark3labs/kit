@@ -224,9 +224,13 @@ type motionState struct {
 	// shake runs from 0 to 1 while the composer shakes, and rests at 1.
 	shake anim.Value
 
-	// toast is the notice in the corner of the screen.
-	toast     anim.Presence
-	toastText string
+	// toast is the notice in the corner of the screen. With motion on it is
+	// shown and hidden by the presence. With motion off toastStill is true
+	// while it is up, and the timer of toast number toastGen takes it down.
+	toast      anim.Presence
+	toastText  string
+	toastStill bool
+	toastGen   uint64
 
 	// anims are all of the values above, for anim.Update.
 	anims []anim.Animation
@@ -514,30 +518,47 @@ func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
 // Toast
 // --------------------------------------------------------------------------
 
+// toastExpiredMsg says that the time of a toast shown with motion off is up.
+// gen is the number of that toast: a toast that has been replaced since then
+// is not taken down by the timer of the one before it.
+type toastExpiredMsg struct{ gen uint64 }
+
 // showToast puts a short notice in the corner of the screen for a moment. It
-// returns the command that shows and then hides it.
+// returns the command that takes it down again.
 //
-// With motion off the toast is there at once and gone at once: toastLayer
-// draws it with no transition, and the presence here only keeps the time. Its
-// fade is then as short as a fade can be, so that the toast does not stay on
-// screen for the length of a transition that nobody sees.
+// With motion on, a presence slides the toast in and out. With motion off no
+// animation runs at all: the toast is there on the next frame, and one timer
+// takes it down.
 func (m *AppModel) showToast(text string) tea.Cmd {
 	fxs := m.fxState()
-	fade := toastFade
-	if !m.motionOn() {
-		fade = time.Millisecond
-	}
+	fxs.toastText = text
+	fxs.toastGen++
+
 	// A new presence, in the same place: the hide timer of the toast before
 	// it then belongs to nothing, and cannot hide this one early.
-	fxs.toast = anim.NewPresence(anim.Duration(fade), anim.FPS(motionFPS))
-	fxs.toastText = text
+	fxs.toast = anim.NewPresence(anim.Duration(toastFade), anim.FPS(motionFPS))
+
+	if !m.motionOn() {
+		fxs.toastStill = true
+		gen := fxs.toastGen
+		return tea.Tick(toastHold, func(time.Time) tea.Msg { return toastExpiredMsg{gen: gen} })
+	}
+	fxs.toastStill = false
 	return fxs.toast.ShowFor(toastHold)
+}
+
+// expireToast takes down the toast that msg is the timer of, if that toast
+// is still the one on screen.
+func (fxs *motionState) expireToast(msg toastExpiredMsg) {
+	if msg.gen == fxs.toastGen {
+		fxs.toastStill = false
+	}
 }
 
 // toastLayer returns the layer that draws the toast, if one is on screen.
 func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
 	fxs := m.fxState()
-	if fxs.toastText == "" || !fxs.toast.Visible() {
+	if fxs.toastText == "" || (!fxs.toastStill && !fxs.toast.Visible()) {
 		return bloom.LayerNode{}, false
 	}
 	// The border is the muted text colour, not a border colour: the theme's
@@ -555,10 +576,9 @@ func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
 	layer := bloom.Layer(region(box)).
 		Anchor(bloom.End, bloom.Start).
 		Offset(-1, 0)
-	// With motion off the toast is drawn as it is for as long as it is
-	// visible. The presence starts at zero, so a transition here would hide
-	// the toast on its first frame and slide it in on the next.
-	if t := fxs.toast.Progress(); t < 1 && m.motionOn() {
+	// A toast shown with motion off is drawn as it is. Only the presence
+	// of a toast shown with motion on has a progress to draw.
+	if t := fxs.toast.Progress(); t < 1 && !fxs.toastStill {
 		layer = layer.Transition(t, fadeIn{Fg: fg, From: bg}, fx.Slide{From: bloom.Right})
 	}
 	return layer, true
