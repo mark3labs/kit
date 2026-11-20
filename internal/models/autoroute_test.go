@@ -2,11 +2,15 @@ package models
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"charm.land/fantasy"
 )
 
 // TestNpmToWireProtocol documents the wire protocols that the auto-router
@@ -367,6 +371,12 @@ func TestGeminiProxyTransport_StripsInjectedVersion(t *testing.T) {
 			reqPath:  "/other/v1beta/models/x:generateContent",
 			wantPath: "/other/v1beta/models/x:generateContent",
 		},
+		{
+			name:     "strips doubled v1beta after /inference/google/v1beta",
+			basePath: "/inference/google/v1beta",
+			reqPath:  "/inference/google/v1beta/v1beta/models/gemini-3.5-flash:generateContent",
+			wantPath: "/inference/google/v1beta/models/gemini-3.5-flash:generateContent",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -381,6 +391,151 @@ func TestGeminiProxyTransport_StripsInjectedVersion(t *testing.T) {
 			}
 			if rec.gotPath != tt.wantPath {
 				t.Errorf("forwarded path = %q, want %q", rec.gotPath, tt.wantPath)
+			}
+		})
+	}
+}
+
+// TestAutoRouteProvider_PerModelAPI verifies that autoRouteProvider honours a
+// model's per-model ProviderAPI override over the provider's default API URL,
+// while still letting explicit --provider-url and user config `baseUrl`
+// overrides win.
+func TestAutoRouteProvider_PerModelAPI(t *testing.T) {
+	var gotPaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, ":generateContent"):
+			_, _ = fmt.Fprint(w, `{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`)
+		case strings.HasSuffix(r.URL.Path, "/messages"):
+			_, _ = fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+		default:
+			_, _ = fmt.Fprint(w, `{"id":"chatcmpl-1","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		}
+	}))
+	defer server.Close()
+
+	makeReg := func(apiOverridden bool) *ModelsRegistry {
+		return &ModelsRegistry{
+			providers: map[string]ProviderInfo{
+				"opencode": {
+					ID:            "opencode",
+					Name:          "opencode",
+					Env:           []string{"OPENCODE_API_KEY"},
+					NPM:           "@ai-sdk/openai-compatible",
+					API:           server.URL + "/inference/openai/v1",
+					apiOverridden: apiOverridden,
+					Models: map[string]ModelInfo{
+						"gemini-3.5-flash": {
+							ID:          "gemini-3.5-flash",
+							Name:        "Gemini 3.5 Flash",
+							ProviderNPM: "@ai-sdk/google",
+							ProviderAPI: server.URL + "/inference/google/v1beta",
+						},
+						"claude-sonnet-4-6": {
+							ID:          "claude-sonnet-4-6",
+							Name:        "Claude Sonnet 4.6",
+							ProviderNPM: "@ai-sdk/anthropic",
+							ProviderAPI: server.URL + "/inference/anthropic/v1",
+						},
+						"kimi-k3": {
+							ID:   "kimi-k3",
+							Name: "Kimi K3",
+						},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		modelID       string
+		apiOverridden bool
+		explicitURL   string
+		wantPath      string
+	}{
+		{
+			name:     "google model uses per-model ProviderAPI and strips duplicate v1beta",
+			modelID:  "gemini-3.5-flash",
+			wantPath: "/inference/google/v1beta/models/gemini-3.5-flash:generateContent",
+		},
+		{
+			name:     "anthropic model uses per-model ProviderAPI",
+			modelID:  "claude-sonnet-4-6",
+			wantPath: "/inference/anthropic/v1/messages",
+		},
+		{
+			name:     "model without ProviderAPI uses provider default API",
+			modelID:  "kimi-k3",
+			wantPath: "/inference/openai/v1/chat/completions",
+		},
+		{
+			name:          "user config baseUrl override beats per-model ProviderAPI",
+			modelID:       "gemini-3.5-flash",
+			apiOverridden: true,
+			wantPath:      "/inference/openai/v1/models/gemini-3.5-flash:generateContent",
+		},
+		{
+			name:        "explicit --provider-url beats per-model ProviderAPI",
+			modelID:     "gemini-3.5-flash",
+			explicitURL: server.URL + "/custom/v1",
+			wantPath:    "/custom/v1/models/gemini-3.5-flash:generateContent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPaths = nil
+			cfg := &ProviderConfig{
+				ProviderAPIKey: "test-key",
+				ProviderURL:    tt.explicitURL,
+			}
+			result, err := autoRouteProvider(context.Background(), cfg, "opencode", tt.modelID, makeReg(tt.apiOverridden))
+			if err != nil {
+				t.Fatalf("autoRouteProvider: %v", err)
+			}
+			if _, err := result.Model.Generate(context.Background(), fantasy.Call{
+				Prompt: []fantasy.Message{fantasy.NewUserMessage("hi")},
+			}); err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			if len(gotPaths) != 1 || gotPaths[0] != tt.wantPath {
+				t.Errorf("request paths = %v, want [%q]", gotPaths, tt.wantPath)
+			}
+		})
+	}
+}
+
+// TestAutoRouteProvider_EmbeddedCatalogGoogleModels verifies that the bundled
+// models.dev catalog resolves Google models on multi-protocol providers
+// (opencode, opencode-go, ofox) to both the Google wire and their per-model
+// Google API base URLs.
+func TestAutoRouteProvider_EmbeddedCatalogGoogleModels(t *testing.T) {
+	reg := NewModelsRegistry()
+	tests := []struct {
+		provider string
+		modelID  string
+		wantURL  string
+	}{
+		{"opencode", "gemini-3.5-flash", "https://opencode.ai/inference/google/v1beta"},
+		{"opencode-go", "gemini-4-argon", "https://opencode.ai/inference/go/google/v1beta"},
+		{"ofox", "google/gemini-3.5-flash", "https://api.ofox.ai/gemini/v1beta"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider+"/"+tt.modelID, func(t *testing.T) {
+			cfg := &ProviderConfig{ProviderAPIKey: "test-key"}
+			result, err := autoRouteProvider(context.Background(), cfg, tt.provider, tt.modelID, reg)
+			if err != nil {
+				t.Fatalf("autoRouteProvider: %v", err)
+			}
+			if gotType := reflect.TypeOf(result.Model).String(); gotType != "*google.languageModel" {
+				t.Errorf("model type = %s, want *google.languageModel", gotType)
+			}
+			if cfg.ProviderURL != tt.wantURL {
+				t.Errorf("ProviderURL = %q, want %q", cfg.ProviderURL, tt.wantURL)
 			}
 		})
 	}

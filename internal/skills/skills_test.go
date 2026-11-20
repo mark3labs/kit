@@ -617,6 +617,43 @@ func TestSkillResources(t *testing.T) {
 	}
 }
 
+func TestSkillResources_Symlinks(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	extDir := t.TempDir()
+	extScript := filepath.Join(extDir, "external.sh")
+	if err := os.WriteFile(extScript, []byte("echo hi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extSubdir := filepath.Join(extDir, "subfolder")
+	if err := os.MkdirAll(extSubdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink a file into scripts
+	if err := os.Symlink(extScript, filepath.Join(skillDir, "scripts", "linked.sh")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	// Symlink a directory into scripts (should be skipped, not treated as a file)
+	if err := os.Symlink(extSubdir, filepath.Join(skillDir, "scripts", "linked-dir")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	// Broken/dangling symlink into scripts (should be skipped)
+	if err := os.Symlink(filepath.Join(extDir, "nonexistent.sh"), filepath.Join(skillDir, "scripts", "dangling.sh")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	s := &Skill{Name: "my-skill", Path: filepath.Join(skillDir, "SKILL.md")}
+	res := s.Resources()
+	if len(res) != 1 || res[0] != "scripts/linked.sh" {
+		t.Fatalf("expected [scripts/linked.sh], got %v", res)
+	}
+}
+
 // TestValidate_SpecWarnings verifies the lenient spec checks: deviations in
 // name format, length limits, directory mismatch and body length are
 // reported as warnings (the skill still loads), never as errors.

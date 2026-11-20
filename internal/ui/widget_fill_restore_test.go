@@ -37,7 +37,7 @@ func TestFillWidgetActivityAndRestore(t *testing.T) {
 		if m.scrollList.View() != "" {
 			t.Fatal("hidden transcript rendered")
 		}
-		if got := m.transcriptPlacements(nil, -1); len(got) != 0 {
+		if got := m.transcriptPlacements(0); len(got) != 0 {
 			t.Fatal("hidden transcript placed graphics")
 		}
 		m.getWidgets = nil

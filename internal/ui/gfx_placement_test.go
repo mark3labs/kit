@@ -51,7 +51,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 	parts := []string{scrollback, inputView, statusBar}
 	const inputPartIndex = 1
 
-	got := m.computeGfxPlacement(parts, inputPartIndex, -1)
+	got := m.computeGfxPlacement(anchorsOf(m, parts, inputPartIndex, -1))
 	if got == "" {
 		t.Fatal("computeGfxPlacement returned nothing, want a placement")
 	}
@@ -88,7 +88,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 func TestComputeGfxPlacementEmptyWithoutImages(t *testing.T) {
 	m := &AppModel{conversationPane: &conversationPane{}, height: 40, width: 80}
 	m.input = NewInputComponent(80, nil)
-	if got := m.computeGfxPlacement([]string{"a", "b", "c"}, 1, -1); got != "" {
+	if got := m.computeGfxPlacement(anchorsOf(m, []string{"a", "b", "c"}, 1, -1)); got != "" {
 		t.Errorf("computeGfxPlacement() = %q, want empty", got)
 	}
 }
@@ -106,11 +106,11 @@ func TestComputeGfxPlacementHidesComposerImageBehindModal(t *testing.T) {
 	ic.imagePlace = []string{"\x1b_Ga=p,i=77\\"}
 	m.input = ic
 	parts := []string{"scroll", ic.View().Content, "status"}
-	if got := m.computeGfxPlacement(parts, 1, -1); !strings.Contains(got, "a=p,i=77") {
+	if got := m.computeGfxPlacement(anchorsOf(m, parts, 1, -1)); !strings.Contains(got, "a=p,i=77") {
 		t.Fatalf("initial placement missing: %q", got)
 	}
 	m.state = stateModelSelector
-	got := m.computeGfxPlacement(parts, 1, -1)
+	got := m.computeGfxPlacement(anchorsOf(m, parts, 1, -1))
 	if strings.Contains(got, "a=p,i=77") || !strings.Contains(got, "a=d,d=i,i=77") {
 		t.Fatalf("modal should remove composer placement: %q", got)
 	}
@@ -125,7 +125,7 @@ func TestComputeGfxPlacementIgnoresTextThumbnails(t *testing.T) {
 	ic.imagePlace = []string{""} // text thumbnails carry no placement
 	m.input = ic
 
-	if got := m.computeGfxPlacement([]string{"scroll", ic.View().Content, "status"}, 1, -1); got != "" {
+	if got := m.computeGfxPlacement(anchorsOf(m, []string{"scroll", ic.View().Content, "status"}, 1, -1)); got != "" {
 		t.Errorf("computeGfxPlacement() = %q, want empty for a text thumbnail", got)
 	}
 }
@@ -293,7 +293,7 @@ func TestTranscriptPlacementFollowsTheScrollback(t *testing.T) {
 	header := strings.TrimSuffix(strings.Repeat("header\n", headerH), "\n")
 	parts := []string{header, m.scrollList.View(), "status"}
 
-	got := m.computeGfxPlacement(parts, -1, 1)
+	got := m.computeGfxPlacement(anchorsOf(m, parts, -1, 1))
 	if got == "" {
 		t.Fatal("no placement for a visible transcript image")
 	}
@@ -312,7 +312,7 @@ func TestTranscriptPlacementFollowsTheScrollback(t *testing.T) {
 	// the picture is painted over the screen and redrawing the cells beneath
 	// does not remove it.
 	m.scrollList.SetItems([]MessageItem{NewStyledMessageItem("msg-1", "user", "", "hello")})
-	gone := m.computeGfxPlacement([]string{header, m.scrollList.View(), "status"}, -1, 1)
+	gone := m.computeGfxPlacement(anchorsOf(m, []string{header, m.scrollList.View(), "status"}, -1, 1))
 	if !strings.Contains(gone, "a=d") || !strings.Contains(gone, "i=7") {
 		t.Errorf("image 7 was not deleted after leaving the transcript: %q", gone)
 	}
@@ -476,7 +476,7 @@ func TestTranscriptPlacementClipsToTheViewport(t *testing.T) {
 			}),
 	})
 
-	got := m.computeGfxPlacement([]string{m.scrollList.View()}, -1, 0)
+	got := m.computeGfxPlacement(anchorsOf(m, []string{m.scrollList.View()}, -1, 0))
 	if got == "" {
 		t.Fatal("no placement for a partially visible transcript image")
 	}
@@ -524,12 +524,12 @@ func TestTranscriptPlacementYieldsToModals(t *testing.T) {
 	})
 
 	parts := []string{m.scrollList.View()}
-	if got := m.computeGfxPlacement(parts, -1, 0); !strings.Contains(got, "a=p") {
+	if got := m.computeGfxPlacement(anchorsOf(m, parts, -1, 0)); !strings.Contains(got, "a=p") {
 		t.Fatalf("image not drawn before the modal opened: %q", got)
 	}
 
 	m.state = stateModelSelector
-	got := m.computeGfxPlacement(parts, -1, 0)
+	got := m.computeGfxPlacement(anchorsOf(m, parts, -1, 0))
 	if strings.Contains(got, "a=p") {
 		t.Errorf("image drawn over a modal: %q", got)
 	}
@@ -540,8 +540,8 @@ func TestTranscriptPlacementYieldsToModals(t *testing.T) {
 
 func TestGfxDeletionSurvivesRepeatedViews(t *testing.T) {
 	m := &AppModel{conversationPane: &conversationPane{}, width: 80, height: 40, gfxPlaced: map[uint32]struct{}{7: {}}}
-	first := m.computeGfxPlacement(nil, -1, -1)
-	second := m.computeGfxPlacement(nil, -1, -1)
+	first := m.computeGfxPlacement(anchorsOf(m, nil, -1, -1))
+	second := m.computeGfxPlacement(anchorsOf(m, nil, -1, -1))
 	if first == "" || second != first {
 		t.Fatalf("deletion lost before flush: %q -> %q", first, second)
 	}
@@ -549,7 +549,102 @@ func TestGfxDeletionSurvivesRepeatedViews(t *testing.T) {
 	if m.completeGfxFlush() == nil {
 		t.Fatal("missing deletion")
 	}
-	if got := m.computeGfxPlacement(nil, -1, -1); got != "" {
+	if got := m.computeGfxPlacement(anchorsOf(m, nil, -1, -1)); got != "" {
 		t.Fatalf("deletion repeated after flush: %q", got)
+	}
+}
+
+// anchorsOf returns the rows that View reads from the drawn frame, for a
+// stack of layout sections: where the input section starts, counted up from
+// the bottom of the screen, and where the transcript starts, counted down
+// from the top. An index of -1 means that the section is not on screen.
+func anchorsOf(m *AppModel, parts []string, inputPartIndex, scrollPartIndex int) gfxAnchors {
+	var a gfxAnchors
+	if inputPartIndex >= 0 && inputPartIndex < len(parts) {
+		below := 0
+		for i := inputPartIndex + 1; i < len(parts); i++ {
+			below += lipgloss.Height(parts[i])
+		}
+		a.inputTop = m.height - below - lipgloss.Height(parts[inputPartIndex]) + 1
+	}
+	if scrollPartIndex >= 0 && scrollPartIndex < len(parts) {
+		a.streamTop = 1
+		for i := range scrollPartIndex {
+			a.streamTop += lipgloss.Height(parts[i])
+		}
+	}
+	return a
+}
+
+// newDirectImageModel returns a model in a terminal that places images
+// directly on the screen, with a transcript of one line of text and then one
+// image. The image has id 7 and starts on the second row of the transcript.
+func newDirectImageModel(t *testing.T) *AppModel {
+	t.Helper()
+	const (
+		imageRows = 6
+		imageCols = 20
+	)
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+imageCols)+"\n", imageRows), "\n")
+	m.messages = []MessageItem{
+		NewStyledMessageItem("msg-1", "user", "", "hello"),
+		NewStyledMessageItem("preview-1", "user", "", blank).
+			WithDirectImage(imagepreview.Thumbnail{
+				ImageID:        7,
+				Cols:           imageCols,
+				Rows:           imageRows,
+				PixelWidth:     imageCols * 10,
+				PixelHeight:    imageRows * 20,
+				NeedsPlacement: true,
+			}),
+	}
+	m.refreshContent()
+	m.layoutDirty = true
+	return m
+}
+
+// TestViewAnchorsDirectImageToDrawnFrame checks the step that the other tests
+// here leave out. They give computeGfxPlacement the rows of the sections;
+// this one draws a frame and checks the row that View read from it. The
+// header makes the transcript start below the first row of the screen.
+func TestViewAnchorsDirectImageToDrawnFrame(t *testing.T) {
+	m := newDirectImageModel(t)
+	m.getHeader = func() *WidgetData { return &WidgetData{Text: "header\nsecond row"} }
+
+	_ = m.View()
+	headerRows := lipgloss.Height(m.chrome.header)
+	if headerRows < 2 {
+		t.Fatalf("header has %d rows, want at least 2", headerRows)
+	}
+
+	// The header takes the first rows, the "hello" message one more, so the
+	// image starts on the row after that. Screen rows are 1-based.
+	wantRow := headerRows + 1 + 1
+	want := xansi.CursorPosition(style.ContentOffset+1, wantRow)
+	if !strings.Contains(m.gfxPlacement, want) {
+		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, m.gfxPlacement, want)
+	}
+	if !strings.Contains(m.gfxPlacement, "i=7") {
+		t.Errorf("placement does not name image 7: %q", m.gfxPlacement)
+	}
+
+	// Without the header the same image is that many rows higher.
+	m.getHeader = nil
+	m.layoutDirty = true
+	_ = m.View()
+	want = xansi.CursorPosition(style.ContentOffset+1, wantRow-headerRows)
+	if !strings.Contains(m.gfxPlacement, want) {
+		t.Errorf("placement did not follow the transcript up to row %d\n got: %q", wantRow-headerRows, m.gfxPlacement)
 	}
 }

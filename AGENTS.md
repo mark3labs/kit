@@ -28,6 +28,7 @@ Always talk in ASD-STE100 Simplified Technical English
 - Builtin servers: bash, fetch, todo, fs
 - **Extension system** (`internal/extensions/`): Yaegi-interpreted Go, 13 lifecycle events, custom tools/commands/widgets/overlays/editor interceptors
 - **TUI** (`internal/ui/`): Bubble Tea v2 parent-child model (`AppModel` → `InputComponent`, `StreamComponent`, etc.)
+- **Layout and motion** (`internal/ui/layout.go`, `internal/ui/motion.go`): components render to ANSI strings; a `bloom.Root` (`bloomfx.dev/bloom`) lays those strings out as a column of sections, draws modal surfaces over them as layers, and applies transitions and effects. See the Bloom patterns below.
 - **Decoupling pattern**: `cmd/root.go` has converter functions (e.g. `widgetProviderForUI()`) that bridge `internal/extensions/` types to `internal/ui/` types — the UI never imports extensions directly
 - **Public SDK** (`pkg/kit/`): The public-facing Go SDK for embedding Kit as a library. See rules below.
 - **Code mode** (`internal/codemode/` engine, `internal/core/codemode.go` tool): default-on `codemode` core tool runs model-written JavaScript in goja. It implements `core.ToolSetObserver`: `Agent.composeModelTools()` hands it the full wrapped tool set each step (so nested calls pass through extension/SDK hooks) and drops tools whose exposure hides them from the model. Never use Yaegi for model-written code (see gotchas below).
@@ -88,8 +89,22 @@ func OldName() { return NewName() }
 
 ### BubbleTea Integration
 - **No `prog.Send()` from inside `Update()`**: Calling `prog.Send()` synchronously within a BubbleTea `Update()` handler deadlocks the event loop. Use `go appInstance.NotifyWidgetUpdate()` (async goroutine) instead.
-- **Height measurement**: `distributeHeight()` in `model.go` must measure using the same render path as `View()`. If an interceptor wraps rendering, measure with the wrapper too, or layout will mismatch.
+- **Height measurement**: `distributeHeight()` and `View()` both get the chrome from `renderChrome()` and the frame from `layoutTree()` (`layout.go`). Add a new section in those two functions and nowhere else, so that measurement and drawing cannot disagree. If an interceptor wraps rendering, wrap it inside `renderChrome()`.
 - **Channel-based prompts**: Extension prompt calls (PromptSelect, etc.) block on a `chan PromptResponse`. Extension slash commands run in dedicated goroutines (not `tea.Cmd`) to avoid stalling BubbleTea's Cmd scheduler.
+
+### Bloom (Layout, Layers, Motion)
+- **Pinned alpha**: bloom is pre-1.0 and its API can change. Import it only in `internal/ui/`. Never put a bloom type in `pkg/kit/` or in `internal/extensions/symbols.go`.
+- **One root, strings in**: `AppModel.root()` is the only `bloom.Root`. A layout section is a `section(string)`, a modal box is a `region(string)`. Kit keeps its own `tea.View`, mouse handling and selection: it calls `root.Render`, not `root.View`.
+- **Sections are always in the tree**: `layoutTree()` places every section on every frame, at zero rows when it is empty. Layout animation follows a node by its `regionID` from one frame to the next; a section that leaves the tree cannot glide.
+- **Read positions from the frame**: after `Render`, `root.Frame().Rect(regionID)` says where a section went. Do not add heights by hand.
+- **Modal surfaces**: add one entry to `surfaceSpecs` in `motion.go` (order is z-order). Do not composite in `View()`. Set `scrim` to dim the screen behind it, `still` if it holds an image, and `steady` if it finds what the mouse points at from where its box belongs (the sheet does): such a surface must not travel while it appears.
+- **The transcript during a layout glide**: the scroll list has its final height from the start, and `ScrollList.atHeight` gives the viewport for each height in between. Those frames start from the line that the list showed before its height changed, so they join up at both ends. For mouse hit-testing, take the height from `currentScrollbackBounds()` and run the hit test inside `atHeight`; a click that stops bottom-following calls `stopFollowingAt`, so the text does not jump from under the pointer.
+- **No terminal background colour**: Kit knows only if the background is dark or light. An effect must not write a background into a cell that has none (`fx.Fade`, `fx.Dim` and `fx.Shimmer` do). Use `fadeIn`, `dimScreen` and `phraseShimmer`, or an effect that only moves or hides cells (`fx.Slide`, `fx.Shake`, `fx.Wipe`).
+- **Image cells**: an effect must not recolour a Kitty placeholder cell (`isImageCell`): its foreground colour is the image id. Images placed directly on the screen are not cells at all: they hide while `surfacesVisible()` is true, and layout does not animate while one is placed.
+- **Effects must be comparable**: bloom compares effects with `==` to skip unchanged frames. Use plain structs with `color.RGBA` fields (see `rgba()`), not functions or pointers.
+- **Bloom messages take a fast path**: `isMotionMsg()` routes animation frames past the model's own `Update()`, which would flush the buffered stream chunks on each one. A new handler must not depend on seeing them.
+- **Starting an animation**: return its command from `Update()` (`syncSurfaces`, `showToast`, `shakeComposer`). `View()` cannot return a command, so a change that only `View()` sees jumps to its end state.
+- **Motion can be off**: every effect goes through `motionOn()` (`--reduce-motion`, and fewer than 256 colours). Tests build the model with motion off; use `enableMotion(t, m)` to test a transition, and set a value with `Set()` to pin its progress.
 
 ### Extension State Management
 - **Thread-safe maps on Runner**: Widget/header/footer/editor state lives on the Runner with `sync.RWMutex`, queried by UI via callbacks

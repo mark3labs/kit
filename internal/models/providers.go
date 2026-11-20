@@ -612,9 +612,10 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		}
 	}
 
-	// Resolve npm: per-model override > provider default.
+	// Resolve per-model metadata: npm and API URL overrides from the catalog.
+	modelInfo := registry.LookupModel(provider, modelName)
 	npmPackage := providerInfo.NPM
-	if modelInfo := registry.LookupModel(provider, modelName); modelInfo != nil && modelInfo.ProviderNPM != "" {
+	if modelInfo != nil && modelInfo.ProviderNPM != "" {
 		npmPackage = modelInfo.ProviderNPM
 	}
 
@@ -631,10 +632,11 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		wire, known = npmToWireProtocol[npmPackage]
 	}
 	if !known {
-		// Unknown npm but the provider has an API URL → assume OpenAI-compatible.
-		// (Preserves the long-standing "any provider in models.dev with an api URL
-		// is auto-routed through openaicompat" behaviour.)
-		if providerInfo.API == "" {
+		// Unknown npm but the provider or model has an API URL → assume
+		// OpenAI-compatible. (Preserves the long-standing "any provider in
+		// models.dev with an api URL is auto-routed through openaicompat"
+		// behaviour.)
+		if providerInfo.API == "" && (modelInfo == nil || modelInfo.ProviderAPI == "") {
 			return nil, fmt.Errorf(
 				"cannot auto-route provider %s: npm package %q has no known wire protocol "+
 					"and the registry has no API URL (use --provider-url to override, or "+
@@ -645,16 +647,28 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		wire = wireOpenAICompat
 	}
 
-	// All three wires use the provider's API URL from models.dev as the base.
-	// When the registry has none, fall back to the SDK's hard-coded default for
-	// this npm package (covers groq, cerebras, mistral, x.ai, etc. — providers
-	// whose JS SDK ships a built-in baseURL that models.dev doesn't restate).
+	// Base URL resolution precedence:
+	//  1. Explicit config.ProviderURL (--provider-url flag).
+	//  2. User `providers.<id>.baseUrl` config override (apiOverridden).
+	//  3. Per-model catalog API URL (modelInfo.ProviderAPI), used by
+	//     multi-protocol aggregators whose wires live at distinct paths
+	//     (e.g. opencode, opencode-go, ofox, zenmux).
+	//  4. Provider default catalog API URL (providerInfo.API).
+	//  5. SDK default base URL for the resolved npm package.
 	if config.ProviderURL == "" {
-		if providerInfo.API != "" {
+		switch {
+		case providerInfo.apiOverridden && providerInfo.API != "":
 			config.ProviderURL = providerInfo.API
-		} else if defaultURL, ok := sdkDefaultBaseURL[npmPackage]; ok {
-			config.ProviderURL = defaultURL
-			providerInfo.API = defaultURL // for downstream helpers that read info.API
+		case modelInfo != nil && modelInfo.ProviderAPI != "":
+			config.ProviderURL = modelInfo.ProviderAPI
+			providerInfo.API = modelInfo.ProviderAPI
+		case providerInfo.API != "":
+			config.ProviderURL = providerInfo.API
+		default:
+			if defaultURL, ok := sdkDefaultBaseURL[npmPackage]; ok {
+				config.ProviderURL = defaultURL
+				providerInfo.API = defaultURL // for downstream helpers that read info.API
+			}
 		}
 	}
 

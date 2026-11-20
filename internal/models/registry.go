@@ -334,11 +334,15 @@ type Limit struct {
 
 // ProviderInfo represents information about a model provider.
 type ProviderInfo struct {
-	ID   string
-	Env  []string
-	NPM  string // npm package identifier from models.dev (e.g. "@ai-sdk/openai-compatible")
-	API  string // base API URL for openai-compatible providers
-	Name string
+	ID  string
+	Env []string
+	NPM string // npm package identifier from models.dev (e.g. "@ai-sdk/openai-compatible")
+	API string // base API URL for openai-compatible providers
+	// apiOverridden is true when API was replaced by a user
+	// `providers.<id>.baseUrl` config override, so it takes precedence over
+	// per-model catalog URLs (ModelInfo.ProviderAPI).
+	apiOverridden bool
+	Name          string
 	// Wire is an explicit wire protocol declaration ("openai",
 	// "openai-compat", "anthropic", "google"). When set it takes precedence
 	// over the npm-package heuristic in auto-routing. Empty means "infer".

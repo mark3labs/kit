@@ -38,6 +38,18 @@ type ScrollList struct {
 	autoScroll bool // Whether to auto-scroll to bottom on new content
 	itemGap    int  // Number of blank lines between items (0 = no gap)
 
+	// The anchor is the first line that the list showed before its height
+	// last changed. A layout animation draws the list at the heights between
+	// the old one and the new one, and each of those frames starts from the
+	// anchor: see atHeight. anchorOwnIdx and anchorOwnLine are the list's
+	// own offset as the height change left it. The anchor holds only while
+	// the list is still there; anything that moves the list ends it.
+	anchored      bool
+	anchorIdx     int
+	anchorLine    int
+	anchorOwnIdx  int
+	anchorOwnLine int
+
 	// offscreen is true while the list is not shown (the pane of an agent
 	// that the user does not view). GotoBottom then only records the request
 	// in bottomPending, so that a hidden pane does not render its items to
@@ -229,8 +241,41 @@ func (s *ScrollList) ItemAt(idx int) MessageItem {
 
 // SetHeight updates the viewport height. Called when the terminal is resized.
 func (s *ScrollList) SetHeight(height int) {
+	if height == s.height {
+		s.clampOffset()
+		return
+	}
+	// Remember the first line on screen, unless an anchor from an earlier
+	// change still holds: a height that changes again before the animation
+	// ends goes on from the same line.
+	if !s.anchorHolds() {
+		s.anchorIdx, s.anchorLine = s.offsetIdx, s.offsetLine
+	}
 	s.height = height
 	s.clampOffset()
+	s.anchored = true
+	s.anchorOwnIdx, s.anchorOwnLine = s.offsetIdx, s.offsetLine
+}
+
+// anchorHolds reports whether the list is where its last height change left
+// it, so that the line it showed before that change is still what a layout
+// animation must draw from.
+//
+// The methods that put the list somewhere (ScrollBy, GotoTop, GotoBottom,
+// EnsureVisible) release the anchor themselves, so that a list that is
+// scrolled away and back does not get it again. The comparison here is for
+// what moves the list as a side effect, such as a new width that wraps the
+// text again.
+func (s *ScrollList) anchorHolds() bool {
+	return s.anchored && s.offsetIdx == s.anchorOwnIdx && s.offsetLine == s.anchorOwnLine
+}
+
+// releaseAnchor forgets the line that the list showed before its height last
+// changed. Every frame is then drawn from where the list is. The model calls
+// it when no layout animation runs, and each method that puts the list
+// somewhere calls it.
+func (s *ScrollList) releaseAnchor() {
+	s.anchored = false
 }
 
 // SetWidth updates the viewport width. Called when the terminal is resized.
@@ -562,6 +607,9 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 // ScrollBy scrolls the viewport by the given number of lines.
 // Positive = scroll down, negative = scroll up.
 func (s *ScrollList) ScrollBy(lines int) {
+	// The list goes where it is told to: no frame may start from the line
+	// it showed before, even if a later scroll brings it back here.
+	s.releaseAnchor()
 	if lines > 0 {
 		// Scroll down
 		for lines > 0 && s.offsetIdx < len(s.items) {
@@ -640,6 +688,7 @@ func (s *ScrollList) GotoBottom() {
 		s.bottomPending = true
 		return
 	}
+	s.releaseAnchor()
 	s.offsetIdx, s.offsetLine = s.bottomOffset()
 }
 
@@ -691,6 +740,7 @@ func (s *ScrollList) bottomOffset() (offsetIdx, offsetLine int) {
 
 // GotoTop scrolls to the beginning of the list.
 func (s *ScrollList) GotoTop() {
+	s.releaseAnchor()
 	s.offsetIdx = 0
 	s.offsetLine = 0
 }
@@ -706,6 +756,7 @@ func (s *ScrollList) EnsureVisible(idx int) {
 	if idx < 0 || idx >= len(s.items) {
 		return
 	}
+	s.releaseAnchor()
 
 	// Above the viewport (or partially scrolled off the top) — align to top.
 	if idx < s.offsetIdx || (idx == s.offsetIdx && s.offsetLine > 0) {
@@ -849,6 +900,86 @@ func (s *ScrollList) View() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// ViewAtHeight renders the scrollback as View does, in a viewport of the given
+// height, and leaves the viewport as it was.
+//
+// A layout animation draws the transcript at heights between the one it had
+// and the one it gets. The list keeps its real height throughout, so that
+// scrolling uses the height the layout settles on. See atHeight for which
+// lines each height shows.
+func (s *ScrollList) ViewAtHeight(height int) string {
+	var out string
+	s.atHeight(height, func() { out = s.View() })
+	return out
+}
+
+// atHeight runs fn with the viewport that the list has when it is drawn at
+// the given height, then puts the viewport back.
+//
+// The viewport at another height starts, in this order:
+//
+//   - from the line that the list showed before its height last changed, if
+//     the list has not moved since (see anchorHolds). The frames of a layout
+//     animation then join up at both ends. A viewport that shrinks keeps its
+//     first line while its last rows are covered, which is what the list
+//     itself does. A viewport that grows keeps its last line at the bottom,
+//     because no viewport shows blank rows below the last line;
+//   - from the bottom, if the list follows the bottom. New content has then
+//     put the list at the bottom of its own viewport;
+//   - from the list's own first line otherwise.
+//
+// Each start is made valid for the height asked for.
+//
+// Mouse hit-testing uses it too while a layout animation runs. The rows on
+// screen are then not those of the list's own viewport, and a click must find
+// the line that is under the pointer. A selection is kept as an item, a line
+// and a column, so what fn records stays right after the viewport is put
+// back.
+func (s *ScrollList) atHeight(height int, fn func()) {
+	if height == s.height {
+		fn()
+		return
+	}
+	savedHeight, savedIdx, savedLine := s.height, s.offsetIdx, s.offsetLine
+	defer func() { s.height, s.offsetIdx, s.offsetLine = savedHeight, savedIdx, savedLine }()
+
+	anchored := s.anchorHolds()
+	s.height = height
+	switch {
+	case anchored:
+		s.offsetIdx, s.offsetLine = s.anchorIdx, s.anchorLine
+		s.clampOffset()
+	case s.autoScroll && !s.offscreen:
+		s.offsetIdx, s.offsetLine = s.bottomOffset()
+	default:
+		s.clampOffset()
+	}
+	fn()
+}
+
+// stopFollowingAt stops the list following the bottom, as a click that starts
+// a selection does, while the list is drawn at the given height.
+//
+// At its own height the list simply stops where it is. At another height, in
+// a layout animation, the rows on screen can start at another line than the
+// list's own viewport does. The list goes on from the line on screen: that
+// line becomes its anchor, and its own offset becomes that line made valid
+// for its own height. The next frame then draws the rows that the click was
+// made on, and the text does not jump from under the pointer.
+func (s *ScrollList) stopFollowingAt(height int) {
+	if height != s.height {
+		var idx, line int
+		s.atHeight(height, func() { idx, line = s.offsetIdx, s.offsetLine })
+
+		s.anchorIdx, s.anchorLine = idx, line
+		s.offsetIdx, s.offsetLine = idx, line
+		s.clampOffset()
+		s.anchored = true
+		s.anchorOwnIdx, s.anchorOwnLine = s.offsetIdx, s.offsetLine
+	}
+	s.autoScroll = false
 }
 
 // VisibleItem locates one item inside the rendered viewport.
