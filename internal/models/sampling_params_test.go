@@ -7,6 +7,16 @@ import (
 	"github.com/spf13/viper"
 )
 
+// useEmbeddedGlobalRegistry makes the global registry, which CreateProvider
+// reads, use the embedded catalog only for the rest of the test, so a local
+// `kit update-models` cache can't change the result.
+func useEmbeddedGlobalRegistry(t *testing.T) {
+	t.Helper()
+	prev := globalRegistry.Load()
+	globalRegistry.Store(NewEmbeddedModelsRegistry())
+	t.Cleanup(func() { globalRegistry.Store(prev) })
+}
+
 func samplingParams() (*float32, *float32, *int32) {
 	temp, topP, topK := float32(0.7), float32(0.9), int32(40)
 	return &temp, &topP, &topK
@@ -38,7 +48,9 @@ func TestValidateModelConfigSamplingParams(t *testing.T) {
 // claude-sonnet-5-5 rejects temperature, top_p and top_k, so none of them may
 // reach the request, including when --temperature and --top-p are both set.
 func TestCreateProviderDropsSamplingParamsForSonnet55(t *testing.T) {
-	info := NewEmbeddedModelsRegistry().LookupModel("anthropic", "claude-sonnet-5-5")
+	useEmbeddedGlobalRegistry(t)
+
+	info := GetGlobalRegistry().LookupModel("anthropic", "claude-sonnet-5-5")
 	if info == nil {
 		t.Fatal("claude-sonnet-5-5 is not in the embedded catalog")
 	}
@@ -61,9 +73,7 @@ func TestCreateProviderDropsSamplingParamsForSonnet55(t *testing.T) {
 // claude-sonnet-5-5 either. modelSettings is applied inside CreateProvider,
 // so the clean-up has to run after it.
 func TestCreateProviderDropsModelSettingsSamplingParamsForSonnet55(t *testing.T) {
-	prev := globalRegistry.Load()
-	globalRegistry.Store(NewEmbeddedModelsRegistry())
-	t.Cleanup(func() { globalRegistry.Store(prev) })
+	useEmbeddedGlobalRegistry(t)
 
 	v := viper.New()
 	v.Set("modelSettings", map[string]any{
