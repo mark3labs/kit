@@ -37,6 +37,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--compact` | — | `false` | Enable compact output mode |
 | `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. The daemon uses this flag for any [detachable session](/cli/commands#detachable-sessions) that has no directory of its own — `kit attach --new`, or a remote client |
 | `--no-daemon` | — | `false` | Run in this terminal even when the kit daemon could host a [detachable session](/advanced/remote-sessions#detachable-by-default). `KIT_NO_DAEMON=1` does the same; `daemon-mode` in the config file is the standing preference |
+| `--reduce-motion` | — | `false` | Turn off transitions, layout animation and feedback effects in the interactive UI. Modal dialogs then open and close at once. Also `reduce-motion` in `.kit.yml` or `KIT_REDUCE_MOTION=1`. Liveness indicators, such as the activity spinner, still run |
 | `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
 ## Context
