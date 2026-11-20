@@ -2757,11 +2757,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		StartedAt: start,
 	}, kill)
 	defer unregister()
-	parentSessionID := cfg.ParentSessionID
-	if parentSessionID == "" {
-		parentSessionID = m.GetSessionID()
+	parentSessionPath := m.GetSessionPath()
+	parentSessionID := m.GetSessionID()
+	registryParentID := cfg.ParentSessionID
+	if registryParentID == "" {
+		registryParentID = parentSessionID
 	}
-	m.subagents.update(runID, func(s *SubagentRun) { s.ParentSessionID = parentSessionID })
+	m.subagents.update(runID, func(s *SubagentRun) { s.ParentSessionID = registryParentID })
 
 	// Acquire concurrency slot (queues if max-subagents or max-nested-subagents is reached).
 	release, err := m.acquireSubagentSlot(ctx)
@@ -2813,14 +2815,14 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// stamped — resumed sessions keep their original parent link.
 	if cfg.SessionID == "" {
 		parentID := cfg.ParentSessionID
-		if parentID == "" && m.GetSessionPath() != "" {
+		if parentID == "" && parentSessionPath != "" {
 			// Only auto-link when the parent session is persisted — a link
 			// to an ephemeral in-memory parent session would never resolve.
-			parentID = m.GetSessionID()
+			parentID = parentSessionID
 		}
 		if parentID != "" {
 			if ts := child.GetTreeSession(); ts != nil {
-				if err := ts.SetParentLink(m.GetSessionPath(), parentID, cfg.Prompt); err != nil {
+				if err := ts.SetParentLink(parentSessionPath, parentID, cfg.Prompt); err != nil {
 					log.Printf("Warning: failed to link subagent session to parent: %v", err)
 				}
 			}

@@ -668,14 +668,16 @@ func TestGetToolsForSubagent(t *testing.T) {
 		},
 	)
 
+	maxNested := 3
 	host, err := kit.New(ctx, &kit.Options{
-		Model:        "anthropic/claude-sonnet-4-5-20250929",
-		Quiet:        true,
-		NoSession:    true,
-		NoSkills:     true, // Keep core-tool assertions independent of local skill discovery.
-		NoExtensions: true,
-		CoreToolList: []string{"subagent", "bash"},
-		ExtraTools:   []kit.Tool{helloTool},
+		Model:              "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:              true,
+		NoSession:          true,
+		NoSkills:           true, // Keep core-tool assertions independent of local skill discovery.
+		NoExtensions:       true,
+		CoreToolList:       []string{"subagent", "bash"},
+		ExtraTools:         []kit.Tool{helloTool},
+		MaxNestedSubagents: &maxNested,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create Kit: %v", err)
