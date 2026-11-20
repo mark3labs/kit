@@ -165,6 +165,13 @@ type Kit struct {
 	// listed and killed (see RunningSubagents and KillSubagent).
 	subagents subagentRegistry
 
+	subagentDepth      int
+	maxSubagents       int
+	maxNestedSubagents int
+	subagentSemMu      sync.Mutex
+	subagentSem        chan struct{}
+	onSubagentSlotWait func()
+
 	// skillCache holds skills discovered for this Kit instance.
 	// Using a per-instance cache avoids cross-contamination when multiple
 	// Kit instances exist in the same process.
@@ -228,13 +235,65 @@ func (m *Kit) GetToolNames() []string {
 	return names
 }
 
-// GetToolsForSubagent like GetTools but eliminates subagent tool
-// to avoid infinite recursion.
+func (m *Kit) effectiveMaxSubagents() int {
+	if m.v == nil && m.maxSubagents == 0 && (m.opts == nil || m.opts.MaxSubagents == nil) {
+		return 10
+	}
+	return m.maxSubagents
+}
+
+func (m *Kit) effectiveMaxNestedSubagents() int {
+	if m.v == nil && m.maxNestedSubagents == 0 && (m.opts == nil || m.opts.MaxNestedSubagents == nil) {
+		return 3
+	}
+	return m.maxNestedSubagents
+}
+
+func (m *Kit) acquireSubagentSlot(ctx context.Context) (func(), error) {
+	limit := m.effectiveMaxSubagents()
+	if m.subagentDepth == 1 {
+		limit = m.effectiveMaxNestedSubagents()
+	}
+	// 0 means unlimited concurrency (matching max-steps convention).
+	if limit == 0 {
+		return func() {}, nil
+	}
+
+	m.subagentSemMu.Lock()
+	if m.subagentSem == nil {
+		m.subagentSem = make(chan struct{}, limit)
+	}
+	sem := m.subagentSem
+	onWait := m.onSubagentSlotWait
+	m.subagentSemMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	default:
+		if onWait != nil {
+			onWait()
+		}
+		select {
+		case sem <- struct{}{}:
+			return func() { <-sem }, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// GetToolsForSubagent returns the tool set passed to a child subagent.
+// When nested subagents are enabled (subagentDepth == 0 and maxNestedSubagents >= 0),
+// the "subagent" tool is retained so the child subagent can spawn nested subagents.
+// For depth >= 1, the "subagent" tool is excluded so nested subagents cannot spawn further.
 func (m *Kit) GetToolsForSubagent() []Tool {
 	var tools []Tool
 	for _, t := range m.agent.GetTools() {
 		if t.Info().Name == "subagent" {
-			continue
+			if m.subagentDepth >= 1 || m.effectiveMaxNestedSubagents() < 0 {
+				continue
+			}
 		}
 		tools = append(tools, t)
 	}
@@ -1306,11 +1365,15 @@ type Options struct {
 	// The wrapper must return a non-nil transport and be safe for concurrent use.
 	HTTPTransport func(base http.RoundTripper) http.RoundTripper
 
-	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
-	SystemPrompt string // Override system prompt
-	ConfigFile   string // Override config file path
-	MaxSteps     int    // Override max steps (0 = use default)
-	ModelMode    string // Model mode to select (empty selects the model default)
+	Model              string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
+	SystemPrompt       string // Override system prompt
+	ConfigFile         string // Override config file path
+	MaxSteps           int    // Override max steps (0 = use default)
+	MaxSubagents       *int   // Override max subagents (default: 10, 0 = unlimited, -1 = disabled)
+	MaxNestedSubagents *int   // Override max nested subagents (default: 3, 0 = unlimited, -1 = disabled)
+	SubagentDepth      int    // Nesting depth of this instance (0 = root, 1 = subagent, 2 = nested subagent)
+	onSubagentSlotWait func() // Internal callback fired when a subagent is about to wait for a concurrency slot
+	ModelMode          string // Model mode to select (empty selects the model default)
 
 	// DecisionModel is the default decision model in "provider/model"
 	// format. Kit.Decide and extensions use it when a request names no
@@ -1911,6 +1974,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		prepareStep:           hooks.prepareStep,
 		stepContext:           hooks.stepContext,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
+		subagentDepth:         opts.SubagentDepth,
+		maxSubagents:          rc.maxSubagents,
+		maxNestedSubagents:    rc.maxNestedSubagents,
+		onSubagentSlotWait:    opts.onSubagentSlotWait,
 	}
 	// The agent setup above built the model with the same factory lookup.
 	k.activeModelFromFactory = k.factoryBacked(rc.modelString)
@@ -2433,12 +2500,16 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // parent replaced its core tools with Options.Tools, the child gets those
 // same tools (minus subagent), not the built-in ones.
 func (m *Kit) subagentDefaultTools() []Tool {
+	includeSubagent := m.subagentDepth < 1 && m.effectiveMaxNestedSubagents() >= 0
 	if len(m.customTools) > 0 {
 		tools := make([]Tool, 0, len(m.customTools))
 		for _, t := range m.customTools {
 			// A subagent never gets the parent's code mode tool: that
 			// instance tracks the parent's tool set.
-			if name := t.Info().Name; name != "subagent" && name != CodeModeToolName {
+			if name := t.Info().Name; name != CodeModeToolName {
+				if name == "subagent" && !includeSubagent {
+					continue
+				}
 				tools = append(tools, t)
 			}
 		}
@@ -2449,7 +2520,12 @@ func (m *Kit) subagentDefaultTools() []Tool {
 		toolOpts = append(toolOpts, WithWorkDir(m.workDir))
 	}
 	toolOpts = append(toolOpts, m.coreToolOptions...)
-	tools := SubagentTools(toolOpts...)
+	var tools []Tool
+	if includeSubagent {
+		tools = AllTools(toolOpts...)
+	} else {
+		tools = SubagentTools(toolOpts...)
+	}
 	if m.coreToolList == nil {
 		return tools
 	}
@@ -2470,6 +2546,20 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 	if cfg.SessionID != "" && m.opts != nil && m.opts.NoSession {
 		return nil, fmt.Errorf("cannot resume subagent session: the parent uses an in-memory session (NoSession), so its subagents do too")
+	}
+
+	// Enforce subagent spawn configuration:
+	// - Depth >= 2: nested subagents cannot spawn further subagents.
+	// - Depth 0: check if subagents are disabled (maxSubagents < 0).
+	// - Depth 1: check if nested subagents are disabled (maxNestedSubagents < 0).
+	if m.subagentDepth >= 2 {
+		return nil, fmt.Errorf("nested subagents cannot spawn further subagents (maximum depth reached)")
+	}
+	if m.subagentDepth == 0 && m.effectiveMaxSubagents() < 0 {
+		return nil, fmt.Errorf("subagents are disabled (max-subagents < 0)")
+	}
+	if m.subagentDepth == 1 && m.effectiveMaxNestedSubagents() < 0 {
+		return nil, fmt.Errorf("nested subagents are disabled (max-nested-subagents < 0)")
 	}
 
 	start := time.Now()
@@ -2603,18 +2693,22 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// extended thinking). The child gets its own config store, so this does not
 	// affect any other concurrent caller.
 	streamOn := true
+	maxSubs := m.effectiveMaxSubagents()
+	maxNested := m.effectiveMaxNestedSubagents()
 	childOpts := &Options{
-		Model:        model,
-		SystemPrompt: systemPrompt,
-		Tools:        tools,
-		NoSession:    cfg.NoSession,
-		SessionPath:  resumePath,
-		Quiet:        true,
-		Streaming:    &streamOn,
-		MCPConfig:    childMCPConfig,
-		// An empty tool set means no core tools. Without this the child
-		// would fall back to its own default (every core tool).
-		DisableCoreTools: len(tools) == 0,
+		Model:              model,
+		SystemPrompt:       systemPrompt,
+		Tools:              tools,
+		NoSession:          cfg.NoSession,
+		SessionPath:        resumePath,
+		Quiet:              true,
+		Streaming:          &streamOn,
+		MCPConfig:          childMCPConfig,
+		DisableCoreTools:   len(tools) == 0,
+		SubagentDepth:      m.subagentDepth + 1,
+		MaxSubagents:       &maxSubs,
+		MaxNestedSubagents: &maxNested,
+		onSubagentSlotWait: m.onSubagentSlotWait,
 	}
 
 	// Inherit the parent's effective provider/runtime configuration. Since #40
@@ -2663,11 +2757,35 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		StartedAt: start,
 	}, kill)
 	defer unregister()
-	parentSessionID := cfg.ParentSessionID
-	if parentSessionID == "" {
-		parentSessionID = m.GetSessionID()
+	parentSessionPath := m.GetSessionPath()
+	parentSessionID := m.GetSessionID()
+	registryParentID := cfg.ParentSessionID
+	if registryParentID == "" {
+		registryParentID = parentSessionID
 	}
-	m.subagents.update(runID, func(s *SubagentRun) { s.ParentSessionID = parentSessionID })
+	m.subagents.update(runID, func(s *SubagentRun) { s.ParentSessionID = registryParentID })
+
+	// Acquire concurrency slot (queues if max-subagents or max-nested-subagents is reached).
+	release, err := m.acquireSubagentSlot(ctx)
+	if err != nil {
+		finalErr := err
+		if kerr := killedErr(err); kerr != err {
+			finalErr = kerr
+		}
+		status := "failed"
+		if errors.Is(finalErr, ErrSubagentKilled) {
+			status = "stopped"
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "timed_out"
+		}
+		m.subagents.update(runID, func(s *SubagentRun) { s.Status = status; s.Error = finalErr.Error(); s.FinishedAt = time.Now() })
+		if errors.Is(finalErr, ErrSubagentKilled) {
+			return &SubagentResult{Elapsed: time.Since(start)}, finalErr
+		}
+		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to acquire subagent slot: %w", finalErr)
+	}
+	defer release()
+	m.subagents.update(runID, func(s *SubagentRun) { s.Status = "running" })
 
 	child, err := New(ctx, childOpts)
 	if err != nil {
@@ -2697,14 +2815,14 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// stamped — resumed sessions keep their original parent link.
 	if cfg.SessionID == "" {
 		parentID := cfg.ParentSessionID
-		if parentID == "" && m.GetSessionPath() != "" {
+		if parentID == "" && parentSessionPath != "" {
 			// Only auto-link when the parent session is persisted — a link
 			// to an ephemeral in-memory parent session would never resolve.
-			parentID = m.GetSessionID()
+			parentID = parentSessionID
 		}
 		if parentID != "" {
 			if ts := child.GetTreeSession(); ts != nil {
-				if err := ts.SetParentLink(m.GetSessionPath(), parentID, cfg.Prompt); err != nil {
+				if err := ts.SetParentLink(parentSessionPath, parentID, cfg.Prompt); err != nil {
 					log.Printf("Warning: failed to link subagent session to parent: %v", err)
 				}
 			}

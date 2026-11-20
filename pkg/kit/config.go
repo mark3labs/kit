@@ -72,6 +72,8 @@ func setSDKDefaults(v *viper.Viper) {
 	v.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
 	v.SetDefault("system-prompt", defaultSystemPrompt)
 	v.SetDefault("stream", true)
+	v.SetDefault("max-subagents", 10)
+	v.SetDefault("max-nested-subagents", 3)
 }
 
 // InitConfig initializes the process-global configuration store.

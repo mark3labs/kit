@@ -377,6 +377,8 @@ mcpServers:
 --json                   Output response as JSON (non-interactive only)
 --no-exit                Enter interactive mode after prompt completes
 --max-steps              Maximum agent steps (0 for unlimited)
+--max-subagents          Maximum concurrent subagents the agent can run (default: 10, 0 for unlimited, -1 to disable)
+--max-nested-subagents   Maximum concurrent nested subagents a subagent can run (default: 3, 0 for unlimited, -1 to disable)
 --stream                 Enable streaming output (default: true)
 --compact                Enable compact output mode
 --auto-compact           Auto-compact conversation near context limit (reactive compact-and-retry on provider context-overflow errors is always on)

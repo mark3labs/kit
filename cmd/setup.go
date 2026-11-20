@@ -52,14 +52,16 @@ func DisplayDebugConfig(cli *ui.CLI, k *kit.Kit, mcpConfig *config.Config, provi
 	}
 
 	debugConfig := map[string]any{
-		"model":         viper.GetString("model"),
-		"max-steps":     viper.GetInt("max-steps"),
-		"max-tokens":    viper.GetInt("max-tokens"),
-		"temperature":   viper.GetFloat64("temperature"),
-		"top-p":         viper.GetFloat64("top-p"),
-		"top-k":         viper.GetInt("top-k"),
-		"provider-url":  viper.GetString("provider-url"),
-		"system-prompt": viper.GetString("system-prompt"),
+		"model":                viper.GetString("model"),
+		"max-steps":            viper.GetInt("max-steps"),
+		"max-subagents":        viper.GetInt("max-subagents"),
+		"max-nested-subagents": viper.GetInt("max-nested-subagents"),
+		"max-tokens":           viper.GetInt("max-tokens"),
+		"temperature":          viper.GetFloat64("temperature"),
+		"top-p":                viper.GetFloat64("top-p"),
+		"top-k":                viper.GetInt("top-k"),
+		"provider-url":         viper.GetString("provider-url"),
+		"system-prompt":        viper.GetString("system-prompt"),
 	}
 
 	if viper.GetBool("tls-skip-verify") {
