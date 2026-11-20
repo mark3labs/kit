@@ -69,7 +69,7 @@ const sdkDefaultMaxTokens = 8192
 //   - Ollama GPU options (num-gpu-layers, main-gpu): left as nil pointers so
 //     Ollama chooses the GPU placement.
 func setSDKDefaults(v *viper.Viper) {
-	v.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
+	v.SetDefault("model", "anthropic/claude-sonnet-5-5")
 	v.SetDefault("system-prompt", defaultSystemPrompt)
 	v.SetDefault("stream", true)
 }

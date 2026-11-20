@@ -16,7 +16,7 @@ import (
 
 // defaultGitHubModel is the model written into the generated workflow when the
 // user does not specify one and runs non-interactively.
-const defaultGitHubModel = "anthropic/claude-sonnet-4-5-20250929"
+const defaultGitHubModel = "anthropic/claude-sonnet-5-5"
 
 // githubWorkflowPath is the repository-relative location of the generated
 // GitHub Actions workflow that wires Kit into a repository as a collaborator.

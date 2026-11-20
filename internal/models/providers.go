@@ -422,15 +422,17 @@ func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		}
 	}
 
-	// Validate config against known model limits when metadata is available
-	if modelInfo != nil {
-		validateModelConfig(config, modelInfo)
-	}
-
 	// Apply per-model generation parameter defaults. Model-level params are
 	// only applied for fields where the user hasn't explicitly set a value
 	// via CLI flag or global config.
 	ApplyModelSettings(config, modelInfo)
+
+	// Validate config against known model limits when metadata is available.
+	// This runs after ApplyModelSettings so per-model settings can't restore
+	// sampling parameters the model rejects.
+	if modelInfo != nil {
+		validateModelConfig(config, modelInfo)
+	}
 	config.ThinkingLevel = ParseThinkingLevel(string(config.ThinkingLevel))
 	if !hasFactory && !IsValidThinkingLevelForModel(config.ThinkingLevel, lookupProvider, modelName) {
 		return nil, effortError("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))
@@ -1065,11 +1067,20 @@ func resolveAPIKey(explicitKey, providerID string, envVars []string) string {
 }
 
 // validateModelConfig adjusts configuration parameters against known model capabilities.
-// It silently clears temperature for models that don't support it, and warns (but
-// does not block) when max_tokens exceeds the model's known output limit.
+// It silently clears the sampling parameters (temperature, top_p, top_k) for models
+// that don't support temperature, and warns (but does not block) when max_tokens
+// exceeds the model's known output limit.
+//
+// The catalog has no separate top_p/top_k flag. Models that reject temperature,
+// such as Claude 4.7 and later and OpenAI's reasoning models, reject top_p and
+// top_k as well, so all three are cleared together. Clearing top_p here also
+// keeps --temperature plus --top-p from sending top_p alone after temperature
+// has been cleared.
 func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
-	if config.Temperature != nil && !modelInfo.Temperature {
+	if !modelInfo.Temperature {
 		config.Temperature = nil
+		config.TopP = nil
+		config.TopK = nil
 	}
 
 	if modelInfo.Limit.Output > 0 && config.MaxTokens > modelInfo.Limit.Output {
