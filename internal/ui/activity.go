@@ -188,6 +188,8 @@ func formatElapsed(d time.Duration) string {
 //	● Running go test ./... · 12s                                    esc
 //	● Running go test ./... · 12s
 func (m *AppModel) renderActivityRow() string {
+	// No phrase is on screen until one is drawn below.
+	m.activityPhraseStart, m.activityPhraseEnd = 0, 0
 	if !m.paneWorking() || m.stream == nil {
 		return ""
 	}
@@ -232,7 +234,13 @@ func (m *AppModel) renderActivityRow() string {
 		phraseBudget = 1
 	}
 
-	left := prefix + label.Render(truncateLine(phrase, phraseBudget)) + suffix
+	// Remember the columns of the phrase: a highlight crosses it while the
+	// agent works (see activityChild).
+	shown := truncateLine(phrase, phraseBudget)
+	m.activityPhraseStart = lipgloss.Width(prefix)
+	m.activityPhraseEnd = m.activityPhraseStart + lipgloss.Width(shown)
+
+	left := prefix + label.Render(shown) + suffix
 	if hint == "" {
 		return left
 	}

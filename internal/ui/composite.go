@@ -4,22 +4,60 @@ import (
 	"image"
 	"strings"
 
+	"bloomfx.dev/bloom"
 	"charm.land/lipgloss/v2"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // --------------------------------------------------------------------------
 // Overlay compositing
 // --------------------------------------------------------------------------
 
+// overlayRect returns where a box goes on a termW×termH screen. The box is
+// centred horizontally; anchor sets its row: "top-center", "bottom-center", or
+// the centre for anything else. The box must already be trimmed with
+// trimTrailingBlankLines, so that it is measured at the size it is drawn at.
+//
+// The rectangle is clamped, so a box larger than the terminal is pinned to
+// the top left rather than drawn off-screen. ok is false when there is
+// nothing to draw.
+func overlayRect(box, anchor string, termW, termH int) (r image.Rectangle, ok bool) {
+	if termW <= 0 || termH <= 0 || strings.TrimSpace(box) == "" {
+		return image.Rectangle{}, false
+	}
+	boxW := lipgloss.Width(box)
+	boxH := lipgloss.Height(box)
+	x := (termW - boxW) / 2
+
+	var y int
+	switch anchor {
+	case "top-center":
+		// One blank row of breathing room above the box.
+		y = 1
+	case "bottom-center":
+		y = termH - boxH - 1
+	default:
+		y = (termH - boxH) / 2
+	}
+	return overlayRectAt(box, x, y, termW, termH), true
+}
+
+// overlayRectAt returns the rectangle of a box whose top-left cell is asked
+// for at x, y, clamped to the screen.
+func overlayRectAt(box string, x, y, termW, termH int) image.Rectangle {
+	boxW := lipgloss.Width(box)
+	boxH := lipgloss.Height(box)
+	x = clamp(x, 0, max(termW-boxW, 0))
+	y = clamp(y, 0, max(termH-boxH, 0))
+	return image.Rect(x, y, x+boxW, y+boxH)
+}
+
 // compositeOverlay draws a rendered box on top of a full-screen base view at
 // the given top-left cell coordinates and returns the merged frame.
 //
-// Compositing happens at the cell level via an ultraviolet ScreenBuffer: the
-// base is drawn first, then the box is drawn into its own sub-rectangle, so
-// only the cells the box actually covers are replaced. Content above, below,
-// and — critically — to the left and right of the box survives, with its ANSI
-// styling intact on both sides of the splice.
+// The box is a bloom layer over the base, so only the cells the box actually
+// covers are replaced. Content above, below, and — critically — to the left
+// and right of the box survives, with its ANSI styling intact on both sides
+// of the splice.
 //
 // The naive alternative (merging whole lines, preferring the overlay whenever
 // its line is non-blank) blanks the full width of every row the box occupies,
@@ -27,6 +65,10 @@ import (
 //
 // x and y are clamped so a box larger than the terminal is pinned to the top
 // left rather than drawn off-screen.
+//
+// AppModel.View does not call this: it builds one overlay for all of its
+// surfaces, with transitions, from the same geometry (see surfaceLayers).
+// This is the stateless form, for a component that draws one box on its own.
 func compositeOverlay(base, box string, x, y, termW, termH int) string {
 	if termW <= 0 || termH <= 0 {
 		return base
@@ -40,31 +82,15 @@ func compositeOverlay(base, box string, x, y, termW, termH int) string {
 		return base
 	}
 
-	boxW := lipgloss.Width(box)
-	boxH := lipgloss.Height(box)
-
-	x = clamp(x, 0, max(termW-boxW, 0))
-	y = clamp(y, 0, max(termH-boxH, 0))
-
-	buf := uv.NewScreenBuffer(termW, termH)
-	uv.NewStyledString(base).Draw(&buf, image.Rect(0, 0, termW, termH))
-	uv.NewStyledString(box).Draw(&buf, image.Rect(x, y, x+boxW, y+boxH))
-
-	return buf.Render()
+	return bloom.Render(termW, termH, bloom.Overlay(
+		region(base),
+		bloom.Layer(region(box)).Place(overlayRectAt(box, x, y, termW, termH)),
+	))
 }
 
 // compositeCentered draws a box centred over the base view.
 func compositeCentered(base, box string, termW, termH int) string {
-	if strings.TrimSpace(box) == "" {
-		return base
-	}
-	// Trim before measuring: compositeOverlay trims internally, so centring
-	// on the untrimmed height would place the box using a taller size than
-	// the one actually drawn and shift it off true centre.
-	box = trimTrailingBlankLines(box)
-	x := (termW - lipgloss.Width(box)) / 2
-	y := (termH - lipgloss.Height(box)) / 2
-	return compositeOverlay(base, box, x, y, termW, termH)
+	return compositeAnchored(base, box, "", termW, termH)
 }
 
 // compositeAnchored draws a box over the base view using one of the named
@@ -74,23 +100,15 @@ func compositeAnchored(base, box, anchor string, termW, termH int) string {
 	if strings.TrimSpace(box) == "" {
 		return base
 	}
-
+	// Trim before measuring: centring on the untrimmed height would place
+	// the box using a taller size than the one actually drawn and shift it
+	// off true centre.
 	box = trimTrailingBlankLines(box)
-	boxH := lipgloss.Height(box)
-	x := (termW - lipgloss.Width(box)) / 2
-
-	var y int
-	switch anchor {
-	case "top-center":
-		// One blank row of breathing room above the box.
-		y = 1
-	case "bottom-center":
-		y = termH - boxH - 1
-	default:
-		y = (termH - boxH) / 2
+	r, ok := overlayRect(box, anchor, termW, termH)
+	if !ok {
+		return base
 	}
-
-	return compositeOverlay(base, box, x, y, termW, termH)
+	return compositeOverlay(base, box, r.Min.X, r.Min.Y, termW, termH)
 }
 
 // trimTrailingBlankLines drops trailing rows that consist only of plain

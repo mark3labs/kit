@@ -44,7 +44,9 @@ func TestFillWidgetLayout(t *testing.T) {
 				if got := lipgloss.Height(view); got != m.height {
 					t.Fatalf("frame height=%d want %d\n%s", got, m.height, view)
 				}
-				if !strings.Contains(view, m.chrome.input) {
+				// The frame is drawn from cells, so its escape sequences are
+				// not those of the input's own render. Compare the text.
+				if !strings.Contains(plainRows(view), plainRows(m.chrome.input)) {
 					t.Fatal("input missing")
 				}
 				wantInputY := m.lastHeaderHeight + lipgloss.Height(m.chrome.above)
@@ -107,4 +109,15 @@ func TestFillWidgetSplitAndHeightCache(t *testing.T) {
 	if calls != 4 || m.chrome.above != "" || m.chrome.below != "" {
 		t.Fatal("zero-height fill was rendered")
 	}
+}
+
+// plainRows returns s without escape sequences and without the blanks that
+// end each row, so that a section can be found in a frame that pads its rows
+// to the width of the screen.
+func plainRows(s string) string {
+	rows := strings.Split(stripAnsi(s), "\n")
+	for i, row := range rows {
+		rows[i] = strings.TrimRight(row, " ")
+	}
+	return strings.Join(rows, "\n")
 }
