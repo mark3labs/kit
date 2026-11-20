@@ -134,7 +134,7 @@ var (
 // defaultModels maps providers to their recommended default models.
 // These are used when --set-default flag is passed to auth login.
 var defaultModels = map[string]string{
-	"anthropic": "anthropic/claude-sonnet-4-5-20250929",
+	"anthropic": "anthropic/claude-sonnet-5-5",
 	"openai":    "openai/gpt-5.4",
 	"copilot":   "copilot/gpt-5.5",
 }
