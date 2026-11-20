@@ -44,6 +44,7 @@ var (
 	noExitFlag      bool
 	maxSteps        int
 	streamFlag      bool // Enable streaming output
+	reduceMotion    bool // Turn off TUI transitions and layout animation
 	autoCompactFlag bool // Enable auto-compaction near context limit
 
 	// Session management
@@ -261,7 +262,7 @@ var globalBoolFlags = []string{
 	"continue", "resume", "auto-compact", "compact", "stream",
 	"no-extensions", "no-prompt-templates", "no-skills", "no-agents",
 	"no-core-tools", "codemode", "tls-skip-verify", "pick-dir", "version",
-	"daemon-session", "no-daemon",
+	"daemon-session", "no-daemon", "reduce-motion",
 	"c", "r", // -c (continue), -r (resume)
 }
 
@@ -476,6 +477,8 @@ func init() {
 	_ = rootCmd.Flags().MarkHidden(daemon.SessionFlagName)
 	rootCmd.PersistentFlags().
 		BoolVar(&noDaemonFlag, "no-daemon", false, "run in this terminal even when the kit daemon could host a detachable session")
+	rootCmd.PersistentFlags().
+		BoolVar(&reduceMotion, "reduce-motion", false, "turn off transitions and layout animation in the interactive UI")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -512,6 +515,7 @@ func init() {
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
 	_ = viper.BindPFlag("auto-compact", rootCmd.PersistentFlags().Lookup("auto-compact"))
+	_ = viper.BindPFlag("reduce-motion", rootCmd.PersistentFlags().Lookup("reduce-motion"))
 
 	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
 	_ = viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
@@ -1466,6 +1470,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		EmitThinkingLevelChange:  act.emitThinkingLevelChange,
 		EmitTerminalResize:       act.emitTerminalResize,
 		ReadTerminalCapabilities: sessionTerminalCapabilityReader(),
+		ReduceMotion:             viper.GetBool("reduce-motion"),
 		EmitTurnStateChange:      act.emitTurnStateChange,
 		EmitMCPToolsReady:        act.emitMCPToolsReady,
 		ThinkingLevel:            snap.thinkingLevel,

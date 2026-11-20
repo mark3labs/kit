@@ -380,6 +380,7 @@ mcpServers:
 --stream                 Enable streaming output (default: true)
 --compact                Enable compact output mode
 --auto-compact           Auto-compact conversation near context limit (reactive compact-and-retry on provider context-overflow errors is always on)
+--reduce-motion          Turn off transitions and layout animation in the interactive UI
 
 # Extensions and tools
 --extension, -e          Load additional extension file(s) (repeatable)

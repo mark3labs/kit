@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"bloomfx.dev/bloom"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -626,6 +627,10 @@ type AppModelOptions struct {
 	// Called on window-size events and /refresh. Nil selects local terminal queries.
 	ReadTerminalCapabilities func() error
 
+	// ReduceMotion turns off transitions, layout animation and feedback
+	// effects. Liveness indicators, such as the activity spinner, still run.
+	ReduceMotion bool
+
 	// EmitTurnStateChange fires the OnTurnStateChange extension event when
 	// the UI enters or leaves the working state. May be nil.
 	EmitTurnStateChange func(state, previous string)
@@ -857,6 +862,26 @@ type AppModel struct {
 	// frames is the shared animation clock. Every animated component in the
 	// app advances on its beat; see frameclock.go for why there is only one.
 	frames frameClock
+
+	// ui lays out the frame, draws modal surfaces over it and applies
+	// effects. Use root(), which makes it on first use.
+	ui *bloom.Root
+
+	// fx is the state of transitions and feedback effects. Use fxState(),
+	// which makes it on first use.
+	fx *motionState
+
+	// motionEnabled is false when the user asked for no motion. The terminal
+	// must also be able to show it: see motionOn.
+	motionEnabled bool
+
+	// layoutJump makes the next frame place every section at once, with no
+	// layout animation. A window resize sets it.
+	layoutJump bool
+
+	// activityPhraseStart and activityPhraseEnd are the columns of the
+	// phrase in the activity row that was rendered last, for its highlight.
+	activityPhraseStart, activityPhraseEnd int
 
 	// widgetRenders caches output from animated extension widgets, keyed by
 	// widget ID (headers and footers use synthetic keys).
@@ -1262,6 +1287,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitThinkingLevelChange = opts.EmitThinkingLevelChange
 	m.emitTerminalResize = opts.EmitTerminalResize
 	m.readTerminalCapabilities = opts.ReadTerminalCapabilities
+	m.motionEnabled = !opts.ReduceMotion
 	m.emitTurnStateChange = opts.EmitTurnStateChange
 	m.emitMCPToolsReady = opts.EmitMCPToolsReady
 	m.extEvents = newExtEventDispatcher()
@@ -1674,6 +1700,12 @@ func tildeHome(path string) string {
 // nothing on the overwhelming majority of messages, when the clock is either
 // already running or not wanted.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// An animation frame is not an event. It goes to the motion layer and
+	// to nothing else; see updateMotionMsg.
+	if isMotionMsg(msg) {
+		return m, m.updateMotionMsg(msg)
+	}
+
 	// Before any mode can consume them: the next key, paste or click ends
 	// the selection kept after a mouse copy, and a failed write to the
 	// system clipboard is noted for its report (see clipboardNote).
@@ -1719,6 +1751,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(gfxFlushMsg); ok {
 		placementCmd = m.completeGfxFlush()
 	}
+	// A resize is not a change to animate: the next frame places every
+	// section where it belongs at once.
+	if _, ok := msg.(tea.WindowSizeMsg); ok {
+		m.layoutJump = true
+	}
 	model, cmd := m.routeUpdate(msg)
 	if m.clipboardNote != "" && m.childView == nil && m.quietScrollback() {
 		m.printSystemMessage(m.clipboardNote)
@@ -1728,6 +1765,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if capabilityCmd != nil {
 		cmds = append(cmds, capabilityCmd)
 	}
+	// Motion is kept in step here for the reason the frame clock is woken
+	// here: update has many early returns, and a modal can open or close
+	// down any of them. The root and every animation get every message;
+	// that is what schedules their frames and what moves them on. Then the
+	// transitions of the surfaces that this message opened or closed start.
+	cmds = append(cmds, m.root().Update(msg), m.updateMotion(msg), m.syncSurfaces(m.motionOn()))
 	// View marks graphics dirty only when the layout or frame changes. Do not
 	// mark them dirty for every input event: mouse motion over a static preview
 	// would repeatedly delete and redraw the image in the terminal.
@@ -1960,6 +2003,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamAppendFlushMsg:
 		m.streamFlushPending = false
 		m.flushPendingStreamChunks()
+		return m, nil
+	case motionSettledMsg:
+		// Nothing to do here: the message exists to bring an Update after
+		// the frame that ended a transition. See motionSettledMsg.
 		return m, nil
 	case frameTickMsg:
 		// Handled here, ahead of the modal routing below, because a prompt or
@@ -2398,7 +2445,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // stream region + separator + [queued messages] + [activity row] + input
 // region + status bar. The status bar is always present (1 line) to avoid
 // layout shifts; the activity row appears only while the agent is working.
-// When the tree selector is active, it replaces the stream region.
+//
+// The sections are strings. A bloom root lays them out (see layout.go), draws
+// the modal surfaces over them as layers and applies transitions (see
+// motion.go), and returns the frame as one string.
 func (m *AppModel) View() tea.View {
 	// When quitting, disable alt screen for clean terminal restoration.
 	// This prevents terminal corruption issues on exit.
@@ -2409,10 +2459,10 @@ func (m *AppModel) View() tea.View {
 		return v
 	}
 
-	// Tree selector, session selector and the overlay dialog are composited
-	// over the normal layout further down, alongside the slash popup and the
-	// model selector, so every modal in the app shows the conversation
-	// behind it instead of blanking the screen.
+	// Tree selector, session selector and the overlay dialog are drawn as
+	// layers over the normal layout further down, alongside the slash popup
+	// and the model selector, so every modal in the app shows the
+	// conversation behind it instead of blanking the screen.
 
 	// Recompute layout heights if any Update() changed state that affects
 	// sizing. Deferring this to View() guarantees exactly one call per frame
@@ -2420,8 +2470,8 @@ func (m *AppModel) View() tea.View {
 	// Update() invocation.
 	//
 	// The chrome cache is never reused across frames: it is invalidated here
-	// and only repopulated by the distributeHeight() call below, so a stale
-	// render can never leak into a later frame.
+	// and only repopulated below, by distributeHeight() or by the render
+	// that follows it, so a stale render can never leak into a later frame.
 	m.chrome.valid = false
 	m.renderEpoch++
 	m.syncActivityRow()
@@ -2438,211 +2488,71 @@ func (m *AppModel) View() tea.View {
 		m.pendingGotoBottom = false
 	}
 
-	vis := m.uiVis()
+	// distributeHeight rendered the chrome if the layout changed. Otherwise
+	// render it now: the sections keep their heights, but what they show
+	// (the spinner, the elapsed time) can differ on every frame.
+	if !m.chrome.valid {
+		m.chrome, _, _ = m.renderChrome()
+	}
 
 	// Render scrollback content from ScrollList (replaces renderStream() in alt screen mode)
 	scrollbackView := m.renderScrollback()
 
-	// When a prompt is active, it replaces the input area for consistency
-	// (appears below the separator, in the same position as the input).
-	var inputView string
-	if m.chrome.valid {
-		inputView = m.chrome.input
-	} else if m.state == statePrompt && m.prompt != nil {
-		inputView = m.prompt.Render()
-	} else {
-		inputView = m.renderInput()
+	// Build the stacked layout: the chrome around the transcript. While a
+	// section glides to a new size, the transcript is drawn at each height
+	// that its own section passes through.
+	animate := m.layoutAnimates()
+	m.layoutJump = false
+	var stream bloom.Child = section(scrollbackView)
+	if animate {
+		stream = &streamRegion{list: m.scrollList, view: scrollbackView}
+	}
+	tree := m.layoutTree(&m.chrome, stream, animate)
+
+	// Draw every modal surface over the layout as a layer, so the
+	// conversation stays visible around each one. Ordering is z-order: later
+	// layers sit on top. The screen beneath them is dimmed as one.
+	layers, scrim := m.surfaceLayers()
+	if scrim > 0 {
+		fg, bg := fxColors()
+		tree = bloom.Transition(1, tree, dimScreen{Fg: fg, To: bg, Amount: scrimAmount * scrim})
+	}
+	if toast, ok := m.toastLayer(); ok {
+		layers = append(layers, toast)
 	}
 
-	// Build the stacked layout. Optional header/footer wrap the core layout.
-	var parts []string
+	root := m.root()
+	finalContent := root.Render(m.width, m.height, bloom.Overlay(tree, layers...))
 
-	// Custom header (if set by extension) — above everything.
-	// Track its height so mouse coordinates can be adjusted for the scrollback.
-	m.scrollbackYOffset = 0
-	headerView := m.chrome.header
-	if !m.chrome.valid {
-		headerView = m.renderHeaderFooter("header", m.getHeader)
-	}
-	if headerView != "" {
-		parts = append(parts, headerView)
-		m.scrollbackYOffset = lipgloss.Height(headerView)
-	}
-	// Keep the mouse-handler view of the header height in sync with what
-	// was actually rendered this frame.
-	m.lastHeaderHeight = m.scrollbackYOffset
-
-	// Only include the scrollback region when it has content. When idle the
-	// scrollback renders "" which JoinVertical would pad to a full-width blank
-	// line, inflating the view unnecessarily.
-	//
-	// Its index is kept because a directly-placed transcript image is located
-	// relative to the top of this section.
-	scrollPartIndex := -1
-	if scrollbackView != "" {
-		scrollPartIndex = len(parts)
-		parts = append(parts, scrollbackView)
-	}
-
-	// Confirmation prompts for destructive keys live in the activity row while
-	// the agent is working, since that row is already showing the interrupt
-	// affordance and is where the eye is. When idle there is no activity row,
-	// so the prompt gets its own line here instead.
-	theme := style.GetTheme()
-	if m.ctrlCPressedOnce && !m.agentWorking() {
-		warning := lipgloss.NewStyle().
-			Foreground(theme.Warning).
-			Render(strings.Repeat(" ", style.ContentOffset) + "ctrl+c again to quit")
-		parts = append(parts, warning)
-	}
-
-	if !vis.HideSeparator {
-		// The separator only materialises when it has something to say, so
-		// an idle screen carries no rule between transcript and composer.
-		if sep := m.renderSeparator(); sep != "" {
-			parts = append(parts, sep)
+	// Where each section went, for the mouse handlers and for images that
+	// are placed beside the view. The frame is what was drawn, so while a
+	// section glides these are the rows it is at now.
+	frame := root.Frame()
+	m.lastHeaderHeight = regionRows(frame, regionHeader)
+	m.scrollbackYOffset = m.lastHeaderHeight
+	m.inputYOffset = m.height
+	var anchors gfxAnchors
+	if frame != nil {
+		if r, ok := frame.Rect(regionInput); ok {
+			m.inputYOffset = r.Min.Y
+			anchors.inputTop = r.Min.Y + 1
+		}
+		// The transcript has no row to anchor an image to while it renders
+		// nothing.
+		if r, ok := frame.Rect(regionStream); ok && scrollbackView != "" {
+			anchors.streamTop = r.Min.Y + 1
 		}
 	}
 
-	// Render "above" widgets between separator and queued messages.
-	aboveView := m.chrome.above
-	if !m.chrome.valid {
-		aboveView = m.renderWidgetSlot("above")
-	}
-	if aboveView != "" {
-		parts = append(parts, aboveView)
-	}
-
-	queuedView := m.chrome.queued
-	if !m.chrome.valid {
-		queuedView = m.renderQueuedMessages()
-	}
-	if queuedView != "" {
-		parts = append(parts, queuedView)
-	}
-
-	// Live activity sits immediately above the composer so the eye finds it
-	// in the same place it is about to type. It costs zero lines when idle.
-	activityView := m.chrome.activity
-	if !m.chrome.valid {
-		activityView = m.renderActivityRow()
-	}
-	subagentView := m.chrome.subagents
-	if !m.chrome.valid {
-		subagentView = m.renderBackgroundStatus()
-	}
-	if subagentView != "" {
-		parts = append(parts, subagentView)
-	}
-	if activityView != "" {
-		parts = append(parts, activityView)
-	}
-
-	inputPartIndex := len(parts)
-	parts = append(parts, inputView)
-
-	// Render "below" widgets between input and status bar.
-	belowView := m.chrome.below
-	if !m.chrome.valid {
-		belowView = m.renderWidgetSlot("below")
-	}
-	if belowView != "" {
-		parts = append(parts, belowView)
-	}
-
-	if !vis.HideStatusBar {
-		parts = append(parts, m.renderStatusBar())
-	}
-
-	// Custom footer (if set by extension) — below everything.
-	footerView := m.chrome.footer
-	if !m.chrome.valid {
-		footerView = m.renderHeaderFooter("footer", m.getFooter)
-	}
-	if footerView != "" {
-		parts = append(parts, footerView)
-	}
-
-	m.inputYOffset = m.height - lipgloss.Height(inputView)
-	for _, part := range parts[inputPartIndex+1:] {
-		m.inputYOffset -= lipgloss.Height(part)
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
 	// Record where directly-placed images landed. This must happen with the
-	// assembled parts in hand: the absolute screen row of a preview is only
-	// knowable once everything above and below it has been measured.
-	placement := m.computeGfxPlacement(parts, inputPartIndex, scrollPartIndex)
+	// drawn frame in hand: the absolute screen row of a preview is only
+	// knowable once everything above and below it has been placed.
+	placement := m.computeGfxPlacement(anchors)
 	if placement != m.gfxPlacement {
 		m.gfxDirty = true
 	}
 	m.gfxPlacement = placement
 
-	// Composite every modal surface over the layout at the cell level, so
-	// the conversation stays visible around each one. Ordering is z-order:
-	// later draws sit on top.
-	finalContent := content
-
-	// Slash / @ autocomplete popup.
-	if ic, ok := m.input.(*InputComponent); ok {
-		if box := ic.RenderPopupBox(m.width, m.height); box != "" {
-			finalContent = compositeCentered(finalContent, box, m.width, m.height)
-		}
-	}
-
-	// Model selector.
-	if m.state == stateModelSelector && m.modelSelector != nil {
-		finalContent = compositeCentered(finalContent, m.modelSelector.RenderOverlay(), m.width, m.height)
-	}
-
-	// Thinking-level selector.
-	if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
-		finalContent = compositeCentered(finalContent, m.thinkingLevelSelector.RenderOverlay(), m.width, m.height)
-	}
-	if m.state == stateModelModeSelector && m.modelModeSelector != nil {
-		finalContent = compositeCentered(finalContent, m.modelModeSelector.RenderOverlay(), m.width, m.height)
-	}
-
-	// Kill-subagent selector.
-	if m.killSubagentOpen() {
-		finalContent = compositeCentered(finalContent, m.killSubagentSelector.RenderOverlay(), m.width, m.height)
-	}
-	if m.subagentRunPickerOpen() {
-		finalContent = compositeCentered(finalContent, m.subagentRunPicker.RenderOverlay(), m.width, m.height)
-	}
-
-	// Theme selector.
-	if m.state == stateThemeSelector && m.themeSelector != nil {
-		finalContent = compositeCentered(finalContent, m.themeSelector.RenderOverlay(), m.width, m.height)
-	}
-
-	// Provider connect dialog (/connect).
-	if m.state == stateProviderConnect && m.providerConnect != nil {
-		finalContent = compositeCentered(finalContent, m.providerConnect.RenderOverlay(), m.width, m.height)
-	}
-
-	// Tree selector (/tree).
-	if m.state == stateTreeSelector && m.treeSelector != nil {
-		finalContent = compositeCentered(finalContent, m.treeSelector.RenderOverlay(), m.width, m.height)
-	}
-
-	// Session selector (/resume).
-	if m.state == stateSessionSelector && m.sessionSelector != nil {
-		finalContent = compositeCentered(finalContent, m.sessionSelector.RenderOverlay(), m.width, m.height)
-	}
-
-	// Modal dialog — extension overlays and the message inspector. Honours
-	// the caller's vertical anchor.
-	if m.state == stateOverlay && m.overlay != nil {
-		finalContent = compositeAnchored(finalContent, m.overlay.Render(), m.overlay.Anchor(), m.width, m.height)
-	}
-
-	if m.imagePreview != nil {
-		finalContent = compositeCentered(finalContent, m.renderImagePreview(), m.width, m.height)
-	}
-	if m.sheet != nil {
-		finalContent = compositeCentered(finalContent, m.renderSheet(), m.width, m.height)
-	}
 	// Notice a repaint. The renderer scrolls the screen to update it, and a
 	// terminal scrolls its images along with the text, so any change to the
 	// frame can move an image that is not part of the frame. Hashing the
@@ -2924,22 +2834,10 @@ func (m *AppModel) renderInput() string {
 	return content
 }
 
-// renderWidgetSlot renders all extension widgets for the given placement
-// ("above" or "below"). Returns "" if no widgets exist for that slot.
-func (m *AppModel) renderWidgetSlot(placement string) string {
-	if m.getWidgets == nil {
-		return ""
-	}
-	widgets := m.getWidgets(placement)
-	if len(widgets) == 0 {
-		return ""
-	}
-
-	return m.renderWidgets(placement, widgets, nil)
-}
-
-// renderWidgets skips fill widgets during measurement (nil heights). The final
-// pass uses the same widget snapshot and assigned heights as distributeHeight.
+// renderWidgets renders the extension widgets of one placement ("above" or
+// "below"), or "" when there are none. It skips fill widgets during
+// measurement (nil heights). The final pass uses the same widget snapshot and
+// assigned heights as distributeHeight.
 func (m *AppModel) renderWidgets(placement string, widgets []WidgetData, heights map[string]int) string {
 	theme := style.GetTheme()
 	var blocks []string
@@ -4399,20 +4297,6 @@ type pendingStreamChunk struct {
 	content string
 }
 
-// chromeCache holds the rendered layout chrome measured by distributeHeight()
-// for reuse by View() within the same frame.
-type chromeCache struct {
-	valid     bool
-	header    string
-	footer    string
-	above     string
-	below     string
-	queued    string
-	activity  string
-	subagents string
-	input     string
-}
-
 // isComposerTextKey reports whether msg is plain text editing in the
 // composer: a printable key or backspace, with no ctrl/alt/meta/super
 // modifier, while the composer has focus and no leader chord is armed.
@@ -4597,93 +4481,31 @@ func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 
 // distributeHeight recalculates child component heights after a window resize,
 // queue change, widget update, or state transition, and propagates the computed
-// stream height to the StreamComponent.
+// stream height to the ScrollList.
 //
-// Layout (line counts):
-//
-//	header         = measured dynamically (0 if not set)
-//	stream region  = total - header - separator - widgets - queued - activity - input - widgets - statusBar - footer
-//	separator      = measured dynamically (0 when it renders nothing)
-//	above widgets  = measured dynamically
-//	queued msgs    = measured dynamically via lipgloss.Height()
-//	activity row   = 1 line while working, 0 when idle
-//	input region   = measured dynamically via lipgloss.Height()
-//	below widgets  = measured dynamically
-//	status bar     = 1 line (always present)
-//	footer         = measured dynamically (0 if not set)
+// It renders every chrome section and solves the layout tree (see layout.go)
+// for the rows that are left for the transcript. No section has an assumed
+// height: each is measured from what it renders, so a section that grows by a
+// row, or collapses to nothing, moves the transcript by exactly that.
 func (m *AppModel) distributeHeight() {
-	vis := m.uiVis()
+	// Every render is stashed in m.chrome so View() can reuse the strings
+	// instead of rendering the whole chrome a second time in the same frame.
+	// The cache is invalidated at the start of every View().
+	chrome, aboveWidgets, belowWidgets := m.renderChrome()
+	m.chrome = chrome
 
-	// The separator is measured rather than assumed: it collapses to nothing
-	// unless there are queued or steering messages to announce.
-	separatorLines := 0
-	if !vis.HideSeparator {
-		if sep := m.renderSeparator(); sep != "" {
-			separatorLines = lipgloss.Height(sep)
-		}
-	}
-	statusBarLines := 1
-	if vis.HideStatusBar {
-		statusBarLines = 0
-	}
+	// Remember whether the activity row was present so syncActivityRow can
+	// detect the next time the agent starts or stops working.
+	m.lastActivityPresent = m.chrome.activity != ""
 
-	// Every render below is stashed in m.chrome so View() can reuse the
-	// strings instead of rendering the whole chrome a second time in the
-	// same frame. The cache is invalidated at the start of every View().
-	m.chrome = chromeCache{valid: true}
-
-	// Measure actual queued message height instead of using a fixed estimate,
-	// since text wrapping at different widths changes the rendered line count.
-	var queuedLines int
-	if queuedView := m.renderQueuedMessages(); queuedView != "" {
-		queuedLines = lipgloss.Height(queuedView)
-		m.chrome.queued = queuedView
-	}
-
-	// Measure the activity row so the scrollback shrinks by exactly one line
-	// when the agent starts working and grows back when it stops.
-	var activityLines int
-	if activityView := m.renderActivityRow(); activityView != "" {
-		activityLines = lipgloss.Height(activityView)
-		m.chrome.activity = activityView
-	}
-	var subagentLines int
-	subagentView := m.renderBackgroundStatus()
-	if subagentView != "" {
-		subagentLines = lipgloss.Height(subagentView)
-		m.chrome.subagents = subagentView
-	}
-	// Remember whether the row was present so syncActivityRow can detect the
-	// next time the agent starts or stops working.
-	m.lastActivityPresent = activityLines > 0
-
-	// Measure the actual rendered input (or prompt overlay) height so we
-	// don't rely on a fragile constant that drifts when styling changes.
-	// Use renderInput() which includes the editor interceptor's Render
-	// wrapper so the measured height matches what View() actually renders.
-	inputLines := 3 // fallback: composer bar padding(1) + one text row + padding(1)
-	if m.state == statePrompt && m.prompt != nil {
-		if rendered := m.prompt.Render(); rendered != "" {
-			inputLines = lipgloss.Height(rendered)
-			m.chrome.input = rendered
-		}
-	} else {
-		if rendered := m.renderInput(); rendered != "" {
-			inputLines = lipgloss.Height(rendered)
-			m.chrome.input = rendered
-		}
-	}
 	// Remember what the composer measured so syncInputHeight can detect the
 	// next time it grows or shrinks.
-	m.lastInputHeight = inputLines
-
-	// Snapshot both slots so measurement and final rendering agree even if an
-	// extension updates its widgets concurrently. Fill widgets cost no rows yet.
-	var aboveWidgets, belowWidgets []WidgetData
-	if m.getWidgets != nil {
-		aboveWidgets = m.getWidgets("above")
-		belowWidgets = m.getWidgets("below")
+	m.lastInputHeight = inputFallbackRows
+	if m.chrome.input != "" {
+		m.lastInputHeight = lipgloss.Height(m.chrome.input)
 	}
+
+	// Fill widgets cost no rows yet: renderChrome left them out.
 	var fillKeys []string
 	for _, slot := range []struct {
 		name    string
@@ -4695,41 +4517,17 @@ func (m *AppModel) distributeHeight() {
 			}
 		}
 	}
-	var widgetLines int
-	if above := m.renderWidgets("above", aboveWidgets, nil); above != "" {
-		widgetLines += lipgloss.Height(above)
-		m.chrome.above = above
-	}
-	if below := m.renderWidgets("below", belowWidgets, nil); below != "" {
-		widgetLines += lipgloss.Height(below)
-		m.chrome.below = below
-	}
 
-	// Measure header/footer heights.
-	var headerFooterLines int
-	m.lastHeaderHeight = 0
-	if headerView := m.renderHeaderFooter("header", m.getHeader); headerView != "" {
-		m.lastHeaderHeight = lipgloss.Height(headerView)
-		headerFooterLines += m.lastHeaderHeight
-		m.chrome.header = headerView
+	// Solve the layout with the transcript as the one section that takes
+	// what the others leave. Its height is the number of free rows. The
+	// transcript itself is not needed for that, only its place in the tree.
+	m.fillActive = false
+	frame := bloom.Solve(m.width, m.height, m.layoutTree(&m.chrome, nil, false))
+	streamHeight := 0
+	if m.height > 0 {
+		streamHeight = regionRows(frame, regionStream)
 	}
-	if footerView := m.renderHeaderFooter("footer", m.getFooter); footerView != "" {
-		headerFooterLines += lipgloss.Height(footerView)
-		m.chrome.footer = footerView
-	}
-
-	// Account for the transient confirmation row that View() injects between
-	// the scrollback and the composer. Without subtracting it here the joined
-	// view exceeds m.height and the bottom of the screen gets silently
-	// clipped — which in turn invalidates scrollbackYOffset. While working
-	// the confirmation lives in the activity row, which is measured
-	// separately, so it costs nothing extra here.
-	var warningLines int
-	if m.ctrlCPressedOnce && !m.agentWorking() {
-		warningLines++
-	}
-
-	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-subagentLines-activityLines-inputLines-statusBarLines-warningLines, 0)
+	m.lastHeaderHeight = regionRows(frame, regionHeader)
 
 	m.fillActive = len(fillKeys) > 0
 	if m.fillActive {
@@ -5201,6 +4999,8 @@ func (m *AppModel) refreshTheme() {
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.UpdateTheme()
 	}
+	// Effects blend with the theme's colours.
+	m.syncRootColors()
 	m.layoutDirty = true
 }
 
@@ -5594,10 +5394,10 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 		return nil
 	}
 
-	m.printSystemMessage(fmt.Sprintf(
-		"Copied last %s message to clipboard (%d chars).", role, len([]rune(text)),
-	))
-	return clipboard.CopyToClipboard(text)
+	// A toast, not a line in the transcript: the notice is of use for a
+	// moment, and the conversation is not the place to keep it.
+	toast := m.showToast(fmt.Sprintf("Copied last %s message (%d chars)", role, len([]rune(text))))
+	return tea.Batch(clipboard.CopyToClipboard(text), toast)
 }
 
 // handleRetryCommand resubmits the most recent user message on the current
@@ -6523,18 +6323,16 @@ func (m *AppModel) followShellRun(id string) {
 // makes an image's position a property of the finished layout, which is why
 // this runs from View with the assembled parts in hand.
 //
-// parts are the stacked layout sections; inputPartIndex is the position of the
-// input section within them and scrollPartIndex that of the transcript, or -1
-// when the transcript is not on screen.
+// anchors say where the input section and the transcript were drawn.
 //
 // Images that were painted by the previous frame and are not painted by this
 // one are deleted here. A placement outlives the cells it covers, so a preview
 // whose message has scrolled away, or which a modal now covers, has to be told
 // to go; everything still on screen drops its own earlier placement as part of
 // being drawn again.
-func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPartIndex int) string {
-	placements := m.composerPlacements(parts, inputPartIndex)
-	placements = append(placements, m.transcriptPlacements(parts, scrollPartIndex)...)
+func (m *AppModel) computeGfxPlacement(anchors gfxAnchors) string {
+	placements := m.composerPlacements(anchors.inputTop)
+	placements = append(placements, m.transcriptPlacements(anchors.streamTop)...)
 	placements = append(placements, m.imagePreviewPlacement()...)
 
 	var draw strings.Builder
@@ -6579,6 +6377,18 @@ func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPar
 	return ansi.SaveCursor + draw.String() + ansi.RestoreCursor + drops.String()
 }
 
+// gfxAnchors are the screen rows that directly-placed images are located
+// against. View reads them from the frame that it drew.
+type gfxAnchors struct {
+	// inputTop is the 1-based screen row of the first row of the input
+	// section, or 0 when the input is not on screen.
+	inputTop int
+
+	// streamTop is the 1-based screen row of the first row of the
+	// transcript, or 0 when the transcript is not on screen.
+	streamTop int
+}
+
 // gfxPlacement is one image drawn at an absolute position on the screen.
 type gfxPlacement struct {
 	// row and col are 1-based screen coordinates of the image's top-left cell.
@@ -6595,39 +6405,29 @@ type gfxPlacement struct {
 // composerPlacements locates the directly-placed preview images in the
 // composer.
 //
-// The rows are counted up from the bottom of the screen, not down from the
-// top. The composer sits at the bottom with only the status bar and an
-// optional footer beneath it, so counting upwards depends on a couple of
-// short, fixed sections. Counting downwards would instead depend on the
-// scrollback's rendered height, and any disagreement between what it was
-// allotted and what it drew would float the image away from the composer.
+// inputTop is the 1-based screen row of the input section's first row, taken
+// from the frame as it was drawn. The layout clips every section to the rows
+// it was given, so the row cannot disagree with what is on screen, whatever
+// the transcript above it rendered.
 //
 // The input component owns image data; the parent tracks placements so it can
 // hide images behind overlays without deleting their data.
-func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxPlacement {
+func (m *AppModel) composerPlacements(inputTop int) []gfxPlacement {
 	// Direct placements do not participate in cell-level composition. Hide
 	// composer images while a modal or autocomplete popup is active, just as
-	// transcript images are hidden, or they can paint over the overlay.
-	if m.modalActive() {
+	// transcript images are hidden, or they can paint over the overlay. A
+	// surface on its way out still covers them.
+	if m.modalActive() || m.surfacesVisible() {
 		return nil
 	}
 	ic, ok := m.input.(*InputComponent)
-	if !ok || inputPartIndex < 0 || inputPartIndex >= len(parts) {
+	if !ok || inputTop <= 0 {
 		return nil
 	}
 	placements := ic.DirectPlacements()
 	if len(placements) == 0 {
 		return nil
 	}
-
-	// Rows occupied by everything below the input section.
-	below := 0
-	for i := inputPartIndex + 1; i < len(parts); i++ {
-		below += lipgloss.Height(parts[i])
-	}
-	// Screen rows are 1-based, so the input's last row is m.height-below and
-	// its first row is that many rows further up.
-	inputTop := m.height - below - lipgloss.Height(parts[inputPartIndex]) + 1
 
 	out := make([]gfxPlacement, 0, len(placements))
 	for _, p := range placements {
@@ -6650,30 +6450,23 @@ func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxP
 // spill over the message above or the composer below, because a placed image
 // is not part of the view and nothing clips it.
 //
-// The rows are counted down from the top of the screen, which for the
-// transcript depends only on the optional header above it. Counting up would
-// depend on every section below, of which there are many.
-func (m *AppModel) transcriptPlacements(parts []string, scrollPartIndex int) []gfxPlacement {
-	if m.scrollList == nil || scrollPartIndex < 0 || scrollPartIndex >= len(parts) {
+// top is the 1-based screen row of the transcript's first row, taken from the
+// frame as it was drawn, or 0 when the transcript is not on screen.
+func (m *AppModel) transcriptPlacements(top int) []gfxPlacement {
+	if m.scrollList == nil || top <= 0 {
 		return nil
 	}
 	// A modal covers the transcript, and an image painted over it would be the
 	// one thing on screen that the dialog could not hide. Returning nothing
 	// takes the images off screen for as long as the modal is up; they come
-	// back on the frame that closes it.
-	if m.modalActive() {
+	// back once it has gone, which is after it has animated out.
+	if m.modalActive() || m.surfacesVisible() {
 		return nil
 	}
 	// Nothing is placed and nothing could be: skip the walk over visible items
 	// entirely in the terminals where previews are text.
 	if len(m.gfxPlaced) == 0 && termgfx.PreviewMode() != termgfx.ModeDirect {
 		return nil
-	}
-
-	// The transcript's first screen row, 1-based.
-	top := 1
-	for i := range scrollPartIndex {
-		top += lipgloss.Height(parts[i])
 	}
 
 	var out []gfxPlacement
@@ -7262,6 +7055,8 @@ func (m *AppModel) handleSubmit(msg uicore.SubmitMsg, cmds []tea.Cmd) (tea.Model
 			ic.textarea.SetValue(msg.Text)
 			ic.textarea.CursorEnd()
 		}
+		// The prompt is back in the composer, unsent. Shake it to say so.
+		cmds = append(cmds, m.shakeComposer())
 		return m, tea.Batch(cmds...)
 	}
 

@@ -851,6 +851,30 @@ func (s *ScrollList) View() string {
 	return strings.Join(lines, "\n")
 }
 
+// ViewAtHeight renders the scrollback as View does, in a viewport of the given
+// height, and leaves the viewport as it was.
+//
+// A layout animation draws the transcript at heights between the one it had
+// and the one it gets. The list keeps its real height throughout, so that
+// scrolling and mouse hit-testing use the height the layout settles on. While
+// the list follows the bottom, each height shows the last lines; otherwise the
+// first visible line stays where it is.
+func (s *ScrollList) ViewAtHeight(height int) string {
+	if height == s.height {
+		return s.View()
+	}
+	savedHeight, savedIdx, savedLine := s.height, s.offsetIdx, s.offsetLine
+	defer func() { s.height, s.offsetIdx, s.offsetLine = savedHeight, savedIdx, savedLine }()
+
+	s.height = height
+	if s.autoScroll && !s.offscreen {
+		s.offsetIdx, s.offsetLine = s.bottomOffset()
+	} else {
+		s.clampOffset()
+	}
+	return s.View()
+}
+
 // VisibleItem locates one item inside the rendered viewport.
 //
 // It exists for content that is drawn beside the view rather than inside it —
