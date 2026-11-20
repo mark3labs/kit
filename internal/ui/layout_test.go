@@ -520,6 +520,49 @@ func TestViewAtHeightJoinsUpAfterAHeightChange(t *testing.T) {
 		}
 	})
 
+	// A list that was scrolled away and back is where the height change
+	// left it, but the user put it there: it is drawn from where it is.
+	t.Run("scrolled away and back", func(t *testing.T) {
+		list := newList(10)
+		list.SetHeight(14)
+		list.autoScroll = false
+		idx, line := list.offsetIdx, list.offsetLine
+		own := rowsOf(list.View())
+
+		list.ScrollBy(-1)
+		list.ScrollBy(1)
+		if list.offsetIdx != idx || list.offsetLine != line {
+			t.Fatalf("the list is at %d/%d after a scroll up and down, want %d/%d: the test needs it back",
+				list.offsetIdx, list.offsetLine, idx, line)
+		}
+		if list.anchorHolds() {
+			t.Fatal("the anchor holds again after the list was scrolled away and back")
+		}
+		if got := list.ViewAtHeight(10); got != strings.Join(own[:10], "\n") {
+			t.Fatal("a list that was scrolled is not drawn from its own first line")
+		}
+	})
+
+	// Each method that puts the list somewhere ends the anchor.
+	for name, move := range map[string]func(*ScrollList){
+		"ScrollBy":      func(l *ScrollList) { l.ScrollBy(-2) },
+		"GotoTop":       func(l *ScrollList) { l.GotoTop() },
+		"GotoBottom":    func(l *ScrollList) { l.GotoBottom() },
+		"EnsureVisible": func(l *ScrollList) { l.EnsureVisible(3) },
+	} {
+		t.Run(name+" releases the anchor", func(t *testing.T) {
+			list := newList(10)
+			list.SetHeight(14)
+			if !list.anchorHolds() {
+				t.Fatal("no anchor after a height change: the test checks nothing")
+			}
+			move(list)
+			if list.anchored {
+				t.Fatalf("%s left the anchor set", name)
+			}
+		})
+	}
+
 	// A list that moved after the change is drawn from where it is.
 	t.Run("moved since", func(t *testing.T) {
 		list := newList(14)

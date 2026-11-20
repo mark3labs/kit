@@ -260,13 +260,20 @@ func (s *ScrollList) SetHeight(height int) {
 // anchorHolds reports whether the list is where its last height change left
 // it, so that the line it showed before that change is still what a layout
 // animation must draw from.
+//
+// The methods that put the list somewhere (ScrollBy, GotoTop, GotoBottom,
+// EnsureVisible) release the anchor themselves, so that a list that is
+// scrolled away and back does not get it again. The comparison here is for
+// what moves the list as a side effect, such as a new width that wraps the
+// text again.
 func (s *ScrollList) anchorHolds() bool {
 	return s.anchored && s.offsetIdx == s.anchorOwnIdx && s.offsetLine == s.anchorOwnLine
 }
 
 // releaseAnchor forgets the line that the list showed before its height last
-// changed. Call it when no layout animation runs: the list is then drawn at
-// its own height only.
+// changed. Every frame is then drawn from where the list is. The model calls
+// it when no layout animation runs, and each method that puts the list
+// somewhere calls it.
 func (s *ScrollList) releaseAnchor() {
 	s.anchored = false
 }
@@ -600,6 +607,9 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 // ScrollBy scrolls the viewport by the given number of lines.
 // Positive = scroll down, negative = scroll up.
 func (s *ScrollList) ScrollBy(lines int) {
+	// The list goes where it is told to: no frame may start from the line
+	// it showed before, even if a later scroll brings it back here.
+	s.releaseAnchor()
 	if lines > 0 {
 		// Scroll down
 		for lines > 0 && s.offsetIdx < len(s.items) {
@@ -678,6 +688,7 @@ func (s *ScrollList) GotoBottom() {
 		s.bottomPending = true
 		return
 	}
+	s.releaseAnchor()
 	s.offsetIdx, s.offsetLine = s.bottomOffset()
 }
 
@@ -729,6 +740,7 @@ func (s *ScrollList) bottomOffset() (offsetIdx, offsetLine int) {
 
 // GotoTop scrolls to the beginning of the list.
 func (s *ScrollList) GotoTop() {
+	s.releaseAnchor()
 	s.offsetIdx = 0
 	s.offsetLine = 0
 }
@@ -744,6 +756,7 @@ func (s *ScrollList) EnsureVisible(idx int) {
 	if idx < 0 || idx >= len(s.items) {
 		return
 	}
+	s.releaseAnchor()
 
 	// Above the viewport (or partially scrolled off the top) — align to top.
 	if idx < s.offsetIdx || (idx == s.offsetIdx && s.offsetLine > 0) {
