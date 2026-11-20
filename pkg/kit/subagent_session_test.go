@@ -90,11 +90,9 @@ func TestSubagent_ParentSessionLinkCapturesBeforeSlotWait(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 1. Start subagent 1 to occupy the slot.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = k.Subagent(ctx, SubagentConfig{Prompt: "task 1", Tools: []Tool{}})
-	}()
+	})
 
 	select {
 	case <-started:
@@ -105,11 +103,9 @@ func TestSubagent_ParentSessionLinkCapturesBeforeSlotWait(t *testing.T) {
 	// 2. Start subagent 2 which will wait for slot.
 	var res2 *SubagentResult
 	var err2 error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		res2, err2 = k.Subagent(ctx, SubagentConfig{Prompt: "task 2", Tools: []Tool{}})
-	}()
+	})
 
 	select {
 	case <-slotWaiting:
