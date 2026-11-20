@@ -524,10 +524,13 @@ func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
 	if fxs.toastText == "" || !fxs.toast.Visible() {
 		return bloom.LayerNode{}, false
 	}
+	// The border is the muted text colour, not a border colour: the theme's
+	// border colours are for dividers and are too close to the background
+	// to set a notice apart from the conversation beneath it.
 	theme := style.GetTheme()
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.MutedBorder).
+		BorderForeground(theme.Muted).
 		Foreground(theme.Text).
 		Padding(0, 1).
 		Render(fxs.toastText)
