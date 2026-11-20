@@ -402,7 +402,7 @@ func init() {
 		StringVar(&systemPromptFile, "system-prompt", "", "system prompt text or path to text file")
 
 	rootCmd.PersistentFlags().
-		StringVarP(&modelFlag, "model", "m", "anthropic/claude-sonnet-4-5-20250929",
+		StringVarP(&modelFlag, "model", "m", "anthropic/claude-sonnet-5-5",
 			"model to use (format: provider/model)")
 	rootCmd.PersistentFlags().
 		StringVar(&decisionModelFlag, "decision-model", "",
