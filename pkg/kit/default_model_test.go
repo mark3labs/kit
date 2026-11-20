@@ -9,7 +9,7 @@ import (
 )
 
 // TestSDKDefaultModelIsCurrent checks that the SDK's default model is in the
-// model catalog and not marked deprecated.
+// embedded model catalog and not marked deprecated.
 func TestSDKDefaultModelIsCurrent(t *testing.T) {
 	v := viper.New()
 	setSDKDefaults(v)
@@ -19,9 +19,9 @@ func TestSDKDefaultModelIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default model %q: %v", model, err)
 	}
-	info := models.GetGlobalRegistry().LookupModel(provider, modelID)
+	info := models.NewEmbeddedModelsRegistry().LookupModel(provider, modelID)
 	if info == nil {
-		t.Fatalf("default model %q is not in the model catalog", model)
+		t.Fatalf("default model %q is not in the embedded model catalog", model)
 	}
 	if info.Status == models.StatusDeprecated {
 		t.Errorf("default model %q is deprecated", model)

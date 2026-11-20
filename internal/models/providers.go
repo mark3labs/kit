@@ -1051,11 +1051,20 @@ func resolveAPIKey(explicitKey, providerID string, envVars []string) string {
 }
 
 // validateModelConfig adjusts configuration parameters against known model capabilities.
-// It silently clears temperature for models that don't support it, and warns (but
-// does not block) when max_tokens exceeds the model's known output limit.
+// It silently clears the sampling parameters (temperature, top_p, top_k) for models
+// that don't support temperature, and warns (but does not block) when max_tokens
+// exceeds the model's known output limit.
+//
+// The catalog has no separate top_p/top_k flag. Models that reject temperature,
+// such as Claude 4.7 and later and OpenAI's reasoning models, reject top_p and
+// top_k as well, so all three are cleared together. Clearing top_p here also
+// keeps --temperature plus --top-p from sending top_p alone after temperature
+// has been cleared.
 func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
-	if config.Temperature != nil && !modelInfo.Temperature {
+	if !modelInfo.Temperature {
 		config.Temperature = nil
+		config.TopP = nil
+		config.TopK = nil
 	}
 
 	if modelInfo.Limit.Output > 0 && config.MaxTokens > modelInfo.Limit.Output {

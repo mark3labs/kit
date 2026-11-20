@@ -413,6 +413,20 @@ func reasoningFrom(opts []modelsDBReasoningOption) (levels []string, graded bool
 // precedence. This means newly synced models are available while embedded
 // models that haven't been synced yet are still reachable.
 func buildFromModelsDB() map[string]ProviderInfo {
+	return buildProviders(true)
+}
+
+// NewEmbeddedModelsRegistry builds a registry from the catalog compiled into
+// the binary only, without the `kit update-models` cache or config-file
+// models and overrides. Tests use it to check the catalog that ships.
+func NewEmbeddedModelsRegistry() *ModelsRegistry {
+	return &ModelsRegistry{providers: buildProviders(false)}
+}
+
+// buildProviders builds the provider map from the embedded catalog. When
+// withUserData is true it also merges the on-disk cache, custom models and
+// provider overrides from config, as described on buildFromModelsDB.
+func buildProviders(withUserData bool) map[string]ProviderInfo {
 	// The embedded snapshot (~5MB) and the on-disk cache are two independent
 	// JSON documents and parsing them is most of the registry build time,
 	// which every kit start pays. Parse the cache in parallel with the
@@ -421,7 +435,9 @@ func buildFromModelsDB() map[string]ProviderInfo {
 	cachedDone := make(chan struct{})
 	go func() {
 		defer close(cachedDone)
-		cached, _ = LoadCachedProviders()
+		if withUserData {
+			cached, _ = LoadCachedProviders()
+		}
 	}()
 
 	// Start with compile-time embedded data as the base.
@@ -546,6 +562,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				},
 			},
 		},
+	}
+
+	if !withUserData {
+		return providers
 	}
 
 	// Load custom models from config file and merge into custom provider.
