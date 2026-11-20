@@ -101,6 +101,11 @@ type surfaceSpec struct {
 	// surface that holds an image needs it: an image placed directly on the
 	// screen does not travel with the cells of a box that moves.
 	still bool
+
+	// steady makes the surface fade in its place, with no travel. A surface
+	// that finds what the mouse points at from where its box belongs needs
+	// it: a click while the box was a row lower would land on another line.
+	steady bool
 }
 
 // surfaceCount is the number of modal surfaces.
@@ -183,9 +188,11 @@ var surfaceSpecs = [surfaceCount]surfaceSpec{
 		still:  true,
 	},
 	{
+		// A sheet takes mouse selection in its body; see renderSheet.
 		open:   func(m *AppModel) bool { return m.sheet != nil },
 		render: func(m *AppModel) (string, string) { return m.renderSheet(), "" },
 		scrim:  true,
+		steady: true,
 	},
 }
 
@@ -485,7 +492,11 @@ func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
 			continue
 		}
 		layer := bloom.Layer(region(a.box)).Place(rect)
-		if t < 1 {
+		switch {
+		case t >= 1:
+		case spec.steady:
+			layer = layer.Transition(t, fadeIn{Fg: fg, From: bg})
+		default:
 			layer = layer.Transition(t, fadeIn{Fg: fg, From: bg}, rise{Rows: surfaceRise})
 		}
 		layers = append(layers, layer)
@@ -505,6 +516,11 @@ func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
 
 // showToast puts a short notice in the corner of the screen for a moment. It
 // returns the command that shows and then hides it.
+//
+// With motion off the toast is there at once and gone at once: toastLayer
+// draws it with no transition, and the presence here only keeps the time. Its
+// fade is then as short as a fade can be, so that the toast does not stay on
+// screen for the length of a transition that nobody sees.
 func (m *AppModel) showToast(text string) tea.Cmd {
 	fxs := m.fxState()
 	fade := toastFade
@@ -539,7 +555,10 @@ func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
 	layer := bloom.Layer(region(box)).
 		Anchor(bloom.End, bloom.Start).
 		Offset(-1, 0)
-	if t := fxs.toast.Progress(); t < 1 {
+	// With motion off the toast is drawn as it is for as long as it is
+	// visible. The presence starts at zero, so a transition here would hide
+	// the toast on its first frame and slide it in on the next.
+	if t := fxs.toast.Progress(); t < 1 && m.motionOn() {
 		layer = layer.Transition(t, fadeIn{Fg: fg, From: bg}, fx.Slide{From: bloom.Right})
 	}
 	return layer, true

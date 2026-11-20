@@ -856,12 +856,27 @@ func (s *ScrollList) View() string {
 //
 // A layout animation draws the transcript at heights between the one it had
 // and the one it gets. The list keeps its real height throughout, so that
-// scrolling and mouse hit-testing use the height the layout settles on. While
-// the list follows the bottom, each height shows the last lines; otherwise the
-// first visible line stays where it is.
+// scrolling uses the height the layout settles on. While the list follows the
+// bottom, each height shows the last lines; otherwise the first visible line
+// stays where it is.
 func (s *ScrollList) ViewAtHeight(height int) string {
+	var out string
+	s.atHeight(height, func() { out = s.View() })
+	return out
+}
+
+// atHeight runs fn with the viewport that ViewAtHeight(height) draws, then
+// puts the viewport back.
+//
+// Mouse hit-testing uses it while a layout animation runs. The rows on screen
+// are then those of ViewAtHeight, not those of the list's own viewport, and a
+// click must find the line that is under the pointer. A selection is kept as
+// an item, a line and a column, so what fn records stays right after the
+// viewport is put back.
+func (s *ScrollList) atHeight(height int, fn func()) {
 	if height == s.height {
-		return s.View()
+		fn()
+		return
 	}
 	savedHeight, savedIdx, savedLine := s.height, s.offsetIdx, s.offsetLine
 	defer func() { s.height, s.offsetIdx, s.offsetLine = savedHeight, savedIdx, savedLine }()
@@ -872,7 +887,7 @@ func (s *ScrollList) ViewAtHeight(height int) string {
 	} else {
 		s.clampOffset()
 	}
-	return s.View()
+	fn()
 }
 
 // VisibleItem locates one item inside the rendered viewport.

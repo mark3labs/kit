@@ -879,6 +879,13 @@ type AppModel struct {
 	// layout animation. A window resize sets it.
 	layoutJump bool
 
+	// streamGliding is true when the frame drawn last showed the transcript
+	// at a height on its way to the height of the scroll list, and
+	// streamDrawnRows is that height. Mouse hit-testing uses them: a click
+	// lands on what is on screen. See currentScrollbackBounds.
+	streamGliding   bool
+	streamDrawnRows int
+
 	// activityPhraseStart and activityPhraseEnd are the columns of the
 	// phrase in the activity row that was rendered last, for its highlight.
 	activityPhraseStart, activityPhraseEnd int
@@ -2346,8 +2353,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			viewY := msg.Y - yOff
 			if viewY >= 0 && viewY < vpHeight {
 				// Clear any previous selection on a new click.
-				// HandleMouseDown will set up new selection state.
-				if m.scrollList.HandleMouseDown(msg.X, viewY) {
+				// HandleMouseDown will set up new selection state. It
+				// runs with the viewport that is on screen, which
+				// during a layout animation is not the list's own.
+				var started bool
+				m.scrollList.atHeight(vpHeight, func() {
+					started = m.scrollList.HandleMouseDown(msg.X, viewY)
+				})
+				if started {
 					m.scrollList.autoScroll = false
 				}
 			}
@@ -2358,7 +2371,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		yOff, vpHeight := m.currentScrollbackBounds()
 		viewY := msg.Y - yOff
 		if viewY >= 0 && viewY < vpHeight {
-			m.scrollList.HandleMouseDrag(msg.X, viewY)
+			m.scrollList.atHeight(vpHeight, func() {
+				m.scrollList.HandleMouseDrag(msg.X, viewY)
+			})
 		}
 
 	// ── Mouse release: finalize selection and copy to clipboard ──────────────
@@ -2530,6 +2545,8 @@ func (m *AppModel) View() tea.View {
 	frame := root.Frame()
 	m.lastHeaderHeight = regionRows(frame, regionHeader)
 	m.scrollbackYOffset = m.lastHeaderHeight
+	m.streamDrawnRows = regionRows(frame, regionStream)
+	m.streamGliding = animate && m.streamDrawnRows != m.scrollList.height
 	m.inputYOffset = m.height
 	var anchors gfxAnchors
 	if frame != nil {
@@ -4465,9 +4482,15 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 // (running a fresh layout pass when dirty) and reuses the header height
 // measured by that pass — re-rendering the extension header on every mouse
 // motion event is needlessly expensive.
+//
+// While a layout animation runs, the transcript on screen has a height
+// between the one it had and the one that the scroll list already has. The
+// height returned is then the one on screen. Give it to ScrollList.atHeight
+// for the hit test, so that a click finds the line under the pointer.
 func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 	// Force a fresh layout if anything in Update() marked the state dirty;
 	// otherwise scrollList.height still reflects the previous frame.
+	recomputed := m.layoutDirty
 	if m.layoutDirty {
 		m.distributeHeight()
 		m.layoutDirty = false
@@ -4475,6 +4498,11 @@ func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 	yOffset = m.lastHeaderHeight
 	if m.scrollList != nil {
 		viewportHeight = m.scrollList.height
+		// A layout that this call solved again is not on screen yet, so
+		// the frame drawn last says nothing about it.
+		if m.streamGliding && !recomputed {
+			viewportHeight = m.streamDrawnRows
+		}
 	}
 	return yOffset, viewportHeight
 }

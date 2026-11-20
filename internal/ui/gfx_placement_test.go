@@ -575,3 +575,76 @@ func anchorsOf(m *AppModel, parts []string, inputPartIndex, scrollPartIndex int)
 	}
 	return a
 }
+
+// newDirectImageModel returns a model in a terminal that places images
+// directly on the screen, with a transcript of one line of text and then one
+// image. The image has id 7 and starts on the second row of the transcript.
+func newDirectImageModel(t *testing.T) *AppModel {
+	t.Helper()
+	const (
+		imageRows = 6
+		imageCols = 20
+	)
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+imageCols)+"\n", imageRows), "\n")
+	m.messages = []MessageItem{
+		NewStyledMessageItem("msg-1", "user", "", "hello"),
+		NewStyledMessageItem("preview-1", "user", "", blank).
+			WithDirectImage(imagepreview.Thumbnail{
+				ImageID:        7,
+				Cols:           imageCols,
+				Rows:           imageRows,
+				PixelWidth:     imageCols * 10,
+				PixelHeight:    imageRows * 20,
+				NeedsPlacement: true,
+			}),
+	}
+	m.refreshContent()
+	m.layoutDirty = true
+	return m
+}
+
+// TestViewAnchorsDirectImageToDrawnFrame checks the step that the other tests
+// here leave out. They give computeGfxPlacement the rows of the sections;
+// this one draws a frame and checks the row that View read from it. The
+// header makes the transcript start below the first row of the screen.
+func TestViewAnchorsDirectImageToDrawnFrame(t *testing.T) {
+	m := newDirectImageModel(t)
+	m.getHeader = func() *WidgetData { return &WidgetData{Text: "header\nsecond row"} }
+
+	_ = m.View()
+	headerRows := lipgloss.Height(m.chrome.header)
+	if headerRows < 2 {
+		t.Fatalf("header has %d rows, want at least 2", headerRows)
+	}
+
+	// The header takes the first rows, the "hello" message one more, so the
+	// image starts on the row after that. Screen rows are 1-based.
+	wantRow := headerRows + 1 + 1
+	want := xansi.CursorPosition(style.ContentOffset+1, wantRow)
+	if !strings.Contains(m.gfxPlacement, want) {
+		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, m.gfxPlacement, want)
+	}
+	if !strings.Contains(m.gfxPlacement, "i=7") {
+		t.Errorf("placement does not name image 7: %q", m.gfxPlacement)
+	}
+
+	// Without the header the same image is that many rows higher.
+	m.getHeader = nil
+	m.layoutDirty = true
+	_ = m.View()
+	want = xansi.CursorPosition(style.ContentOffset+1, wantRow-headerRows)
+	if !strings.Contains(m.gfxPlacement, want) {
+		t.Errorf("placement did not follow the transcript up to row %d\n got: %q", wantRow-headerRows, m.gfxPlacement)
+	}
+}

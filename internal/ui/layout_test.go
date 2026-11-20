@@ -292,3 +292,68 @@ func TestLayoutJumps(t *testing.T) {
 		}
 	})
 }
+
+// TestMouseHitTestFollowsTheDrawnTranscript checks a click on the transcript
+// while a layout animation runs. The transcript on screen then has more rows
+// than the scroll list, and while it follows the bottom those rows show other
+// lines than the list's own viewport does. The click must land on the line
+// that is under the pointer.
+func TestMouseHitTestFollowsTheDrawnTranscript(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	clock := &testClock{now: time.Unix(1000, 0)}
+	m.ui = bloom.New(bloom.WithClock(clock.Now), bloom.WithFPS(motionFPS))
+	fillTranscript(m)
+	m.layoutDirty = true
+	_ = m.View()
+	before := m.scrollList.height
+
+	// The last row of the transcript shows its last line, at rest and on
+	// every frame of the animation, because the list follows the bottom.
+	wantItem, wantLine := m.scrollList.getItemAndLineAtY(before - 1)
+	if wantItem < 0 {
+		t.Fatal("no line on the last row of the transcript at rest")
+	}
+
+	m.getWidgets = func(slot string) []WidgetData {
+		if slot != "above" {
+			return nil
+		}
+		return []WidgetData{{ID: "tall", Text: "w1\nw2\nw3\nw4\nw5\nw6"}}
+	}
+	m.layoutDirty = true
+	_ = m.View()
+	target := m.scrollList.height
+
+	rows := before
+	for range 40 {
+		clock.advance(layoutGlide / 20)
+		_ = m.View()
+		if rows = regionRows(m.ui.Frame(), regionStream); rows > target && rows < before {
+			break
+		}
+	}
+	if rows <= target || rows >= before {
+		t.Fatalf("no frame had the transcript between %d and %d rows", target, before)
+	}
+
+	if _, got := m.currentScrollbackBounds(); got != rows {
+		t.Fatalf("hit-test height = %d, want the %d rows on screen (the list has %d)", got, rows, target)
+	}
+
+	// A click on the last row that is drawn. It is below the list's own
+	// viewport, which has only the rows that the layout will settle on.
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 4, Y: rows - 1})
+	sel := m.scrollList.sel
+	if !sel.MouseDown {
+		t.Fatal("the click on the last drawn row of the transcript started no selection")
+	}
+	if sel.MouseDownItemIdx != wantItem || sel.MouseDownLineIdx != wantLine {
+		t.Fatalf("the click landed on item %d line %d, want item %d line %d (the line under the pointer)",
+			sel.MouseDownItemIdx, sel.MouseDownLineIdx, wantItem, wantLine)
+	}
+	if m.scrollList.height != target {
+		t.Fatalf("the hit test changed the height of the list: %d, want %d", m.scrollList.height, target)
+	}
+}
