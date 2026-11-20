@@ -422,15 +422,17 @@ func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		}
 	}
 
-	// Validate config against known model limits when metadata is available
-	if modelInfo != nil {
-		validateModelConfig(config, modelInfo)
-	}
-
 	// Apply per-model generation parameter defaults. Model-level params are
 	// only applied for fields where the user hasn't explicitly set a value
 	// via CLI flag or global config.
 	ApplyModelSettings(config, modelInfo)
+
+	// Validate config against known model limits when metadata is available.
+	// This runs after ApplyModelSettings so per-model settings can't restore
+	// sampling parameters the model rejects.
+	if modelInfo != nil {
+		validateModelConfig(config, modelInfo)
+	}
 	config.ThinkingLevel = ParseThinkingLevel(string(config.ThinkingLevel))
 	if !hasFactory && !IsValidThinkingLevelForModel(config.ThinkingLevel, lookupProvider, modelName) {
 		return nil, effortError("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))

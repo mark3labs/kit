@@ -3,6 +3,8 @@ package models
 import (
 	"context"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func samplingParams() (*float32, *float32, *int32) {
@@ -51,5 +53,27 @@ func TestCreateProviderDropsSamplingParamsForSonnet55(t *testing.T) {
 	}
 	if cfg.Temperature != nil || cfg.TopP != nil || cfg.TopK != nil {
 		t.Errorf("sampling params would be sent to claude-sonnet-5-5: temperature=%v top_p=%v top_k=%v", cfg.Temperature, cfg.TopP, cfg.TopK)
+	}
+}
+
+// TestCreateProviderDropsModelSettingsSamplingParamsForSonnet55 checks that
+// sampling parameters from a per-model modelSettings entry don't reach
+// claude-sonnet-5-5 either. modelSettings is applied inside CreateProvider,
+// so the clean-up has to run after it.
+func TestCreateProviderDropsModelSettingsSamplingParamsForSonnet55(t *testing.T) {
+	prev := globalRegistry.Load()
+	globalRegistry.Store(NewEmbeddedModelsRegistry())
+	t.Cleanup(func() { globalRegistry.Store(prev) })
+
+	v := viper.New()
+	v.Set("modelSettings", map[string]any{
+		"anthropic/claude-sonnet-5-5": map[string]any{"temperature": 0.3, "topP": 0.9, "topK": 40},
+	})
+	cfg := &ProviderConfig{ModelString: "anthropic/claude-sonnet-5-5", ProviderAPIKey: "test-key", ConfigStore: v}
+	if _, err := CreateProvider(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Temperature != nil || cfg.TopP != nil || cfg.TopK != nil {
+		t.Errorf("modelSettings sampling params would be sent to claude-sonnet-5-5: temperature=%v top_p=%v top_k=%v", cfg.Temperature, cfg.TopP, cfg.TopK)
 	}
 }
