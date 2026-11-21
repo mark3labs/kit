@@ -79,6 +79,24 @@ func TestSetSessionModeIsRejected(t *testing.T) {
 	}
 }
 
+// session/delete is not supported: the capability must be absent, and a
+// request must get "method not found", not a success that removes nothing.
+func TestDeleteSessionIsNotSupported(t *testing.T) {
+	a := NewAgent()
+	resp, err := a.Initialize(context.Background(), acp.InitializeRequest{ProtocolVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.AgentCapabilities.SessionCapabilities.Delete != nil {
+		t.Error("session delete capability is advertised, but DeleteSession is not implemented")
+	}
+	_, err = a.DeleteSession(context.Background(), acp.DeleteSessionRequest{SessionId: "s"})
+	var re *acp.RequestError
+	if !errors.As(err, &re) || re.Code != -32601 {
+		t.Fatalf("err = %v, want method not found (-32601)", err)
+	}
+}
+
 func TestSetSessionConfigOptionUnknownSession(t *testing.T) {
 	_, err := NewAgent().SetSessionConfigOption(context.Background(), acp.SetSessionConfigOptionRequest{
 		ValueId: &acp.SetSessionConfigOptionValueId{SessionId: "missing", ConfigId: "model", Value: "x/y"},
@@ -200,7 +218,7 @@ func TestHistoryUpdates(t *testing.T) {
 		t.Error("reused provider tool ID must map to a new ACP ID")
 	}
 	if updates[7].ToolCallUpdate.ToolCallId != second.ToolCallId ||
-		updates[7].ToolCallUpdate.Status == nil || *updates[7].ToolCallUpdate.Status != acp.ToolCallStatusFailed {
+		patchValue(updates[7].ToolCallUpdate.Status) != acp.ToolCallStatusFailed {
 		t.Errorf("second result = %+v", updates[7].ToolCallUpdate)
 	}
 }
@@ -482,7 +500,7 @@ func TestHistoryUpdatesPlanIDReused(t *testing.T) {
 		if u.ToolCall != nil {
 			call = true
 		}
-		if u.ToolCallUpdate != nil && u.ToolCallUpdate.Status != nil && *u.ToolCallUpdate.Status == acp.ToolCallStatusCompleted {
+		if u.ToolCallUpdate != nil && patchValue(u.ToolCallUpdate.Status) == acp.ToolCallStatusCompleted {
 			result = true
 		}
 	}

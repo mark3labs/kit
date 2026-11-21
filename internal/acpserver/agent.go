@@ -156,6 +156,7 @@ func (a *Agent) Initialize(_ context.Context, params acp.InitializeRequest) (acp
 				EmbeddedContext: true,
 				Image:           true,
 			},
+			// Delete is not set: Kit does not support session/delete.
 			SessionCapabilities: acp.SessionCapabilities{
 				Close:  &acp.SessionCloseCapabilities{},
 				List:   &acp.SessionListCapabilities{},
@@ -412,6 +413,14 @@ func (a *Agent) CloseSession(_ context.Context, params acp.CloseSessionRequest) 
 	return acp.CloseSessionResponse{}, nil
 }
 
+// DeleteSession rejects every request: Kit does not advertise the
+// sessionCapabilities.delete capability, so a client must not call
+// session/delete. Only the user removes a session file, with Kit's own
+// session commands.
+func (a *Agent) DeleteSession(_ context.Context, _ acp.DeleteSessionRequest) (acp.DeleteSessionResponse, error) {
+	return acp.DeleteSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionDelete)
+}
+
 // SetSessionConfigOption changes a session config option ("approval",
 // "model" or "thinking_level") and responds with the full, updated option
 // list.
@@ -515,7 +524,7 @@ func (a *Agent) subscribeEvents(ctx context.Context, sess *acpSession, sessionID
 				// The command ran in a client terminal: keep showing the
 				// terminal, and attach the text result as raw output.
 				opts = append(opts,
-					acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolTerminalRef(termID)}),
+					acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolTerminalRef(string(termID))}),
 					acp.WithUpdateRawOutput(map[string]any{"output": ev.Result}),
 				)
 			} else {
@@ -582,7 +591,7 @@ func sessionError(context string, err error) error {
 
 // resourceNotFound returns the ACP "resource not found" error (-32002).
 func resourceNotFound(msg string) *acp.RequestError {
-	return &acp.RequestError{Code: -32002, Message: "Resource not found", Data: msg}
+	return acp.NewRequestError(-32002, "Resource not found", msg)
 }
 
 // sessionTitle returns the display title of a persisted session.

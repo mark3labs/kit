@@ -95,7 +95,7 @@ func (t *clientTerminal) RunCommand(ctx context.Context, req kit.CommandRequest)
 		SessionId:       sid,
 		Command:         req.Argv[0],
 		Args:            req.Argv[1:],
-		OutputByteLimit: new(terminalOutputLimit),
+		OutputByteLimit: new(int64(terminalOutputLimit)),
 	}
 	if req.WorkDir != "" {
 		create.Cwd = new(req.WorkDir)
@@ -124,7 +124,7 @@ func (t *clientTerminal) RunCommand(ctx context.Context, req kit.CommandRequest)
 		t.sess.terminals[id] = termID
 		t.sess.mu.Unlock()
 		t.agent.sendUpdate(t.sess, acp.UpdateToolCall(id,
-			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolTerminalRef(termID)}),
+			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolTerminalRef(string(termID))}),
 		))
 	}
 
@@ -150,7 +150,9 @@ func (t *clientTerminal) RunCommand(ctx context.Context, req kit.CommandRequest)
 		res.TimedOut = true
 	} else {
 		if exit.ExitCode != nil {
-			res.ExitCode = *exit.ExitCode
+			// The exit code is 64 bits wide on the wire. Kit is released
+			// only for 64-bit targets, where int holds it.
+			res.ExitCode = int(*exit.ExitCode)
 		}
 		if exit.Signal != nil {
 			res.Signal = *exit.Signal

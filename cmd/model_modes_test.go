@@ -3,13 +3,19 @@ package cmd
 import "testing"
 
 func TestModelModeOptionsAreModelSpecific(t *testing.T) {
+	// The catalog can add a mode to a model, so the test does not count the
+	// modes. It makes sure that the known modes are there.
 	sol := modelModeOptions(nil, "openai/gpt-6.1-sol")
-	if len(sol) != 3 {
-		t.Fatalf("Sol modes = %#v, want 3 catalog modes", sol)
-	}
+	found := map[string]bool{}
 	for _, mode := range sol {
+		found[mode.Name] = true
 		if mode.Supported != (mode.Name == "ultrafast") {
 			t.Fatalf("unexpected Sol availability: %#v", mode)
+		}
+	}
+	for _, name := range []string{"fast", "pro", "ultrafast"} {
+		if !found[name] {
+			t.Fatalf("Sol modes = %#v, want the catalog mode %q", sol, name)
 		}
 	}
 	mini := modelModeOptions(nil, "openai/gpt-4.1-mini")

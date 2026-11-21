@@ -121,7 +121,7 @@ type fakeClient struct {
 	permissions []acp.RequestPermissionRequest
 	files       map[string]string
 	terminals   []acp.CreateTerminalRequest
-	released    []string
+	released    []acp.TerminalId
 }
 
 func (c *fakeClient) ReadTextFile(_ context.Context, p acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
@@ -162,15 +162,15 @@ func (c *fakeClient) CreateTerminal(_ context.Context, p acp.CreateTerminalReque
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.terminals = append(c.terminals, p)
-	return acp.CreateTerminalResponse{TerminalId: fmt.Sprintf("term-%d", len(c.terminals))}, nil
+	return acp.CreateTerminalResponse{TerminalId: acp.TerminalId(fmt.Sprintf("term-%d", len(c.terminals)))}, nil
 }
 
 func (c *fakeClient) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	return acp.WaitForTerminalExitResponse{ExitCode: new(0)}, nil
+	return acp.WaitForTerminalExitResponse{ExitCode: new(int64(0))}, nil
 }
 
 func (c *fakeClient) TerminalOutput(context.Context, acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	return acp.TerminalOutputResponse{Output: "hi from the editor terminal\n", ExitStatus: &acp.TerminalExitStatus{ExitCode: new(0)}}, nil
+	return acp.TerminalOutputResponse{Output: "hi from the editor terminal\n", ExitStatus: &acp.TerminalExitStatus{ExitCode: new(int64(0))}}, nil
 }
 
 func (c *fakeClient) KillTerminal(context.Context, acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
@@ -182,6 +182,16 @@ func (c *fakeClient) ReleaseTerminal(_ context.Context, p acp.ReleaseTerminalReq
 	defer c.mu.Unlock()
 	c.released = append(c.released, p.TerminalId)
 	return acp.ReleaseTerminalResponse{}, nil
+}
+
+// CreateElicitation rejects every request: the fake client does not advertise
+// the elicitation capability.
+func (c *fakeClient) CreateElicitation(context.Context, acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	return acp.CreateElicitationResponse{}, acp.NewMethodNotFound(acp.ClientMethodElicitationCreate)
+}
+
+func (c *fakeClient) CompleteElicitation(context.Context, acp.CompleteElicitationNotification) error {
+	return nil
 }
 
 func (c *fakeClient) snapshot() ([]acp.SessionUpdate, []acp.RequestPermissionRequest) {
@@ -285,6 +295,13 @@ func (h *harness) prompt(t *testing.T, sid acp.SessionId, text string) acp.Promp
 	return resp
 }
 
+// patchValue returns the value that a patch field sets, or the zero value
+// when the field is unset or null.
+func patchValue[T any](p acp.Patch[T]) T {
+	v, _ := p.Value()
+	return v
+}
+
 // toolStatuses returns the status sequence of each tool call, in order.
 func toolStatuses(updates []acp.SessionUpdate) map[acp.ToolCallId][]acp.ToolCallStatus {
 	out := map[acp.ToolCallId][]acp.ToolCallStatus{}
@@ -292,8 +309,10 @@ func toolStatuses(updates []acp.SessionUpdate) map[acp.ToolCallId][]acp.ToolCall
 		switch {
 		case u.ToolCall != nil:
 			out[u.ToolCall.ToolCallId] = append(out[u.ToolCall.ToolCallId], u.ToolCall.Status)
-		case u.ToolCallUpdate != nil && u.ToolCallUpdate.Status != nil:
-			out[u.ToolCallUpdate.ToolCallId] = append(out[u.ToolCallUpdate.ToolCallId], *u.ToolCallUpdate.Status)
+		case u.ToolCallUpdate != nil:
+			if status, ok := u.ToolCallUpdate.Status.Value(); ok {
+				out[u.ToolCallUpdate.ToolCallId] = append(out[u.ToolCallUpdate.ToolCallId], status)
+			}
 		}
 	}
 	return out
@@ -326,8 +345,8 @@ func TestEndToEndPermissionsClientFSTerminalAndPlan(t *testing.T) {
 	// Permissions: write and shell ask; plan and read do not.
 	var asked []string
 	for _, p := range perms {
-		if p.ToolCall.Title != nil {
-			asked = append(asked, *p.ToolCall.Title)
+		if title, ok := p.ToolCall.Title.Value(); ok {
+			asked = append(asked, title)
 		}
 		if len(p.Options) != 4 {
 			t.Errorf("permission options = %d, want 4", len(p.Options))
@@ -367,7 +386,7 @@ func TestEndToEndPermissionsClientFSTerminalAndPlan(t *testing.T) {
 	var embedded bool
 	for _, u := range updates {
 		if u.ToolCallUpdate != nil {
-			for _, c := range u.ToolCallUpdate.Content {
+			for _, c := range patchValue(u.ToolCallUpdate.Content) {
 				if c.Terminal != nil && c.Terminal.TerminalId == "term-1" {
 					embedded = true
 				}
@@ -472,7 +491,7 @@ func TestEndToEndApprovalModes(t *testing.T) {
 
 	h.prompt(t, sid, "go")
 	_, perms := h.client.snapshot()
-	if len(perms) != 1 || perms[0].ToolCall.Title == nil || !strings.HasPrefix(*perms[0].ToolCall.Title, "shell") {
+	if len(perms) != 1 || !strings.HasPrefix(patchValue(perms[0].ToolCall.Title), "shell") {
 		t.Errorf("auto_edit: permission requests = %d, want only the shell", len(perms))
 	}
 	if h.client.files[filepath.Join(h.cwd, "a.txt")] != "a" {

@@ -1,6 +1,7 @@
 package acpserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -102,18 +103,21 @@ func (a *Agent) checkPermission(sess *acpSession, id acp.ToolCallId, toolName, t
 	}
 
 	args := parseToolArgs(toolArgs)
-	title := toolTitle(toolName, args)
-	kind := acpToolKind(toolName)
-	status := acp.ToolCallStatusPending
 	update := acp.ToolCallUpdate{
 		ToolCallId: id,
-		Title:      &title,
-		Kind:       &kind,
-		Status:     &status,
-		Locations:  toolLocations(toolName, args, sess.cwd),
+		Title:      acp.PatchSet(toolTitle(toolName, args)),
+		Kind:       acp.PatchSet(acpToolKind(toolName)),
+		Status:     acp.PatchSet(acp.ToolCallStatusPending),
+	}
+	// A patch that holds an empty list is sent as [], which clears the list
+	// that the client holds. Set only the fields that have content.
+	if locs := toolLocations(toolName, args, sess.cwd); len(locs) > 0 {
+		update.Locations = acp.PatchSet(locs)
 	}
 	if args != nil {
-		update.RawInput = args
+		if raw, err := json.Marshal(args); err == nil {
+			update.RawInput = acp.PatchSet(json.RawMessage(raw))
+		}
 	}
 
 	ctx := sess.context()

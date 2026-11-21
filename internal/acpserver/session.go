@@ -38,7 +38,7 @@ type acpSession struct {
 	alwaysReject map[string]bool
 	// terminals maps a tool call to the client terminal it runs in, so the
 	// final tool call update keeps showing the terminal.
-	terminals map[acp.ToolCallId]string
+	terminals map[acp.ToolCallId]acp.TerminalId
 }
 
 // id returns the ACP session ID.
@@ -120,7 +120,7 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 		approval:     opts.approval,
 		alwaysAllow:  map[string]bool{},
 		alwaysReject: map[string]bool{},
-		terminals:    map[acp.ToolCallId]string{},
+		terminals:    map[acp.ToolCallId]acp.TerminalId{},
 	}
 	if sess.approval == "" {
 		sess.approval = approvalAsk
