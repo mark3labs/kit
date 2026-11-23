@@ -30,7 +30,10 @@ fi
 sed -i -E "s|(vendorHash[[:space:]]*=[[:space:]]*\")[^\"]*(\"[[:space:]]*;)|\1${FAKE_HASH}\2|" "$FLAKE_NIX"
 
 log="$(nix build --no-link "$@" .#default 2>&1 || true)"
-hash="$(grep -oE 'got:[[:space:]]+sha256-[A-Za-z0-9+/=]+' <<<"$log" | head -1 | awk '{print $2}')"
+# `|| true` keeps an unmatched grep from tripping pipefail: when the build
+# fails before Nix compares the hash (a Go older than go.mod asks for, say),
+# there is no `got:` line, and the check below has to print the build output.
+hash="$(grep -oE 'got:[[:space:]]+sha256-[A-Za-z0-9+/=]+' <<<"$log" | head -1 | awk '{print $2}' || true)"
 if [[ -z "$hash" ]]; then
   echo "error: could not read the expected module hash from the build output:" >&2
   echo "$log" | tail -20 >&2
