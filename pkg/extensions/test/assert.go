@@ -111,6 +111,16 @@ func AssertPrintInfo(t *testing.T, harness *Harness, expected string) {
 	t.Errorf("expected info message %q, but it was not found in PrintInfos: %v", expected, infos)
 }
 
+// AssertToast fails the test if the expected toast was not shown.
+func AssertToast(t *testing.T, harness *Harness, expected string) {
+	t.Helper()
+	toasts := harness.Context().GetToasts()
+	if slices.Contains(toasts, expected) {
+		return
+	}
+	t.Errorf("expected toast %q, but it was not found in Toasts: %v", expected, toasts)
+}
+
 // AssertPrintError fails the test if the expected error message was not printed.
 func AssertPrintError(t *testing.T, harness *Harness, expected string) {
 	t.Helper()

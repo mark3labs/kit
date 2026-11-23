@@ -218,6 +218,7 @@ func Init(api ext.API) {
 	api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
 		ctx.PrintInfo("Information message")
 		ctx.PrintError("Error message")
+		ctx.Toast("Toast message")
 	})
 }
 `
@@ -232,6 +233,7 @@ func Init(api ext.API) {
 
 	AssertPrintInfo(t, harness, "Information message")
 	AssertPrintError(t, harness, "Error message")
+	AssertToast(t, harness, "Toast message")
 }
 
 func TestHarness_EmitJSON(t *testing.T) {

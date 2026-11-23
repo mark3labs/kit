@@ -195,6 +195,7 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 		ec.Print = func(text string) { log.Debug("extension: print", "text", text) }
 		ec.PrintInfo = func(text string) { log.Info("extension: info", "text", text) }
 		ec.PrintError = func(text string) { log.Error("extension: error", "text", text) }
+		ec.Toast = func(text string) { log.Info("extension: toast", "text", text) }
 		ec.PrintBlock = func(opts extensions.PrintBlockOpts) {
 			log.Info("extension: block", "subtitle", opts.Subtitle, "text", opts.Text)
 		}

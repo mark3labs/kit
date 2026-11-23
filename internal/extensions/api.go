@@ -65,6 +65,18 @@ type Context struct {
 	// Use this for error messages or warnings.
 	PrintError func(string)
 
+	// Toast shows a short notice in a corner of the screen for a moment. It
+	// adds nothing to the conversation, so it suits a confirmation that the
+	// user does not have to read again, such as "Saved" or "Plan mode ON".
+	// The notice is one line: line breaks become spaces and long text is cut.
+	// The same text again keeps the notice up, it does not add a second one.
+	// In non-interactive mode it is written to stderr as an info message.
+	//
+	// Example:
+	//
+	//   ctx.Toast("Copied 3 files")
+	Toast func(string)
+
 	// PrintBlock outputs text as a custom styled block with caller-chosen
 	// border color and optional subtitle. Example:
 	//

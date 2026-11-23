@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 
 	"github.com/mark3labs/kit/internal/ui/style"
@@ -28,6 +29,11 @@ import (
 // bloom.Root, which lays them out, draws modal surfaces over them as layers
 // and applies effects to cells. This file holds the animation state and the
 // effects; layout.go holds the layout tree.
+//
+// The animated values here do not schedule their own frames. Update sets a
+// target on a value, and the shared frame clock moves every value that has
+// one (see frameclock.go and advanceFrame). So one loop draws the frames of a
+// dialog, the dimming behind it and the spinner, where each had its own.
 //
 // Two rules keep the effects safe:
 //
@@ -53,8 +59,20 @@ const (
 	// scrimAmount is how far the dimmed screen moves toward the background.
 	scrimAmount = 0.45
 
-	// layoutGlide is how long a layout section takes to move or resize.
+	// surfaceLeave is how long a modal surface takes to go. It goes faster
+	// than it came: the user has finished with it.
+	surfaceLeave = 100 * time.Millisecond
+
+	// layoutGlide is about how long a layout section takes to move or resize.
+	// The section moves as a spring, see layoutSpring, so this is the time
+	// after which it is within a small part of a row of its place.
 	layoutGlide = 180 * time.Millisecond
+
+	// layoutSpring is the angular frequency of the spring that moves a layout
+	// section. Its damping is 1, so a section never goes past its place. A
+	// spring keeps its speed when its target changes on the way: a composer
+	// that grows one more row while it grows does not stop and start again.
+	layoutSpring = 30.0
 
 	// shakeDuration is how long the composer shakes after rejected input.
 	shakeDuration = 380 * time.Millisecond
@@ -62,6 +80,35 @@ const (
 	// toastHold is how long a toast stays up; toastFade is its transition.
 	toastHold = 1600 * time.Millisecond
 	toastFade = 160 * time.Millisecond
+
+	// paneFade is how long the transcript of another pane takes to appear,
+	// and paneShift how many columns it travels sideways on the way.
+	paneFade  = 160 * time.Millisecond
+	paneShift = 4
+
+	// swapFade is how long the composer section takes to appear when what
+	// it holds changes: the composer, a prompt, or the bar of a child pane.
+	swapFade = 140 * time.Millisecond
+
+	// entryFade is how long a new item of the transcript takes to appear.
+	entryFade = 180 * time.Millisecond
+
+	// entryMax is the most new items that one Update can add for them to
+	// fade in. More than that is not a conversation that moves on: it is a
+	// session that loads, and it appears at once.
+	entryMax = 3
+
+	// scrollbarFade is how long the scrollbar of the transcript takes to
+	// appear or go.
+	scrollbarFade = 140 * time.Millisecond
+
+	// toastMax is the most toasts on screen at one time. The oldest one goes
+	// to make room for one more.
+	toastMax = 4
+
+	// toastMaxWidth is the most columns of text in a toast. Longer text is
+	// cut: a notice that needs more room belongs in the transcript.
+	toastMaxWidth = 56
 
 	// shimmerSweep is how long the highlight takes to cross the activity
 	// phrase, and shimmerRest the pause before it crosses again.
@@ -71,8 +118,10 @@ const (
 	// shimmerWidth is the width of the highlight band in columns.
 	shimmerWidth = 8
 
-	// motionFPS is the frame rate of transitions and layout animation. It is
-	// Bubble Tea's own maximum by default, so no frame is drawn for nothing.
+	// motionFPS is the frame rate of layout animation, which the bloom root
+	// schedules. It is Bubble Tea's own maximum by default, so no frame is
+	// drawn for nothing. Transitions run on the frame clock, at the same
+	// rate: see frameClockFastFPS.
 	motionFPS = 60
 )
 
@@ -106,6 +155,36 @@ type surfaceSpec struct {
 	// that finds what the mouse points at from where its box belongs needs
 	// it: a click while the box was a row lower would land on another line.
 	steady bool
+
+	// tail lets the surface glide from one height to another, such as when
+	// a filter leaves a list with fewer rows. It is the number of rows at
+	// the foot of the box that stay whole on the way (see boxAtHeight). A
+	// surface with no tail takes each new size at once.
+	tail int
+}
+
+// surfaceID names the layer of one modal surface, by its place in
+// surfaceSpecs. Layout animation follows the layer by it.
+type surfaceID int
+
+// boxRegion draws a modal box in a layer whose height is changing. It has the
+// size of the box, and at each height on the way it draws the box at that
+// height.
+type boxRegion struct {
+	bloom.NoView
+
+	box  string
+	tail int
+}
+
+// Measure implements bloom.Measurer.
+func (b boxRegion) Measure(bloom.Size) bloom.Size {
+	return bloom.Size{W: lipgloss.Width(b.box), H: sectionRows(b.box)}
+}
+
+// Layout implements bloom.Layouter.
+func (b boxRegion) Layout(ctx bloom.Context) bloom.Child {
+	return region(boxAtHeight(b.box, ctx.Height, b.tail))
 }
 
 // surfaceCount is the number of modal surfaces.
@@ -115,7 +194,8 @@ const surfaceCount = 13
 // an earlier one.
 var surfaceSpecs = [surfaceCount]surfaceSpec{
 	// Slash and @ autocomplete popup. It completes what the user types, so
-	// the composer stays at full brightness behind it.
+	// the composer stays at full brightness behind it, and it sits on the
+	// composer: the eye is on the text that it completes.
 	{
 		open: func(m *AppModel) bool {
 			ic, ok := m.input.(*InputComponent)
@@ -123,13 +203,15 @@ var surfaceSpecs = [surfaceCount]surfaceSpec{
 		},
 		render: func(m *AppModel) (string, string) {
 			ic, _ := m.input.(*InputComponent)
-			return ic.RenderPopupBox(m.width, m.height), ""
+			return ic.RenderPopupBox(m.width, m.height), anchorAboveInput
 		},
+		tail: popupListTail,
 	},
 	{
 		open:   func(m *AppModel) bool { return m.state == stateModelSelector && m.modelSelector != nil },
 		render: func(m *AppModel) (string, string) { return m.modelSelector.RenderOverlay(), "" },
 		scrim:  true,
+		tail:   popupListTail,
 	},
 	{
 		open: func(m *AppModel) bool {
@@ -137,27 +219,32 @@ var surfaceSpecs = [surfaceCount]surfaceSpec{
 		},
 		render: func(m *AppModel) (string, string) { return m.thinkingLevelSelector.RenderOverlay(), "" },
 		scrim:  true,
+		tail:   popupListTail,
 	},
 	{
 		open:   func(m *AppModel) bool { return m.state == stateModelModeSelector && m.modelModeSelector != nil },
 		render: func(m *AppModel) (string, string) { return m.modelModeSelector.RenderOverlay(), "" },
 		scrim:  true,
+		tail:   popupListTail,
 	},
 	{
 		open:   func(m *AppModel) bool { return m.killSubagentOpen() },
 		render: func(m *AppModel) (string, string) { return m.killSubagentSelector.RenderOverlay(), "" },
 		scrim:  true,
+		tail:   popupListTail,
 	},
 	{
 		open:   func(m *AppModel) bool { return m.subagentRunPickerOpen() },
 		render: func(m *AppModel) (string, string) { return m.subagentRunPicker.RenderOverlay(), "" },
 		scrim:  true,
+		tail:   popupListTail,
 	},
 	// The theme selector previews each theme on the conversation behind it,
 	// so that conversation must keep its true colours.
 	{
 		open:   func(m *AppModel) bool { return m.state == stateThemeSelector && m.themeSelector != nil },
 		render: func(m *AppModel) (string, string) { return m.themeSelector.RenderOverlay(), "" },
+		tail:   popupListTail,
 	},
 	{
 		open:   func(m *AppModel) bool { return m.state == stateProviderConnect && m.providerConnect != nil },
@@ -211,6 +298,30 @@ type surfaceAnim struct {
 	anchor string
 }
 
+// toastID names one toast, for the timer that takes it down and for the
+// layout animation that closes the gap it leaves.
+type toastID uint64
+
+// toast is one notice in the corner of the screen.
+type toast struct {
+	id   toastID
+	text string
+
+	// key names what the toast is about. A notice with the key of a toast
+	// that is up takes the place of its text: see showToastFor.
+	key string
+
+	// shown runs from 0, out of sight, to 1, in its place.
+	shown anim.Value
+
+	// timer is the number of the timer that takes the toast down. A toast
+	// that is shown again gets a new timer, and the old one then does nothing.
+	timer uint64
+
+	// leaving is true from the moment its time is up.
+	leaving bool
+}
+
 // motionState is the animation state that AppModel keeps between frames.
 type motionState struct {
 	surfaces [surfaceCount]surfaceAnim
@@ -224,31 +335,95 @@ type motionState struct {
 	// shake runs from 0 to 1 while the composer shakes, and rests at 1.
 	shake anim.Value
 
-	// toast is the notice in the corner of the screen. With motion on it is
-	// shown and hidden by the presence. With motion off toastStill is true
-	// while it is up, and the timer of toast number toastGen takes it down.
-	toast      anim.Presence
-	toastText  string
-	toastStill bool
-	toastGen   uint64
+	// bar is how far the scrollbar of the transcript is shown, from 0 to 1.
+	// barOn is the state it was last seen in: see syncScrollbar.
+	bar   anim.Value
+	barOn bool
 
-	// anims are all of the values above, for anim.Update.
-	anims []anim.Animation
+	// pane runs from 0 to 1 while the transcript of another pane appears,
+	// and rests at 1. paneFrom is the side that the transcript comes from:
+	// 1 for the right, -1 for the left.
+	pane     anim.Value
+	paneFrom int
+
+	// swap runs from 0 to 1 while the composer section appears with new
+	// content, and rests at 1. inputKind is what the section held when it
+	// was last seen: see syncInputKind.
+	swap      anim.Value
+	inputKind any
+
+	// entries are the items of the transcript that are new, while they
+	// fade in.
+	entries []*entry
+
+	// toasts are the notices in the corner of the screen, the oldest first.
+	toasts   []*toast
+	toastSeq uint64
+
+	// pending are the commands of the toasts that notify showed during the
+	// Update in hand. Update sends them out with its own.
+	pending []tea.Cmd
+
+	// now is the clock that the values run on. Tests replace it.
+	now func() time.Time
 }
 
 // newMotionState returns the animation state at rest.
 func newMotionState() *motionState {
 	fxs := &motionState{
-		scrim: anim.NewValue(0, anim.Duration(scrimFade), anim.FPS(motionFPS)),
-		shake: anim.NewValue(1, anim.Duration(shakeDuration), anim.Ease(anim.Linear), anim.FPS(motionFPS)),
-		toast: anim.NewPresence(anim.Duration(toastFade), anim.FPS(motionFPS)),
+		scrim: anim.NewValue(0),
+		shake: anim.NewValue(1),
+		bar:   anim.NewValue(0),
+		pane:  anim.NewValue(1),
+		swap:  anim.NewValue(1),
+		now:   time.Now,
 	}
-	fxs.anims = append(fxs.anims, &fxs.scrim, &fxs.shake, &fxs.toast)
 	for i := range fxs.surfaces {
-		fxs.surfaces[i].shown = anim.NewValue(0, anim.Duration(surfaceFade), anim.FPS(motionFPS))
-		fxs.anims = append(fxs.anims, &fxs.surfaces[i].shown)
+		fxs.surfaces[i].shown = anim.NewValue(0)
 	}
 	return fxs
+}
+
+// each calls fn with every animated value.
+func (fxs *motionState) each(fn func(v *anim.Value)) {
+	fn(&fxs.scrim)
+	fn(&fxs.shake)
+	fn(&fxs.bar)
+	fn(&fxs.pane)
+	fn(&fxs.swap)
+	for _, e := range fxs.entries {
+		fn(&e.shown)
+	}
+	for i := range fxs.surfaces {
+		fn(&fxs.surfaces[i].shown)
+	}
+	for _, t := range fxs.toasts {
+		fn(&t.shown)
+	}
+}
+
+// move sends v to target over d, as an animation or at once. It schedules
+// nothing: the frame clock moves the value, and Update wakes the clock after
+// each message.
+//
+// A value keeps the duration that it was made with, so a new value takes its
+// place, at the same address, and starts from where the old one was.
+func (fxs *motionState) move(v *anim.Value, target float64, d time.Duration, animate bool, opts ...anim.Option) {
+	if !animate {
+		v.Set(target)
+		return
+	}
+	*v = anim.NewValue(v.Float(), append([]anim.Option{anim.Duration(d)}, opts...)...)
+	v.SetTarget(target, fxs.now())
+}
+
+// advance moves every value to where it is at this time, and lets go of the
+// toasts that have gone.
+func (fxs *motionState) advance() {
+	now := fxs.now()
+	fxs.each(func(v *anim.Value) { v.Advance(now) })
+	fxs.pruneToasts()
+	fxs.pruneEntries()
 }
 
 // fxState returns the animation state, which it makes on first use. Tests
@@ -344,14 +519,14 @@ func (m *AppModel) syncRootColors() {
 // --------------------------------------------------------------------------
 
 // syncSurfaces brings the animation state in step with which surfaces are
-// open, and returns the commands that run the transitions it started.
+// open, and starts the transitions of those that changed.
 //
-// Update calls it with animate set after each message. View calls it too,
-// without animate, for the surfaces that changed with no Update in between;
-// View cannot return a command, so those jump to their end state.
-func (m *AppModel) syncSurfaces(animate bool) tea.Cmd {
+// Update calls it with animate set after each message, and then wakes the
+// frame clock. View calls it too, without animate, for the surfaces that
+// changed with no Update in between: nothing would wake the clock for those,
+// so they jump to their end state.
+func (m *AppModel) syncSurfaces(animate bool) {
 	fxs := m.fxState()
-	var cmds []tea.Cmd
 	scrim := false
 	for i := range surfaceSpecs {
 		spec, a := &surfaceSpecs[i], &fxs.surfaces[i]
@@ -363,40 +538,32 @@ func (m *AppModel) syncSurfaces(animate bool) tea.Cmd {
 			continue
 		}
 		a.open = open
-		cmds = append(cmds, moveValue(&a.shown, open, animate && !spec.still))
+		// A surface goes faster than it came.
+		d := surfaceLeave
+		if open {
+			d = surfaceFade
+		}
+		fxs.move(&a.shown, onOff(open), d, animate && !spec.still)
 	}
 	if scrim != fxs.scrimOn {
 		fxs.scrimOn = scrim
-		cmds = append(cmds, moveValue(&fxs.scrim, scrim, animate))
+		fxs.move(&fxs.scrim, onOff(scrim), scrimFade, animate)
 	}
-	return tea.Batch(cmds...)
 }
 
-// moveValue sends v to 1 when on and to 0 when not, as an animation or at
-// once.
-func moveValue(v *anim.Value, on, animate bool) tea.Cmd {
-	target := 0.0
+// onOff returns the target of a value that is 1 when on and 0 when not.
+func onOff(on bool) float64 {
 	if on {
-		target = 1
+		return 1
 	}
-	if animate {
-		return v.To(target)
-	}
-	v.Set(target)
-	return nil
-}
-
-// updateMotion passes msg to every animation and returns their commands. Each
-// animation ignores the messages that are not its own.
-func (m *AppModel) updateMotion(msg tea.Msg) tea.Cmd {
-	return anim.Update(msg, m.fxState().anims...)
+	return 0
 }
 
 // bloomPackage is the import path that every bloom package starts with.
 const bloomPackage = "bloomfx.dev/bloom"
 
-// isMotionMsg reports whether msg belongs to bloom: an animation frame, a
-// layout animation tick, or one of its timers.
+// isMotionMsg reports whether msg belongs to bloom: a layout animation tick,
+// or one of its timers.
 //
 // Some of those types are not exported, so they are known by the package
 // that declares them. They arrive up to 60 times a second while something
@@ -430,13 +597,11 @@ type motionSettledMsg struct{}
 // right for an event and wrong for an animation frame: 60 frames a second
 // would undo the coalescing that keeps a long response cheap to draw.
 func (m *AppModel) updateMotionMsg(msg tea.Msg) tea.Cmd {
-	fxs := m.fxState()
-	moving := fxs.animating()
-	return tea.Batch(m.root().Update(msg), m.updateMotion(msg), fxs.settled(moving))
+	return m.root().Update(msg)
 }
 
 // settled returns the command that sends motionSettledMsg, if a transition
-// was moving before the message in hand and none is moving now.
+// was moving before the frame in hand and none is moving now.
 func (fxs *motionState) settled(moving bool) tea.Cmd {
 	if !moving || fxs.animating() {
 		return nil
@@ -444,17 +609,12 @@ func (fxs *motionState) settled(moving bool) tea.Cmd {
 	return func() tea.Msg { return motionSettledMsg{} }
 }
 
-// animating reports whether a transition or feedback effect is running.
+// animating reports whether a transition or feedback effect is running. The
+// frame clock runs fast for as long as it is.
 func (fxs *motionState) animating() bool {
-	if fxs.scrim.Animating() || fxs.shake.Animating() || fxs.toast.Animating() {
-		return true
-	}
-	for i := range fxs.surfaces {
-		if fxs.surfaces[i].shown.Animating() {
-			return true
-		}
-	}
-	return false
+	moving := false
+	fxs.each(func(v *anim.Value) { moving = moving || v.Animating() })
+	return moving
 }
 
 // surfacesVisible reports whether a modal surface is drawn, open or on its
@@ -473,11 +633,12 @@ func (m *AppModel) surfacesVisible() bool {
 }
 
 // surfaceLayers returns a layer for each modal surface on screen, in z-order,
-// and how far the screen beneath them is dimmed.
-func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
+// and how far the screen beneath them is dimmed. With glide set, a surface
+// that has a tail glides from one height to another.
+func (m *AppModel) surfaceLayers(glide bool) (layers []bloom.LayerNode, scrim float64) {
 	// A surface that changed without an Update in between has no transition
 	// to run; put it in its end state.
-	_ = m.syncSurfaces(false)
+	m.syncSurfaces(false)
 
 	fxs := m.fxState()
 	fg, bg := fxColors()
@@ -491,14 +652,37 @@ func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
 		if !a.open && t <= 0 && !a.shown.Animating() {
 			a.box = "" // gone: let the box go
 		}
-		rect, ok := overlayRect(a.box, a.anchor, m.width, m.height)
-		if !ok {
+		if strings.TrimSpace(a.box) == "" {
 			continue
 		}
-		layer := bloom.Layer(region(a.box)).Place(rect)
+		// A surface that is still or steady keeps the place that its own
+		// code works out, so it does not glide.
+		resize := glide && spec.tail > 0 && !spec.still && !spec.steady
+		var box bloom.Child = region(a.box)
+		if resize {
+			box = boxRegion{box: a.box, tail: spec.tail}
+		}
+		layer := bloom.Layer(box)
+		if a.anchor == anchorAboveInput {
+			// Against the composer, wherever the layout put it in this
+			// frame. A box with no room above the composer goes below it.
+			layer = layer.AnchorTo(regionInput, bloom.Top)
+		} else {
+			rect, ok := overlayRect(a.box, a.anchor, m.width, m.height)
+			if !ok {
+				continue
+			}
+			layer = layer.Place(rect)
+		}
+		if resize {
+			layer = layer.ID(surfaceID(i)).Animate(anim.Spring(layoutSpring, 1))
+		}
 		switch {
 		case t >= 1:
-		case spec.steady:
+		case spec.steady || !a.open:
+			// A surface that goes fades where it is. It does not travel back
+			// down: the rise says where a dialog came from, and a dialog that
+			// the user closed has nowhere to go to.
 			layer = layer.Transition(t, fadeIn{Fg: fg, From: bg})
 		default:
 			layer = layer.Transition(t, fadeIn{Fg: fg, From: bg}, rise{Rows: surfaceRise})
@@ -515,72 +699,208 @@ func (m *AppModel) surfaceLayers() (layers []bloom.LayerNode, scrim float64) {
 }
 
 // --------------------------------------------------------------------------
+// Scrollbar
+// --------------------------------------------------------------------------
+
+// syncScrollbar brings the scrollbar in step with the transcript: it is shown
+// while the user has scrolled the transcript away from its end. A transcript
+// that follows the conversation has no scrollbar, because its place is known
+// and its last column then stays free for the text.
+//
+// The test is whether the transcript follows, not whether its last line is in
+// view. A section that grows below the transcript hides its last lines for a
+// moment, and the user did not scroll then.
+//
+// Update calls it with animate set after each message, as it does
+// syncSurfaces. View calls it without, for a change that no Update saw.
+func (m *AppModel) syncScrollbar(animate bool) {
+	fxs := m.fxState()
+	on := m.scrollList != nil && m.scrollList.height > 0 && !m.scrollList.autoScroll
+	if on == fxs.barOn {
+		return
+	}
+	fxs.barOn = on
+	fxs.move(&fxs.bar, onOff(on), scrollbarFade, animate)
+}
+
+// withScrollbar returns the transcript with its scrollbar, when it has one.
+//
+// The scrollbar is a layer over the last column of the transcript. It takes
+// no column from the text: only the cells of its thumb cover what is beneath
+// them. It shows where the view is and takes no mouse events; the wheel and
+// the keys scroll.
+func (m *AppModel) withScrollbar(stream bloom.Child) bloom.Child {
+	m.syncScrollbar(false)
+	t := min(max(m.fxState().bar.Float(), 0), 1)
+	if t <= 0 || m.scrollList == nil {
+		return stream
+	}
+	total, visible, offset := m.scrollList.scrollExtent()
+	if total <= visible {
+		return stream
+	}
+	thumb := lipgloss.NewStyle().Foreground(style.GetTheme().Muted)
+	bar := bloom.Scrollbar(total, visible, offset).Style(bloom.ScrollbarStyle{ThumbStyle: thumb})
+	// The layer is as tall as the transcript: its height is cut to the
+	// overlay that it is in. It is transparent, so its track hides nothing.
+	layer := bloom.Layer(bar).
+		Anchor(bloom.End, bloom.Start).
+		Size(1, layoutUnbounded).
+		Transparent()
+	if t < 1 {
+		fg, bg := fxColors()
+		layer = layer.Transition(t, fadeIn{Fg: fg, From: bg})
+	}
+	return bloom.Overlay(stream, layer)
+}
+
+// --------------------------------------------------------------------------
 // Toast
 // --------------------------------------------------------------------------
 
-// toastExpiredMsg says that the time of a toast shown with motion off is up.
-// gen is the number of that toast: a toast that has been replaced since then
-// is not taken down by the timer of the one before it.
-type toastExpiredMsg struct{ gen uint64 }
+// toastExpiredMsg says that the time of a toast is up. timer is the number of
+// the timer that sent it: a toast that was shown again since then has a new
+// timer, and is not taken down by the one before it.
+type toastExpiredMsg struct {
+	id    toastID
+	timer uint64
+}
 
 // showToast puts a short notice in the corner of the screen for a moment. It
 // returns the command that takes it down again.
 //
-// With motion on, a presence slides the toast in and out. With motion off no
-// animation runs at all: the toast is there on the next frame, and one timer
-// takes it down.
+// Toasts stack: a new one goes below those that are up. A notice that says
+// what a toast on screen says does not add one, it keeps that toast up for
+// longer, so a key that the user holds down does not fill the corner.
+//
+// With motion on a toast slides in and out. With motion off it is there on
+// the next frame and gone when its time is up. One timer takes it down in
+// both cases.
 func (m *AppModel) showToast(text string) tea.Cmd {
-	fxs := m.fxState()
-	fxs.toastText = text
-	fxs.toastGen++
-
-	// A new presence, in the same place: the hide timer of the toast before
-	// it then belongs to nothing, and cannot hide this one early.
-	fxs.toast = anim.NewPresence(anim.Duration(toastFade), anim.FPS(motionFPS))
-
-	if !m.motionOn() {
-		fxs.toastStill = true
-		gen := fxs.toastGen
-		return tea.Tick(toastHold, func(time.Time) tea.Msg { return toastExpiredMsg{gen: gen} })
-	}
-	fxs.toastStill = false
-	return fxs.toast.ShowFor(toastHold)
+	return m.showToastFor(text, text)
 }
 
-// expireToast takes down the toast that msg is the timer of, if that toast
-// is still the one on screen.
-func (fxs *motionState) expireToast(msg toastExpiredMsg) {
-	if msg.gen == fxs.toastGen {
-		fxs.toastStill = false
+// showToastFor is showToast for a notice about one thing that changes, such
+// as the thinking level. key names the thing. While a toast with that key is
+// up, a new notice takes the place of its text, so a user who steps through
+// five levels sees one toast that changes, not five.
+func (m *AppModel) showToastFor(key, text string) tea.Cmd {
+	fxs := m.fxState()
+	// A toast is one row. It does not wrap, and it leaves the transcript
+	// some room beside it.
+	text = strings.Join(strings.Fields(text), " ")
+	text = ansi.Truncate(text, max(min(toastMaxWidth, m.width-8), 8), "…")
+
+	var t *toast
+	for _, up := range fxs.toasts {
+		if up.key == key {
+			t = up
+		}
 	}
+	if t != nil {
+		t.text, t.leaving = text, false
+	} else {
+		fxs.toastSeq++
+		t = &toast{id: toastID(fxs.toastSeq), key: key, text: text, shown: anim.NewValue(0)}
+		fxs.toasts = append(fxs.toasts, t)
+		if over := len(fxs.toasts) - toastMax; over > 0 {
+			fxs.toasts = fxs.toasts[over:]
+		}
+	}
+	fxs.move(&t.shown, 1, toastFade, m.motionOn())
+
+	t.timer++
+	expired := toastExpiredMsg{id: t.id, timer: t.timer}
+	return tea.Tick(toastHold, func(time.Time) tea.Msg { return expired })
 }
 
-// toastLayer returns the layer that draws the toast, if one is on screen.
-func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
-	fxs := m.fxState()
-	if fxs.toastText == "" || (!fxs.toastStill && !fxs.toast.Visible()) {
-		return bloom.LayerNode{}, false
+// notify shows a toast from any place in an Update, such as a handler that
+// returns no command. Update sends the command of the toast out with its own.
+// key is as for showToastFor; with no key, the text is the key.
+func (m *AppModel) notify(key, text string) {
+	if key == "" {
+		key = text
 	}
+	cmd := m.showToastFor(key, text)
+	fxs := m.fxState()
+	fxs.pending = append(fxs.pending, cmd)
+}
+
+// takePending returns the commands that notify kept, and lets go of them.
+func (fxs *motionState) takePending() tea.Cmd {
+	if len(fxs.pending) == 0 {
+		return nil
+	}
+	cmd := tea.Batch(fxs.pending...)
+	fxs.pending = nil
+	return cmd
+}
+
+// expireToast takes down the toast that msg is the timer of, if that timer
+// is still the one that the toast waits for.
+func (m *AppModel) expireToast(msg toastExpiredMsg) {
+	fxs := m.fxState()
+	for _, t := range fxs.toasts {
+		if t.id == msg.id && t.timer == msg.timer {
+			t.leaving = true
+			fxs.move(&t.shown, 0, toastFade, m.motionOn())
+		}
+	}
+	fxs.pruneToasts()
+}
+
+// pruneToasts lets go of the toasts that have gone out of sight.
+func (fxs *motionState) pruneToasts() {
+	kept := fxs.toasts[:0]
+	for _, t := range fxs.toasts {
+		if t.leaving && !t.shown.Animating() && t.shown.Float() <= 0 {
+			continue
+		}
+		kept = append(kept, t)
+	}
+	clear(fxs.toasts[len(kept):])
+	fxs.toasts = kept
+}
+
+// toastBox draws the box of one toast.
+func toastBox(text string) string {
 	// The border is the muted text colour, not a border colour: the theme's
 	// border colours are for dividers and are too close to the background
 	// to set a notice apart from the conversation beneath it.
 	theme := style.GetTheme()
-	box := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Muted).
 		Foreground(theme.Text).
 		Padding(0, 1).
-		Render(fxs.toastText)
+		Render(text)
+}
 
+// toastLayer returns the layer that draws the toasts, if one is on screen.
+//
+// The toasts are a column against the right edge. Each has an ID, so that
+// with glide set, when one goes the toasts below it glide up into its place.
+func (m *AppModel) toastLayer(glide bool) (bloom.LayerNode, bool) {
+	fxs := m.fxState()
+	if len(fxs.toasts) == 0 {
+		return bloom.LayerNode{}, false
+	}
 	fg, bg := fxColors()
-	layer := bloom.Layer(region(box)).
+	rows := make([]bloom.Child, 0, len(fxs.toasts))
+	for _, t := range fxs.toasts {
+		var box bloom.Child = region(toastBox(t.text))
+		if p := min(max(t.shown.Float(), 0), 1); p < 1 {
+			box = bloom.Transition(p, box, fadeIn{Fg: fg, From: bg}, fx.Slide{From: bloom.Right})
+		}
+		slot := bloom.Auto(box).ID(t.id).Align(bloom.End)
+		if glide {
+			slot = slot.Animate(anim.Spring(layoutSpring, 1))
+		}
+		rows = append(rows, slot)
+	}
+	layer := bloom.Layer(bloom.Column(rows...)).
 		Anchor(bloom.End, bloom.Start).
 		Offset(-1, 0)
-	// A toast shown with motion off is drawn as it is. Only the presence
-	// of a toast shown with motion on has a progress to draw.
-	if t := fxs.toast.Progress(); t < 1 && !fxs.toastStill {
-		layer = layer.Transition(t, fadeIn{Fg: fg, From: bg}, fx.Slide{From: bloom.Right})
-	}
 	return layer, true
 }
 
@@ -589,21 +909,199 @@ func (m *AppModel) toastLayer() (bloom.LayerNode, bool) {
 // --------------------------------------------------------------------------
 
 // shakeComposer shakes the composer once, to say that input was rejected. It
-// returns the command that runs the shake, or nil while motion is off.
-func (m *AppModel) shakeComposer() tea.Cmd {
+// does nothing while motion is off.
+func (m *AppModel) shakeComposer() {
 	if !m.motionOn() {
-		return nil
+		return
 	}
-	return m.fxState().shake.Play(0, 1)
+	fxs := m.fxState()
+	fxs.shake.Set(0)
+	fxs.move(&fxs.shake, 1, shakeDuration, true, anim.Ease(anim.Linear))
 }
 
-// composerChild returns the composer for the layout, shaking if it is.
+// composerChild returns the composer section for the layout: fading in if
+// what it holds has just changed, and shaking if it is.
 func (m *AppModel) composerChild(view string) bloom.Child {
 	fxs := m.fxState()
-	if !fxs.shake.Animating() {
-		return section(view)
+	var child bloom.Child = section(view)
+	if fxs.swap.Animating() {
+		fg, bg := fxColors()
+		child = bloom.Transition(fxs.swap.Float(), child, fadeIn{Fg: fg, From: bg})
 	}
-	return bloom.Transition(fxs.shake.Float(), section(view), fx.Shake{Amount: 2, Times: 3})
+	if fxs.shake.Animating() {
+		child = bloom.Transition(fxs.shake.Float(), child, fx.Shake{Amount: 2, Times: 3})
+	}
+	return child
+}
+
+// inputKind says what the composer section holds: the composer itself, a
+// prompt, or the bar of a child pane. Two prompts are two kinds, so a prompt
+// that follows another one fades in too.
+type inputKind struct {
+	prompt *promptOverlay
+	child  bool
+}
+
+// syncInputKind starts the fade of the composer section when what it holds
+// has changed. The section glides to its new height by itself; without the
+// fade, the new content would be there in full on the first frame of that
+// glide, cut off by the old height.
+func (m *AppModel) syncInputKind(animate bool) {
+	var kind inputKind
+	switch {
+	case m.state == statePrompt && m.prompt != nil:
+		kind.prompt = m.prompt
+	case m.childView != nil && m.child != nil:
+		kind.child = true
+	}
+	fxs := m.fxState()
+	if fxs.inputKind == nil {
+		// The first frame: there is nothing that it changed from.
+		fxs.inputKind = kind
+		return
+	}
+	if fxs.inputKind == kind {
+		return
+	}
+	fxs.inputKind = kind
+	if animate {
+		fxs.swap.Set(0)
+		fxs.move(&fxs.swap, 1, swapFade, true)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Transcript
+// --------------------------------------------------------------------------
+
+// enterPane starts the transition of a transcript that has just taken the
+// place of another one: the pane of a subagent, or the parent pane again.
+// from is the side that it comes from: 1 for the right, -1 for the left.
+func (m *AppModel) enterPane(from int) {
+	if !m.motionOn() {
+		return
+	}
+	fxs := m.fxState()
+	fxs.paneFrom = from
+	fxs.pane.Set(0)
+	fxs.move(&fxs.pane, 1, paneFade, true)
+	// The items of the pane are not new. They come in with the pane.
+	fxs.entries = nil
+}
+
+// entry is one item of the transcript that fades in.
+type entry struct {
+	id string
+	// shown runs from 0, the colour of the background, to 1.
+	shown anim.Value
+}
+
+// transcriptMark says where the transcript ended before an Update, so that
+// the items that the Update added can be told from those that were there.
+type transcriptMark struct {
+	pane *conversationPane
+	n    int
+	last string
+}
+
+// markTranscript returns the mark of the transcript on screen.
+func (m *AppModel) markTranscript() transcriptMark {
+	mark := transcriptMark{pane: m.conversationPane}
+	if m.conversationPane == nil {
+		return mark
+	}
+	mark.n = len(m.messages)
+	if mark.n > 0 && m.messages[mark.n-1] != nil {
+		mark.last = m.messages[mark.n-1].ID()
+	}
+	return mark
+}
+
+// noteNewItems starts the fade of the items that were added to the end of
+// the transcript since mark was taken.
+//
+// Only a few items at the end count. A transcript that was cleared, that got
+// an item in its middle, or that got a whole session at once is drawn as it
+// is, and so is the transcript of another pane.
+func (m *AppModel) noteNewItems(mark transcriptMark) {
+	if !m.motionOn() || m.conversationPane == nil || m.conversationPane != mark.pane {
+		return
+	}
+	added := len(m.messages) - mark.n
+	if added <= 0 || added > entryMax {
+		return
+	}
+	if mark.n > 0 && (m.messages[mark.n-1] == nil || m.messages[mark.n-1].ID() != mark.last) {
+		return
+	}
+	fxs := m.fxState()
+	for _, item := range m.messages[mark.n:] {
+		if item == nil {
+			continue
+		}
+		e := &entry{id: item.ID(), shown: anim.NewValue(0)}
+		fxs.move(&e.shown, 1, entryFade, true)
+		fxs.entries = append(fxs.entries, e)
+	}
+}
+
+// pruneEntries lets go of the items that have finished their fade.
+func (fxs *motionState) pruneEntries() {
+	kept := fxs.entries[:0]
+	for _, e := range fxs.entries {
+		if e.shown.Animating() {
+			kept = append(kept, e)
+		}
+	}
+	clear(fxs.entries[len(kept):])
+	fxs.entries = kept
+}
+
+// transcriptChild returns the transcript for the layout. view is the scroll
+// list drawn at a height of rows.
+//
+// Two transitions can run on it. A pane that has just come on screen fades in
+// and travels a few columns from the side it came from. An item that is new
+// fades in on the rows that it has in this view. The rows are those of the
+// list at this height: while a layout animation runs, the transcript is
+// drawn at heights that are not the list's own, and an item is then on other
+// rows (see ScrollList.atHeight).
+func (m *AppModel) transcriptChild(view string, rows int) bloom.Child {
+	var child bloom.Child = section(view)
+	if m.fx == nil || m.scrollList == nil {
+		return child
+	}
+	fxs := m.fx
+	fg, bg := fxColors()
+
+	if len(fxs.entries) > 0 {
+		var visible []VisibleItem
+		if rows == m.scrollList.height {
+			visible = m.scrollList.VisibleItems()
+		} else {
+			m.scrollList.atHeight(rows, func() { visible = m.scrollList.VisibleItems() })
+		}
+		for _, e := range fxs.entries {
+			for _, v := range visible {
+				if v.Item == nil || v.Item.ID() != e.id {
+					continue
+				}
+				child = bloom.Transition(min(max(e.shown.Float(), 0), 1), child,
+					fadeRows{Start: v.Row, End: v.Row + v.Height, Fg: fg, From: bg})
+			}
+		}
+	}
+
+	if fxs.pane.Animating() {
+		effects := []fx.Effect{fadeIn{Fg: fg, From: bg}}
+		// An image that is placed directly on the screen does not travel
+		// with the cells, so a pane that has one fades where it is.
+		if len(m.gfxPlaced) == 0 && m.gfxPlacement == "" {
+			effects = append(effects, shift{Cols: paneShift * fxs.paneFrom})
+		}
+		child = bloom.Transition(min(max(fxs.pane.Float(), 0), 1), child, effects...)
+	}
+	return child
 }
 
 // activityChild returns the activity row for the layout. While the agent
@@ -694,21 +1192,64 @@ func (e fadeIn) Apply(s *canvas.Surface, t float64) {
 	}
 	t = max(t, 0)
 	for _, c := range s.Cells() {
-		if isImageCell(c) {
-			continue
-		}
-		if c.Style.Bg != nil {
-			c.Style.Bg = s.Mix(e.From, c.Style.Bg, t)
-		}
-		if blankCell(c) {
-			continue
-		}
-		fg := c.Style.Fg
-		if fg == nil {
-			fg = e.Fg
-		}
-		c.Style.Fg = s.Mix(e.From, fg, t)
+		e.cell(s, c, t)
 	}
+}
+
+// cell brings the colours of one cell in from the background.
+func (e fadeIn) cell(s *canvas.Surface, c *uv.Cell, t float64) {
+	if c == nil || isImageCell(c) {
+		return
+	}
+	if c.Style.Bg != nil {
+		c.Style.Bg = s.Mix(e.From, c.Style.Bg, t)
+	}
+	if blankCell(c) {
+		return
+	}
+	fg := c.Style.Fg
+	if fg == nil {
+		fg = e.Fg
+	}
+	c.Style.Fg = s.Mix(e.From, fg, t)
+}
+
+// fadeRows is fadeIn for the rows from Start up to End of a node. The rest of
+// the node is left as it is. It brings in one item of the transcript, which
+// is a string that holds every item in view.
+type fadeRows struct {
+	Start, End int
+	Fg, From   color.RGBA
+}
+
+// Apply implements fx.Effect.
+func (e fadeRows) Apply(s *canvas.Surface, t float64) {
+	if t >= 1 {
+		return
+	}
+	t = max(t, 0)
+	fade := fadeIn{Fg: e.Fg, From: e.From}
+	for y := max(e.Start, 0); y < min(e.End, s.Height()); y++ {
+		for x := range s.Width() {
+			fade.cell(s, s.Cell(x, y), t)
+		}
+	}
+}
+
+// shift moves a node sideways into its place, from Cols columns to its right
+// as t runs from 0 to 1, or from its left when Cols is less than zero. Like
+// rise, it is a slide for a short distance.
+type shift struct {
+	Cols int
+}
+
+// Apply implements fx.Effect.
+func (e shift) Apply(s *canvas.Surface, t float64) {
+	if t >= 1 {
+		return
+	}
+	dx := int(math.Round(float64(e.Cols) * (1 - max(t, 0))))
+	s.Offset = s.Offset.Add(image.Pt(dx, 0))
 }
 
 // rise moves a node up into its place from Rows below it as t runs from 0 to

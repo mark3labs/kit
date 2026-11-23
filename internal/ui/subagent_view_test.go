@@ -356,3 +356,69 @@ func TestEvictedRunIsNotShown(t *testing.T) {
 		t.Fatal("a late update made a pane for an evicted run")
 	}
 }
+
+// TestPaneSwitchHasATransition checks the motion of a change of pane. A child
+// pane comes from the right, the next sibling from the side of its key, and
+// the parent pane comes back from the left. The bar that takes the place of
+// the composer fades in. With motion off none of that runs.
+func TestPaneSwitchHasATransition(t *testing.T) {
+	runs := []kit.SubagentRun{
+		{ID: "a", ParentSessionID: "p", Status: "running"},
+		{ID: "b", ParentSessionID: "p", Status: "running"},
+	}
+
+	t.Run("motion off", func(t *testing.T) {
+		m, _ := childModel(t, runs...)
+		m = sendMsg(m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt})
+		m = sendMsg(m, SubagentRunSelectedMsg{Index: 0})
+		if m.childView == nil {
+			t.Fatal("the child pane is not shown")
+		}
+		if fxs := m.fxState(); fxs.pane.Animating() || fxs.swap.Animating() {
+			t.Fatal("a change of pane started a transition with motion off")
+		}
+	})
+
+	t.Run("motion on", func(t *testing.T) {
+		m, _ := childModel(t, runs...)
+		enableMotion(t, m)
+		fxs := m.fxState()
+		m = sendMsg(m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt})
+		m = sendMsg(m, SubagentRunSelectedMsg{Index: 0})
+		if m.childView == nil {
+			t.Fatal("the child pane is not shown")
+		}
+		if !fxs.pane.Animating() || fxs.paneFrom != 1 {
+			t.Fatalf("child pane: animating=%v from=%d, want a transition from the right", fxs.pane.Animating(), fxs.paneFrom)
+		}
+		if !fxs.swap.Animating() {
+			t.Fatal("the bar of the child pane did not fade in")
+		}
+		shown := m.paneID
+
+		// The frame keeps its size while the pane travels.
+		fxs.pane.Set(0)
+		fxs.move(&fxs.pane, 1, paneFade, true)
+		if got := strings.Count(m.View().Content, "\n") + 1; got != m.height {
+			t.Fatalf("frame height during the transition = %d, want %d", got, m.height)
+		}
+
+		fxs.pane.Set(1)
+		m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+		if m.paneID == shown {
+			t.Fatal("left did not show the other run")
+		}
+		if !fxs.pane.Animating() || fxs.paneFrom != -1 {
+			t.Fatalf("left: animating=%v from=%d, want a transition from the left", fxs.pane.Animating(), fxs.paneFrom)
+		}
+
+		fxs.pane.Set(1)
+		m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+		if m.childView != nil {
+			t.Fatal("esc did not show the parent pane")
+		}
+		if !fxs.pane.Animating() || fxs.paneFrom != -1 {
+			t.Fatalf("parent pane: animating=%v from=%d, want a transition from the left", fxs.pane.Animating(), fxs.paneFrom)
+		}
+	})
+}

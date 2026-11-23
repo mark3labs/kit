@@ -74,6 +74,7 @@ func TestExtensionNotificationsFromUpdate(t *testing.T) {
 		{"plain", func(a *App) { a.PrintFromExtension("", "plain") }, ExtensionPrintEvent{Text: "plain"}},
 		{"info", func(a *App) { a.PrintFromExtension("info", "info") }, ExtensionPrintEvent{Text: "info", Level: "info"}},
 		{"error", func(a *App) { a.PrintFromExtension("error", "error") }, ExtensionPrintEvent{Text: "error", Level: "error"}},
+		{"toast", func(a *App) { a.PrintFromExtension("toast", "toast") }, ExtensionPrintEvent{Text: "toast", Level: "toast"}},
 		{"block", func(a *App) { a.PrintBlockFromExtension(block) }, ExtensionPrintEvent{Text: block.Text, Level: "block", Subtitle: block.Subtitle, BorderColor: block.BorderColor, Markdown: true}},
 		{"editor", func(a *App) { a.SetEditorTextFromExtension("replacement") }, EditorTextSetEvent{Text: "replacement"}},
 		{"model", func(a *App) { a.NotifyModelChanged("provider", "model") }, ModelChangedEvent{ProviderName: "provider", ModelName: "model"}},

@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi/kitty"
 
+	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -223,6 +227,249 @@ func TestSurfaceAnimatesOutAfterClose(t *testing.T) {
 	}
 }
 
+// TestSurfaceLeavesInPlace checks that a surface that closes fades where it
+// is. It must not travel back down the rows that it rose through, and it goes
+// in less time than it came.
+func TestSurfaceLeavesInPlace(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	fxs := m.fxState()
+	now := time.Unix(1000, 0)
+	fxs.now = func() time.Time { return now }
+
+	m.themeSelector = NewThemeSelector("", m.width, m.height)
+	m.state = stateThemeSelector
+	m.Update(noopMsg{})
+	a := openSurface(t, m)
+	a.shown.Set(1)
+	settled := rowOf(m.View().Content, "╭")
+
+	m.themeSelector, m.state = nil, stateInput
+	m.Update(noopMsg{})
+	if !a.shown.Animating() || a.shown.Target() != 0 {
+		t.Fatalf("animating=%v target=%v, want an animation toward 0", a.shown.Animating(), a.shown.Target())
+	}
+	if !m.frames.fast {
+		t.Fatal("the frame clock is not fast while a surface goes")
+	}
+
+	// Halfway through the time that a surface takes to go, it is still in
+	// the frame, on the rows it was on.
+	now = now.Add(surfaceLeave / 2)
+	fxs.advance()
+	if got := rowOf(m.View().Content, "╭"); got != settled {
+		t.Fatalf("top border on row %d while the surface goes, want row %d as at rest", got, settled)
+	}
+
+	// It is gone after surfaceLeave, which is before a surface that opens
+	// has arrived.
+	if surfaceLeave >= surfaceFade {
+		t.Fatalf("a surface takes %v to go and %v to come: it must go faster", surfaceLeave, surfaceFade)
+	}
+	now = now.Add(surfaceLeave / 2)
+	fxs.advance()
+	if a.shown.Animating() || a.shown.Float() != 0 {
+		t.Fatalf("shown = %v (animating %v) after surfaceLeave, want 0 at rest", a.shown.Float(), a.shown.Animating())
+	}
+	if rowOf(m.View().Content, "╭") >= 0 {
+		t.Fatal("the surface is still in the frame after it went")
+	}
+}
+
+// TestTransitionsShareTheFrameClock checks that a transition starts no loop
+// of its own. When the clock already runs for the spinner, a surface that
+// opens makes the clock fast and schedules nothing more; when the transition
+// ends, the clock goes back to its own rate and keeps running.
+func TestTransitionsShareTheFrameClock(t *testing.T) {
+	m, stream, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	fxs := m.fxState()
+	now := time.Unix(1000, 0)
+	fxs.now = func() time.Time { return now }
+
+	stream.spinning = true
+	if m.wakeFrameClock() == nil || !m.frames.running {
+		t.Fatal("the spinner did not start the frame clock")
+	}
+	if m.frames.fast {
+		t.Fatal("the clock is fast with no transition")
+	}
+
+	openTestSheet(m)
+	_, cmd := m.Update(noopMsg{})
+	for _, msg := range flattenCmd(cmd) {
+		if _, ok := msg.(frameTickMsg); ok {
+			t.Fatal("a surface that opened while the clock ran scheduled a second tick")
+		}
+		if isMotionMsg(msg) {
+			t.Fatalf("a surface that opened scheduled a frame of its own: %T", msg)
+		}
+	}
+	if !m.frames.fast {
+		t.Fatal("the clock did not go fast for the transition")
+	}
+
+	// The tick in flight is a beat, as it was scheduled before the surface
+	// opened. The model answers it with a frame between two beats.
+	m.Update(frameTickMsg{generation: m.frames.generation, frame: m.frames.frame + 1})
+	if next, _ := m.frames.next(); !next.between {
+		t.Fatal("a fast clock did not follow a beat with a frame in between")
+	}
+
+	// The transition ends: the clock stays up for the spinner, at its rate.
+	now = now.Add(time.Second)
+	m.Update(frameTickMsg{generation: m.frames.generation, frame: m.frames.frame, between: true})
+	if fxs.animating() {
+		t.Fatal("the transition did not end")
+	}
+	if !m.frames.running || m.frames.fast {
+		t.Fatalf("running=%v fast=%v after the transition, want a slow clock that still runs", m.frames.running, m.frames.fast)
+	}
+}
+
+// popupModel returns a model whose autocomplete popup shows n commands.
+func popupModel(t *testing.T, n int) (*AppModel, *InputComponent) {
+	t.Helper()
+	m, _, _ := newTestAppModel(&stubAppController{})
+	ic := NewInputComponent(80, nil)
+	m.input = ic
+	setPopupCommands(ic, n)
+	return m, ic
+}
+
+// setPopupCommands makes the autocomplete popup of ic show n commands.
+func setPopupCommands(ic *InputComponent, n int) {
+	ic.showPopup = true
+	ic.selected = 0
+	ic.filtered = ic.filtered[:0]
+	for i := range n {
+		ic.filtered = append(ic.filtered, FuzzyMatch{Command: &commands.SlashCommand{
+			Name:        fmt.Sprintf("/command-%d", i),
+			Description: "a test command",
+		}})
+	}
+}
+
+// TestBoxAtHeight checks a box drawn at a height that is not its own. It is
+// closed at every height: the top border stays, and so do the rows at its
+// foot.
+func TestBoxAtHeight(t *testing.T) {
+	box := strings.Join([]string{"top", "pad", "title", "item 1", "item 2", "item 3", "blank", "footer", "pad", "bottom"}, "\n")
+	const tail = 4
+	foot := "blank\nfooter\npad\nbottom"
+
+	if got := boxAtHeight(box, 10, tail); got != box {
+		t.Fatalf("a box at its own height changed:\n%s", got)
+	}
+	if got := boxAtHeight(box, layoutUnbounded, tail); got != box {
+		t.Fatal("a box asked for its natural size changed")
+	}
+	if got := boxAtHeight(box, 7, 0); got != box {
+		t.Fatal("a box with no tail changed")
+	}
+
+	shorter := boxAtHeight(box, 7, tail)
+	if want := "top\npad\ntitle\n" + foot; shorter != want {
+		t.Fatalf("box at 7 rows:\n%s\nwant:\n%s", shorter, want)
+	}
+	taller := boxAtHeight(box, 12, tail)
+	if want := "top\npad\ntitle\nitem 1\nitem 2\nitem 3\npad\npad\n" + foot; taller != want {
+		t.Fatalf("box at 12 rows:\n%s\nwant:\n%s", taller, want)
+	}
+	// Too few rows even for the foot: the top border stays, and the layer
+	// cuts off what does not fit.
+	if got := boxAtHeight(box, 2, tail); got != "top\n"+foot {
+		t.Fatalf("box at 2 rows:\n%s", got)
+	}
+}
+
+// TestAutocompletePopupSitsOnTheComposer checks that the / popup is against
+// the top edge of the composer, at the left of the screen, and not in the
+// middle of it.
+func TestAutocompletePopupSitsOnTheComposer(t *testing.T) {
+	m, _ := popupModel(t, 3)
+	m.layoutDirty = true
+	view := m.View().Content
+
+	rows := strings.Split(stripAnsi(view), "\n")
+	top, bottom := rowOf(view, "╭"), rowOf(view, "╰")
+	if top < 0 || bottom < 0 {
+		t.Fatalf("the popup is not in the frame\n%s", stripAnsi(view))
+	}
+	if bottom != m.inputYOffset-1 {
+		t.Fatalf("the popup ends on row %d, want row %d, just above the composer on row %d",
+			bottom, m.inputYOffset-1, m.inputYOffset)
+	}
+	if !strings.HasPrefix(rows[top], "╭") {
+		t.Fatalf("the popup is not at the left of the screen: %q", rows[top])
+	}
+	if lipgloss.Height(view) != m.height {
+		t.Fatalf("frame height with the popup = %d, want %d", lipgloss.Height(view), m.height)
+	}
+
+	// A composer that grows takes the popup up with it.
+	m.input.(*InputComponent).textarea.SetValue("one\ntwo\nthree\nfour")
+	m.layoutDirty = true
+	view = m.View().Content
+	if got := rowOf(view, "╰"); got != m.inputYOffset-1 || got >= bottom {
+		t.Fatalf("after the composer grew the popup ends on row %d, want row %d", got, m.inputYOffset-1)
+	}
+}
+
+// TestPopupGlidesBetweenHeights checks a popup whose list gets shorter with
+// motion on. The box passes through the heights between, it stays on the
+// composer, and on every frame it is a closed box with its footer.
+func TestPopupGlidesBetweenHeights(t *testing.T) {
+	m, ic := popupModel(t, 6)
+	enableMotion(t, m)
+	clock := &testClock{now: time.Unix(1000, 0)}
+	m.ui = bloom.New(bloom.WithClock(clock.Now), bloom.WithFPS(motionFPS))
+	m.layoutDirty = true
+	m.Update(noopMsg{})
+	openSurface(t, m).shown.Set(1)
+	first := m.View().Content
+	tall := rowOf(first, "╰") - rowOf(first, "╭") + 1
+
+	setPopupCommands(ic, 1)
+	seenBetween := false
+	short := 0
+	for range 40 {
+		view := m.View().Content
+		clock.advance(layoutGlide / 20)
+		top, bottom := rowOf(view, "╭"), rowOf(view, "╰")
+		if bottom != m.inputYOffset-1 {
+			t.Fatalf("the popup left the composer while it changed height: it ends on row %d, want %d\n%s",
+				bottom, m.inputYOffset-1, stripAnsi(view))
+		}
+		if rowOf(view, "esc dismiss") != bottom-2 {
+			t.Fatalf("the footer is not at the foot of the box\n%s", stripAnsi(view))
+		}
+		short = bottom - top + 1
+		if short > tall {
+			t.Fatalf("the popup has %d rows, more than the %d it had", short, tall)
+		}
+		if short < tall && short > tall-5 {
+			seenBetween = true
+		}
+	}
+	if !seenBetween {
+		t.Fatal("the popup jumped: no frame had a height in between")
+	}
+	if short != tall-5 {
+		t.Fatalf("the popup ended at %d rows, want %d", short, tall-5)
+	}
+
+	// With motion off the box takes its new height on the next frame.
+	m.motionEnabled = false
+	setPopupCommands(ic, 6)
+	view := m.View().Content
+	if got := rowOf(view, "╰") - rowOf(view, "╭") + 1; got != tall {
+		t.Fatalf("with motion off the popup has %d rows on the next frame, want %d", got, tall)
+	}
+}
+
 // TestScrimDimsScreenBehindModal checks that the conversation is dimmed
 // behind a modal surface, that the theme selector leaves it as it is, and
 // that a terminal with few colours gets no dimming at all.
@@ -339,6 +586,7 @@ func TestEffectsLeaveImageCellsAlone(t *testing.T) {
 	for name, effect := range map[string]bloom.Child{
 		"dimScreen": bloom.Transition(1, region(row), dimScreen{Fg: fg, To: bg, Amount: 0.5}),
 		"fadeIn":    bloom.Transition(0.4, region(row), fadeIn{Fg: fg, From: bg}),
+		"fadeRows":  bloom.Transition(0.4, region(row), fadeRows{Start: 0, End: 1, Fg: fg, From: bg}),
 		"shimmer": bloom.Transition(shimmerPhase, region(row),
 			phraseShimmer{Start: 0, End: captionEnd, Fg: fg, Color: color.RGBA{R: 0xff, A: 0xff}}),
 	} {
@@ -382,6 +630,7 @@ func TestEffectsGiveNoBackgroundToPlainCells(t *testing.T) {
 	for name, effect := range map[string]bloom.Child{
 		"dimScreen": bloom.Transition(1, region(row), dimScreen{Fg: fg, To: bg, Amount: 0.5}),
 		"fadeIn":    bloom.Transition(0.4, region(row), fadeIn{Fg: fg, From: bg}),
+		"fadeRows":  bloom.Transition(0.4, region(row), fadeRows{Start: 0, End: 1, Fg: fg, From: bg}),
 		"shimmer":   bloom.Transition(0.5, region(row), phraseShimmer{Start: 0, End: 8, Fg: fg, Color: color.RGBA{R: 0xff, A: 0xff}}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -456,8 +705,11 @@ func TestToastShowsAndHides(t *testing.T) {
 		t.Fatal("showToast returned no command: nothing would take the toast down")
 	}
 	fxs := m.fxState()
-	if fxs.animating() || fxs.toast.Visible() {
+	if fxs.animating() {
 		t.Fatal("a toast shown with motion off started an animation")
+	}
+	if cmd := m.wakeFrameClock(); cmd != nil {
+		t.Fatal("a toast shown with motion off woke the frame clock")
 	}
 
 	// The toast must be there already, in its place.
@@ -474,62 +726,222 @@ func TestToastShowsAndHides(t *testing.T) {
 		t.Fatalf("frame height with a toast = %d, want %d", got, m.height)
 	}
 
-	if _, cmd := m.Update(toastExpiredMsg{gen: fxs.toastGen}); cmd != nil {
+	top := fxs.toasts[0]
+	if _, cmd := m.Update(toastExpiredMsg{id: top.id, timer: top.timer}); cmd != nil {
 		t.Fatal("the timer of a toast started more work")
 	}
 	if toastRow(m) >= 0 {
 		t.Fatal("the toast is still drawn after its time was up")
 	}
+	if len(fxs.toasts) != 0 {
+		t.Fatalf("%d toast(s) kept after the last one went", len(fxs.toasts))
+	}
 }
 
-// TestToastTimerBelongsToItsToast checks that the timer of a toast that was
-// replaced does not take down the toast that replaced it, and does not flush
-// the buffered stream chunks as an event would.
+// TestToastTimerBelongsToItsToast checks that a timer takes down only its
+// own toast, that the timer of a toast that was shown again does nothing, and
+// that no toast timer flushes the buffered stream chunks as an event would.
 func TestToastTimerBelongsToItsToast(t *testing.T) {
 	m, _, _ := newTestAppModel(&stubAppController{})
 	m.input = NewInputComponent(80, nil)
 	fxs := m.fxState()
 
 	m.showToast("first toast")
-	first := fxs.toastGen
+	first := *fxs.toasts[0]
 	m.showToast("Copied to the test")
-	second := fxs.toastGen
-	if first == second {
+	second := *fxs.toasts[1]
+	if first.id == second.id {
 		t.Fatal("two toasts have the same number")
 	}
 
 	m.pendingStreamChunks = []pendingStreamChunk{{role: "assistant", content: "buffered"}}
-	m.Update(toastExpiredMsg{gen: first})
+	m.Update(toastExpiredMsg{id: first.id, timer: first.timer})
 	if toastRow(m) < 0 {
 		t.Fatal("the timer of the first toast took down the second")
+	}
+	if rowOf(m.View().Content, "first toast") >= 0 {
+		t.Fatal("the first toast is still drawn after its own timer")
 	}
 	if len(m.pendingStreamChunks) != 1 {
 		t.Fatal("the timer of a toast flushed the buffered stream chunks")
 	}
 
-	m.Update(toastExpiredMsg{gen: second})
+	// The same notice again keeps the toast up: its first timer is void.
+	m.showToast("Copied to the test")
+	if len(fxs.toasts) != 1 {
+		t.Fatalf("the same notice twice made %d toasts, want 1", len(fxs.toasts))
+	}
+	m.Update(toastExpiredMsg{id: second.id, timer: second.timer})
+	if toastRow(m) < 0 {
+		t.Fatal("the first timer of a toast took it down after it was shown again")
+	}
+	again := fxs.toasts[0]
+	m.Update(toastExpiredMsg{id: again.id, timer: again.timer})
 	if toastRow(m) >= 0 {
-		t.Fatal("the second toast is still drawn after its own timer")
+		t.Fatal("the toast is still drawn after its own timer")
+	}
+}
+
+// TestToastsStack checks that toasts with different text are drawn one below
+// the other, each against the right edge, and that no more than toastMax are
+// up at one time.
+func TestToastsStack(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+
+	m.showToast("short")
+	m.showToast("a much longer notice")
+	view := m.View().Content
+	first, second := rowOf(view, "short"), rowOf(view, "a much longer notice")
+	if first != 1 || second != 4 {
+		t.Fatalf("toast rows = %d and %d, want 1 and 4\n%s", first, second, stripAnsi(view))
+	}
+	for _, row := range []int{first, second} {
+		line := strings.TrimRight(strings.Split(stripAnsi(view), "\n")[row], " ")
+		if !strings.HasSuffix(line, "│") || lipgloss.Width(line) != m.width-1 {
+			t.Fatalf("toast on row %d is not against the right edge: %q", row, line)
+		}
+	}
+
+	for i := range toastMax + 2 {
+		m.showToast(strings.Repeat("x", i+1))
+	}
+	if got := len(m.fxState().toasts); got != toastMax {
+		t.Fatalf("%d toasts are up, want no more than %d", got, toastMax)
+	}
+	if rowOf(m.View().Content, "short") >= 0 {
+		t.Fatal("the oldest toast did not make room")
+	}
+}
+
+// TestToastForOneThingChangesInPlace checks a notice about one thing that
+// changes. A new notice with the key of a toast that is up takes the place of
+// its text, and the timer of the old text does not take the toast down.
+func TestToastForOneThingChangesInPlace(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fxs := m.fxState()
+
+	m.showToastFor("level", "Level: low")
+	first := *fxs.toasts[0]
+	m.showToast("another notice")
+	m.showToastFor("level", "Level: high")
+	if len(fxs.toasts) != 2 {
+		t.Fatalf("%d toasts are up, want 2", len(fxs.toasts))
+	}
+	view := m.View().Content
+	if rowOf(view, "Level: low") >= 0 || rowOf(view, "Level: high") != 1 {
+		t.Fatalf("the toast did not change its text in place\n%s", stripAnsi(view))
+	}
+	m.Update(toastExpiredMsg{id: first.id, timer: first.timer})
+	if rowOf(m.View().Content, "Level: high") < 0 {
+		t.Fatal("the timer of the old text took the toast down")
+	}
+}
+
+// TestToastIsOneShortRow checks that a toast with long text, or with text of
+// more than one line, is one row that fits the screen.
+func TestToastIsOneShortRow(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+
+	m.showToast("first line\nsecond line " + strings.Repeat("long ", 40))
+	text := m.fxState().toasts[0].text
+	if strings.Contains(text, "\n") || !strings.HasPrefix(text, "first line second line") {
+		t.Fatalf("toast text = %q, want one line", text)
+	}
+	if w := lipgloss.Width(text); w > toastMaxWidth || !strings.HasSuffix(text, "…") {
+		t.Fatalf("toast text is %d columns (%q), want it cut at %d", w, text, toastMaxWidth)
+	}
+	if got := lipgloss.Height(m.View().Content); got != m.height {
+		t.Fatalf("frame height with a long toast = %d, want %d", got, m.height)
+	}
+}
+
+// TestNotifyReturnsItsTimerFromUpdate checks a toast that a handler shows
+// without a command of its own to return. The command that takes the toast
+// down must leave with the commands of that Update, and only once.
+func TestNotifyReturnsItsTimerFromUpdate(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	before := len(m.messages)
+
+	_, cmd := m.Update(app.ExtensionPrintEvent{Level: "toast", Text: "Saved by the extension"})
+	if cmd == nil {
+		t.Fatal("Update returned no command for a toast: nothing would take it down")
+	}
+	if len(m.messages) != before {
+		t.Fatalf("a toast added %d message(s) to the transcript", len(m.messages)-before)
+	}
+	if rowOf(m.View().Content, "Saved by the extension") != 1 {
+		t.Fatalf("the toast of an extension is not on screen\n%s", stripAnsi(m.View().Content))
+	}
+	if m.fxState().pending != nil {
+		t.Fatal("the command of the toast is still kept after Update returned it")
+	}
+	if _, cmd := m.Update(noopMsg{}); cmd != nil {
+		t.Fatal("a later Update returned the command of the toast again")
+	}
+}
+
+// TestRejectedCommandShakesComposer checks that a command that cannot be done
+// shakes the composer, as a prompt that could not be sent does.
+func TestRejectedCommandShakesComposer(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+
+	m.isReasoningModel = false
+	m.handleThinkingCommand("high")
+	if !m.fxState().shake.Animating() {
+		t.Fatal("/thinking on a model that cannot reason did not shake the composer")
+	}
+
+	m.fxState().shake.Set(1)
+	if cmd := m.handleCopyCommand(); cmd == nil {
+		t.Fatal("/copy with nothing to copy returned no command: its toast would stay up")
+	}
+	if !m.fxState().shake.Animating() {
+		t.Fatal("/copy with nothing to copy did not shake the composer")
+	}
+	if got := len(m.fxState().toasts); got != 1 {
+		t.Fatalf("/copy with nothing to copy showed %d toasts, want 1", got)
 	}
 }
 
 // TestToastSlidesInWithMotion checks that a toast with motion on starts out
-// of sight and ends in the same place as one with motion off.
+// of sight, moves on the frame clock, ends in the same place as one with
+// motion off, and slides out again when its time is up.
 func TestToastSlidesInWithMotion(t *testing.T) {
 	m, _, _ := newTestAppModel(&stubAppController{})
 	m.input = NewInputComponent(80, nil)
 	enableMotion(t, m)
+	fxs := m.fxState()
+	now := time.Unix(1000, 0)
+	fxs.now = func() time.Time { return now }
 
 	m.showToast("Copied to the test")
 	if toastRow(m) >= 0 {
 		t.Fatal("the toast is in its place before its first frame: it has no transition")
 	}
-	fxs := m.fxState()
-	now := time.Now()
-	fxs.toast.ShowAt(now)
-	fxs.toast.Advance(now.Add(time.Second))
+	if !fxs.animating() || m.wakeFrameClock() == nil {
+		t.Fatal("a toast shown with motion on did not wake the frame clock")
+	}
+	now = now.Add(time.Second)
+	fxs.advance()
 	if got := toastRow(m); got != 1 {
 		t.Fatalf("toast text on row %d after its transition, want row 1", got)
+	}
+
+	top := fxs.toasts[0]
+	m.Update(toastExpiredMsg{id: top.id, timer: top.timer})
+	if !fxs.animating() || len(fxs.toasts) != 1 {
+		t.Fatal("a toast whose time is up did not start to slide out")
+	}
+	now = now.Add(time.Second)
+	fxs.advance()
+	if len(fxs.toasts) != 0 || toastRow(m) >= 0 {
+		t.Fatal("the toast is still there after it slid out")
 	}
 }
 
@@ -547,8 +959,9 @@ func TestCopyCommandShowsToast(t *testing.T) {
 	if len(m.messages) != before {
 		t.Fatalf("/copy added %d message(s) to the transcript", len(m.messages)-before)
 	}
-	if got := m.fxState().toastText; !strings.Contains(got, "Copied last assistant message") {
-		t.Fatalf("toast = %q, want the copy notice", got)
+	toasts := m.fxState().toasts
+	if len(toasts) != 1 || !strings.Contains(toasts[0].text, "Copied last assistant message") {
+		t.Fatalf("toasts = %v, want the copy notice", toasts)
 	}
 }
 
@@ -558,16 +971,18 @@ func TestShakeComposerNeedsMotion(t *testing.T) {
 	m, _, _ := newTestAppModel(&stubAppController{})
 	m.input = NewInputComponent(80, nil)
 
-	if cmd := m.shakeComposer(); cmd != nil {
+	m.shakeComposer()
+	if m.fxState().shake.Animating() || m.wakeFrameClock() != nil {
 		t.Fatal("the composer shook with motion off")
 	}
 
 	enableMotion(t, m)
-	if cmd := m.shakeComposer(); cmd == nil {
+	m.shakeComposer()
+	if !m.fxState().shake.Animating() {
 		t.Fatal("the composer did not shake with motion on")
 	}
-	if !m.fxState().shake.Animating() {
-		t.Fatal("the shake is not running")
+	if m.wakeFrameClock() == nil {
+		t.Fatal("the shake did not wake the frame clock")
 	}
 	view := m.View().Content
 	if got := lipgloss.Height(view); got != m.height {
@@ -616,7 +1031,7 @@ func flattenCmd(cmd tea.Cmd) []tea.Msg {
 // model's own, the one that is not exported included.
 func TestIsMotionMsg(t *testing.T) {
 	if !isMotionMsg(anim.FrameMsg{}) {
-		t.Fatal("an animation frame is not a motion message")
+		t.Fatal("a bloom animation frame is not a motion message")
 	}
 	for _, msg := range []tea.Msg{nil, noopMsg{}, tea.KeyPressMsg{}, frameTickMsg{}, motionSettledMsg{}} {
 		if isMotionMsg(msg) {
@@ -648,7 +1063,13 @@ func TestMotionMsgDoesNotFlushStream(t *testing.T) {
 
 	m.Update(anim.FrameMsg{})
 	if len(m.pendingStreamChunks) != 1 {
-		t.Fatal("an animation frame flushed the buffered stream chunks")
+		t.Fatal("a bloom animation frame flushed the buffered stream chunks")
+	}
+	// A tick of the frame clock, on which the transitions run.
+	m.frames.start()
+	m.Update(frameTickMsg{generation: m.frames.generation, frame: 1})
+	if len(m.pendingStreamChunks) != 1 {
+		t.Fatal("a tick of the frame clock flushed the buffered stream chunks")
 	}
 	m.Update(motionSettledMsg{})
 	if len(m.pendingStreamChunks) != 1 {
@@ -667,8 +1088,9 @@ func TestSettledFollowsTheLastTransition(t *testing.T) {
 	if fxs.settled(false) != nil {
 		t.Fatal("settled with nothing that moved")
 	}
-	cmd := fxs.shake.Play(0, 1)
-	if cmd == nil || !fxs.animating() {
+	fxs.shake.Set(0)
+	fxs.move(&fxs.shake, 1, shakeDuration, true)
+	if !fxs.animating() {
 		t.Fatal("the shake did not start")
 	}
 	if fxs.settled(true) != nil {
@@ -761,5 +1183,242 @@ func TestDirectImageHidesWhileSurfaceLeaves(t *testing.T) {
 	a.shown.Set(0)
 	if !placed() {
 		t.Fatalf("the image did not come back after the sheet had gone: %q", m.gfxPlacement)
+	}
+}
+
+// changedRows returns the rows of frame a that are not drawn as in frame b.
+func changedRows(a, b string) []int {
+	var rows []int
+	other := strings.Split(b, "\n")
+	for i, row := range strings.Split(a, "\n") {
+		if i >= len(other) || row != other[i] {
+			rows = append(rows, i)
+		}
+	}
+	return rows
+}
+
+// TestNewTranscriptItemFadesIn checks an item that an Update adds to the end
+// of the transcript with motion on. It fades in on the rows that it has, the
+// rest of the frame is drawn as at rest, and the fade ends on the frame clock.
+func TestNewTranscriptItemFadesIn(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	fxs := m.fxState()
+	now := time.Unix(1000, 0)
+	fxs.now = func() time.Time { return now }
+	fillTranscript(m)
+	m.layoutDirty = true
+	_ = m.View()
+
+	m.Update(app.ExtensionPrintEvent{Level: "info", Text: "the new notice"})
+	if len(fxs.entries) != 1 || !fxs.entries[0].shown.Animating() {
+		t.Fatalf("%d item(s) fade in after one was added, want 1", len(fxs.entries))
+	}
+	if !m.frames.fast {
+		t.Fatal("the frame clock is not fast while an item fades in")
+	}
+	fading := m.View().Content
+	row := rowOf(fading, "the new notice")
+	if row < 0 {
+		t.Fatalf("the new item is not in the frame\n%s", stripAnsi(fading))
+	}
+
+	now = now.Add(time.Second)
+	fxs.advance()
+	if len(fxs.entries) != 0 {
+		t.Fatal("the item is still kept after its fade")
+	}
+	atRest := m.View().Content
+	if stripAnsi(fading) != stripAnsi(atRest) {
+		t.Fatal("the fade changed the text of the frame")
+	}
+	changed := changedRows(fading, atRest)
+	if !slices.Contains(changed, row) {
+		t.Fatalf("the row of the new item was drawn as at rest: it did not fade (changed rows %v, item on row %d)", changed, row)
+	}
+	for _, r := range changed {
+		if r < row-2 || r > row+2 {
+			t.Fatalf("row %d changed during the fade of the item on row %d: the fade reached another item", r, row)
+		}
+	}
+}
+
+// TestNewItemFadesOnItsRowsDuringAGlide checks the rows of a new item while
+// the transcript is drawn at a height that is not the list's own, as a layout
+// animation draws it. The fade must be on the rows that the item has at that
+// height.
+func TestNewItemFadesOnItsRowsDuringAGlide(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	fillTranscript(m)
+	m.layoutDirty = true
+	_ = m.View()
+	m.Update(app.ExtensionPrintEvent{Level: "info", Text: "the new notice"})
+	_ = m.View()
+
+	list := m.scrollList
+	for _, rows := range []int{list.height, list.height - 3, list.height + 2} {
+		view := list.ViewAtHeight(rows)
+		plain := bloom.Render(m.width, rows, section(view))
+		fading := bloom.Render(m.width, rows, m.transcriptChild(view, rows))
+		row := rowOf(plain, "the new notice")
+		if row < 0 {
+			t.Fatalf("at %d rows the new item is not in view\n%s", rows, stripAnsi(plain))
+		}
+		changed := changedRows(fading, plain)
+		if !slices.Contains(changed, row) {
+			t.Fatalf("at %d rows the item on row %d did not fade (changed rows %v)", rows, row, changed)
+		}
+		for _, r := range changed {
+			if r < row-2 || r > row+2 {
+				t.Fatalf("at %d rows, row %d changed for the item on row %d", rows, r, row)
+			}
+		}
+	}
+}
+
+// TestOnlyAFewNewItemsFade checks the changes to the transcript that are not
+// a conversation that moves on. A session that loads, a transcript that was
+// cleared and an item with motion off are drawn as they are.
+func TestOnlyAFewNewItemsFade(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fxs := m.fxState()
+
+	// Motion off.
+	mark := m.markTranscript()
+	m.printSystemMessage("with motion off")
+	m.noteNewItems(mark)
+	if len(fxs.entries) != 0 {
+		t.Fatal("an item fades in with motion off")
+	}
+
+	enableMotion(t, m)
+
+	// Many items at once.
+	mark = m.markTranscript()
+	for i := range entryMax + 1 {
+		m.printSystemMessage(fmt.Sprintf("loaded message %d", i))
+	}
+	m.noteNewItems(mark)
+	if len(fxs.entries) != 0 {
+		t.Fatalf("%d items fade in after %d were added at once", len(fxs.entries), entryMax+1)
+	}
+
+	// A transcript that was replaced and is as long as before plus one.
+	mark = m.markTranscript()
+	m.messages = append([]MessageItem{}, m.messages[1:]...)
+	m.printSystemMessage("one")
+	m.printSystemMessage("two")
+	m.noteNewItems(mark)
+	if len(fxs.entries) != 0 {
+		t.Fatal("an item fades in although the transcript before it changed")
+	}
+
+	// The usual case, to show that the checks above can fail.
+	mark = m.markTranscript()
+	m.printSystemMessage("a new message")
+	m.noteNewItems(mark)
+	if len(fxs.entries) != 1 {
+		t.Fatalf("%d items fade in after one was added, want 1", len(fxs.entries))
+	}
+}
+
+// rootTicks returns the messages that cmd produces and that belong to bloom:
+// the ticks that the root answers a message with.
+func rootTicks(cmd tea.Cmd) []tea.Msg {
+	var ticks []tea.Msg
+	for _, msg := range flattenCmd(cmd) {
+		if isMotionMsg(msg) {
+			ticks = append(ticks, msg)
+		}
+	}
+	return ticks
+}
+
+// TestRootDoesNotHearTheTicksOfTheClock checks that a tick of the frame clock
+// is not answered by a tick of the root while the layout is at rest. Each
+// answer is one more frame, so the spinner would be drawn twice for every
+// beat. The root must hear a tick again when a section has moved, and when
+// the clock stops, so that a glide is never left without frames.
+func TestRootDoesNotHearTheTicksOfTheClock(t *testing.T) {
+	m, stream, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	now := time.Unix(1000, 0)
+	m.fxState().now = func() time.Time { return now }
+	stream.spinning = true
+	m.layoutDirty = true
+
+	// The first frames: the root gets its sections, and the layout settles.
+	m.Update(noopMsg{})
+	_ = m.View()
+	_ = m.View()
+	if m.layoutMoved {
+		t.Fatal("the layout still moves on the second frame of a screen at rest")
+	}
+	if !m.frames.running {
+		t.Fatal("the spinner did not start the frame clock")
+	}
+	beat := func() frameTickMsg {
+		return frameTickMsg{generation: m.frames.generation, frame: m.frames.frame + 1}
+	}
+	// heard sends msg and reports whether the root answered it. A root asks
+	// for one tick at a time, so its answer is given back to it: the next
+	// message can then be answered too.
+	heard := func(msg tea.Msg) bool {
+		t.Helper()
+		_, cmd := m.Update(msg)
+		ticks := rootTicks(cmd)
+		for _, tick := range ticks {
+			m.Update(tick)
+		}
+		_ = m.View()
+		return len(ticks) > 0
+	}
+
+	// The root answers an event: this is what the checks below must not see.
+	if !heard(noopMsg{}) {
+		t.Fatal("the root did not answer an event: the test checks nothing")
+	}
+
+	for _, msg := range []tea.Msg{
+		beat(),
+		app.StreamChunkEvent{Content: "text"},
+		streamAppendFlushMsg{},
+		app.ToolOutputEvent{ToolCallID: "t", Chunk: "out"},
+	} {
+		if heard(msg) {
+			t.Fatalf("%T was answered by a tick of the root while the clock runs and the layout is at rest", msg)
+		}
+	}
+
+	// A section in a new place: the next tick goes to the root.
+	m.layoutMoved = true
+	if !heard(beat()) {
+		t.Fatal("after a section moved, the root did not hear the tick of the clock")
+	}
+	if m.layoutMoved {
+		t.Fatal("the frame of a layout at rest left layoutMoved set")
+	}
+
+	// The clock stops with this tick: the root hears it. The text that the
+	// chunk added has finished its fade by then, so nothing else keeps the
+	// clock up.
+	now = now.Add(time.Second)
+	stream.spinning = false
+	if !heard(beat()) {
+		t.Fatal("the root did not hear the last tick of the clock")
+	}
+	if m.frames.running {
+		t.Fatal("the clock still runs with nothing to animate")
+	}
+
+	// With the clock stopped the root hears a chunk too.
+	if !heard(app.StreamChunkEvent{Content: "text"}) {
+		t.Fatal("the root did not hear a chunk while the clock is stopped")
 	}
 }

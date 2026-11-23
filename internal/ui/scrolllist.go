@@ -791,6 +791,41 @@ func (s *ScrollList) EnsureVisible(idx int) {
 	s.ScrollBy(distance - s.height)
 }
 
+// scrollExtent returns what a scrollbar shows: the rows of the whole list,
+// the rows in view, and the row at the top of the view.
+//
+// It renders nothing. The list draws only the items in view, so an item that
+// was never in view has no known height, and to measure every item of a long
+// session for a scrollbar would cost more than the session costs to draw. An
+// item with no known height counts as the mean height of those that have one.
+// The result is thus an estimate, which gets better as the user scrolls. The
+// items from the top of the view to the end of a list at its bottom are all
+// known, so there the thumb is exactly at the end of its track.
+func (s *ScrollList) scrollExtent() (total, visible, offset int) {
+	n := len(s.items)
+	if n == 0 || s.height <= 0 {
+		return 0, max(s.height, 0), 0
+	}
+	var rows, unknown, rowsBefore, unknownBefore int
+	for i, item := range s.items {
+		if i == s.offsetIdx {
+			rowsBefore, unknownBefore = rows, unknown
+		}
+		if h, ok := s.heightCache[item.ID()]; ok {
+			rows += h
+		} else {
+			unknown++
+		}
+	}
+	mean := 1
+	if known := n - unknown; known > 0 {
+		mean = max((rows+known/2)/known, 1)
+	}
+	total = rows + unknown*mean + s.itemGap*(n-1)
+	offset = rowsBefore + unknownBefore*mean + s.itemGap*s.offsetIdx + s.offsetLine
+	return total, s.height, offset
+}
+
 // AtBottom returns true if the viewport is at the bottom of the list.
 func (s *ScrollList) AtBottom() bool {
 	if len(s.items) == 0 {

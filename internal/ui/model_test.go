@@ -176,6 +176,7 @@ type stubStreamComponent struct {
 	resetCalled     int
 	lastMsg         tea.Msg
 	renderedContent string // returned by GetRenderedContent
+	spinning        bool   // returned by IsSpinning
 }
 
 func (s *stubStreamComponent) Init() tea.Cmd { return nil }
@@ -187,7 +188,7 @@ func (s *stubStreamComponent) View() tea.View             { return tea.NewView("
 func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
 func (s *stubStreamComponent) ActivityDot() string        { return "" }
-func (s *stubStreamComponent) IsSpinning() bool           { return false }
+func (s *stubStreamComponent) IsSpinning() bool           { return s.spinning }
 func (s *stubStreamComponent) ActivityPhrase() string     { return "" }
 func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
 func (s *stubStreamComponent) HasReasoning() bool         { return false }

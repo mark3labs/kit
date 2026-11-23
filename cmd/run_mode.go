@@ -332,6 +332,8 @@ func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App
 	extCtx.Print = buffer
 	extCtx.PrintInfo = buffer
 	extCtx.PrintError = buffer
+	// No screen is up yet to show a toast on.
+	extCtx.Toast = buffer
 	k.Extensions().SetContext(extCtx)
 	if err := k.Extensions().InitStatePersistence(); err != nil {
 		charmlog.Warn("extension state init failed", "err", err)
@@ -342,6 +344,7 @@ func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App
 	extCtx.Print = func(text string) { appInstance.PrintFromExtension("", text) }
 	extCtx.PrintInfo = func(text string) { appInstance.PrintFromExtension("info", text) }
 	extCtx.PrintError = func(text string) { appInstance.PrintFromExtension("error", text) }
+	extCtx.Toast = func(text string) { appInstance.PrintFromExtension("toast", text) }
 	k.Extensions().SetContext(extCtx)
 
 	return startupMessages
@@ -654,7 +657,7 @@ func startExtensionWatcher(ctx context.Context, appInstance *app.App, reload fun
 			appInstance.PrintFromExtension("error", fmt.Sprintf("Extension auto-reload failed: %v", err))
 			return
 		}
-		appInstance.PrintFromExtension("info", "Extensions reloaded.")
+		appInstance.PrintFromExtension("toast", "Extensions reloaded.")
 	})
 	if err != nil {
 		charmlog.Warn("extension file watcher not started", "err", err)

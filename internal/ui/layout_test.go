@@ -88,6 +88,209 @@ func TestLayoutGivesTranscriptTheRemainingRows(t *testing.T) {
 	}
 }
 
+// TestShortFrameDropsSectionsInOrder checks a frame that is too short for all
+// of its sections. The sections that can be left out go one at a time, the
+// widgets first, until the transcript has streamMinRows rows. The composer
+// and the status bar keep every row.
+func TestShortFrameDropsSectionsInOrder(t *testing.T) {
+	newModel := func(height int) *AppModel {
+		m, _, _ := newTestAppModel(&stubAppController{})
+		m.input = NewInputComponent(80, nil)
+		m.height = height
+		m.getHeader = func() *WidgetData { return &WidgetData{Text: "header one\nheader two"} }
+		m.getFooter = func() *WidgetData { return &WidgetData{Text: "footer"} }
+		m.getWidgets = func(slot string) []WidgetData {
+			return []WidgetData{{ID: slot, Text: "widget " + slot + " 1\nwidget " + slot + " 2\nwidget " + slot + " 3"}}
+		}
+		m.queuedMessages = []string{"queued message"}
+		m.layoutDirty = true
+		return m
+	}
+	rows := func(m *AppModel, id regionID) int { return regionRows(m.ui.Frame(), id) }
+
+	// A tall frame holds everything.
+	m := newModel(40)
+	view := m.View().Content
+	for _, id := range []regionID{regionHeader, regionAbove, regionQueued, regionBelow, regionFooter} {
+		if rows(m, id) == 0 {
+			t.Fatalf("section %d has no rows in a tall frame\n%s", id, stripAnsi(view))
+		}
+	}
+	all := m.height - m.scrollList.height // the rows of every section but the transcript
+
+	// One row too few for all of them: only the first in the order goes.
+	m = newModel(all + streamMinRows - 1)
+	view = m.View().Content
+	if rows(m, regionBelow) != 0 {
+		t.Fatalf("the widgets below the composer did not leave a short frame\n%s", stripAnsi(view))
+	}
+	for _, id := range []regionID{regionHeader, regionAbove, regionQueued, regionFooter} {
+		if rows(m, id) == 0 {
+			t.Fatalf("section %d left the frame before its turn\n%s", id, stripAnsi(view))
+		}
+	}
+	if m.scrollList.height < streamMinRows || rows(m, regionStream) != m.scrollList.height {
+		t.Fatalf("transcript has %d rows (list %d), want at least %d", rows(m, regionStream), m.scrollList.height, streamMinRows)
+	}
+
+	// A frame with room for little more than the composer: every section
+	// that can go has gone, and the composer and status bar are whole.
+	m = newModel(streamMinRows + 6)
+	view = m.View().Content
+	for _, id := range []regionID{regionHeader, regionAbove, regionBelow, regionFooter} {
+		if rows(m, id) != 0 {
+			t.Fatalf("section %d is still in a frame of %d rows\n%s", id, m.height, stripAnsi(view))
+		}
+	}
+	if got, want := rows(m, regionInput), sectionRows(m.chrome.input); got != want {
+		t.Fatalf("composer has %d rows, want all %d", got, want)
+	}
+	if got := rows(m, regionStatus); got != 1 {
+		t.Fatalf("status bar has %d rows, want 1", got)
+	}
+	if rows(m, regionStream) < streamMinRows {
+		t.Fatalf("transcript has %d rows, want at least %d\n%s", rows(m, regionStream), streamMinRows, stripAnsi(view))
+	}
+	if got := lipgloss.Height(view); got != m.height {
+		t.Fatalf("frame height = %d, want %d", got, m.height)
+	}
+}
+
+// TestShortFrameKeepsFillWidgets checks that a fill widget does not leave a
+// short frame: it stands in for the transcript, so it has nothing to give way
+// to.
+func TestShortFrameKeepsFillWidgets(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	m.height = 8
+	m.getWidgets = func(slot string) []WidgetData {
+		if slot != "above" {
+			return nil
+		}
+		return []WidgetData{{ID: "fill", Text: "fill widget", FillHeight: true}}
+	}
+	m.layoutDirty = true
+	view := m.View().Content
+	if !m.fillActive {
+		t.Fatal("the fill widget is not active")
+	}
+	if regionRows(m.ui.Frame(), regionAbove) == 0 || rowOf(view, "fill widget") < 0 {
+		t.Fatalf("the fill widget left a short frame\n%s", stripAnsi(view))
+	}
+}
+
+// lastColumn returns the last cell of each of the first rows of a frame.
+func lastColumn(view string, rows int) string {
+	var b strings.Builder
+	for _, line := range strings.Split(stripAnsi(view), "\n")[:rows] {
+		cells := []rune(line)
+		if len(cells) < 80 {
+			b.WriteRune(' ')
+			continue
+		}
+		b.WriteRune(cells[len(cells)-1])
+	}
+	return b.String()
+}
+
+// TestScrollbarShowsWhereTheViewIs checks the scrollbar of the transcript. It
+// is not there while the transcript follows the conversation. When the user
+// scrolls away it is in the last column, its thumb moves with the view, and
+// it takes no column from the text.
+func TestScrollbarShowsWhereTheViewIs(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fillTranscript(m)
+	m.layoutDirty = true
+	following := m.View().Content
+	rows := m.scrollList.height
+	if strings.Contains(lastColumn(following, rows), "┃") {
+		t.Fatalf("a transcript that follows the conversation has a scrollbar\n%s", stripAnsi(following))
+	}
+
+	// The user scrolls up to the start.
+	m.scrollList.autoScroll = false
+	m.scrollList.GotoTop()
+	m.Update(noopMsg{})
+	top := m.View().Content
+	col := lastColumn(top, rows)
+	if !strings.HasPrefix(col, "┃") {
+		t.Fatalf("at the start of the transcript the thumb is not at the top of the last column: %q", col)
+	}
+	if strings.HasSuffix(col, "┃") {
+		t.Fatalf("the thumb fills the track: %q", col)
+	}
+	if got := lipgloss.Height(top); got != m.height {
+		t.Fatalf("frame height with a scrollbar = %d, want %d", got, m.height)
+	}
+	// Nothing but the last column changed: the text keeps its width.
+	m.scrollList.autoScroll = true
+	m.Update(noopMsg{})
+	plain := strings.Split(stripAnsi(m.View().Content), "\n")
+	for i, line := range strings.Split(stripAnsi(top), "\n")[:rows] {
+		a, b := []rune(line), []rune(plain[i])
+		if len(a) == 80 {
+			a = a[:79]
+		}
+		if len(b) == 80 {
+			b = b[:79]
+		}
+		if strings.TrimRight(string(a), " ") != strings.TrimRight(string(b), " ") {
+			t.Fatalf("row %d changed outside the last column:\n%q\n%q", i, string(a), string(b))
+		}
+	}
+
+	// Scrolled to the end, and still not following: the thumb is at the
+	// bottom of the track.
+	m.scrollList.autoScroll = false
+	m.scrollList.GotoBottom()
+	m.Update(noopMsg{})
+	col = lastColumn(m.View().Content, rows)
+	if !strings.HasSuffix(col, "┃") || strings.HasPrefix(col, "┃") {
+		t.Fatalf("at the end of the transcript the thumb is not at the bottom of the last column: %q", col)
+	}
+}
+
+// TestScrollExtentEstimatesUnseenItems checks the numbers behind the
+// scrollbar. Items that were never drawn count as the mean of those that
+// were, nothing is rendered to measure them, and a list at its end has its
+// view exactly at the end of the content.
+func TestScrollExtentEstimatesUnseenItems(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fillTranscript(m)
+	m.layoutDirty = true
+	_ = m.View()
+	list := m.scrollList
+
+	total, visible, offset := list.scrollExtent()
+	if visible != list.height {
+		t.Fatalf("visible = %d, want the height of the list, %d", visible, list.height)
+	}
+	if offset+visible != total {
+		t.Fatalf("a list at its end has offset %d + visible %d != total %d", offset, visible, total)
+	}
+
+	// Forget every height but those of the items in view.
+	known := len(list.heightCache)
+	clear(list.heightCache)
+	_ = list.View()
+	if len(list.heightCache) >= known || len(list.heightCache) == 0 {
+		t.Fatalf("the list knows %d heights after it drew one view, had %d: the test checks nothing", len(list.heightCache), known)
+	}
+	before := len(list.heightCache)
+	estimate, _, offset := list.scrollExtent()
+	if len(list.heightCache) != before {
+		t.Fatal("scrollExtent measured items that were not in view")
+	}
+	if estimate != total {
+		t.Fatalf("estimated total = %d, want %d: every message of this transcript has the same height", estimate, total)
+	}
+	if offset+visible != estimate {
+		t.Fatalf("with estimates, a list at its end has offset %d + visible %d != total %d", offset, visible, estimate)
+	}
+}
+
 // TestViewRecordsWhereSectionsWent checks the rows that the mouse handlers
 // and the image placement read: where the transcript starts, and where the
 // input starts.
@@ -243,7 +446,8 @@ func TestLayoutAnimationGlides(t *testing.T) {
 }
 
 // TestLayoutJumps checks the cases in which sections must take their place at
-// once: motion off, a window resize, and an image placed beside the view.
+// once: motion off and a window resize. For an image placed beside the view,
+// see TestLayoutJumpsWhenAnImageMoves.
 func TestLayoutJumps(t *testing.T) {
 	grow := func(m *AppModel) {
 		m.getWidgets = func(slot string) []WidgetData {
@@ -290,11 +494,120 @@ func TestLayoutJumps(t *testing.T) {
 			t.Fatal("the jump outlived the frame that it was for")
 		}
 	})
-	t.Run("image placed beside the view", func(t *testing.T) {
-		m := newModel(t, true)
-		m.gfxPlaced = map[uint32]struct{}{7: {}}
-		if m.layoutAnimates() {
-			t.Fatal("layout animates while an image is placed directly on the screen")
+}
+
+// directImageGlideModel returns a model with motion on, an image placed
+// directly in its transcript, and a root on a clock that the test moves,
+// after its first frame.
+func directImageGlideModel(t *testing.T) (*AppModel, *testClock) {
+	t.Helper()
+	m := newDirectImageModel(t)
+	enableMotion(t, m)
+	clock := &testClock{now: time.Unix(1000, 0)}
+	m.ui = bloom.New(bloom.WithClock(clock.Now), bloom.WithFPS(motionFPS))
+	_ = m.View()
+	if len(m.gfxSpots) != 1 || !strings.Contains(m.gfxPlacement, "a=p") {
+		t.Fatalf("the image is not placed: %d spot(s), placement %q", len(m.gfxSpots), m.gfxPlacement)
+	}
+	return m, clock
+}
+
+// TestLayoutGlidesAroundAnImageThatStaysPut checks a layout change that does
+// not move an image placed directly on the screen. A section that appears
+// below the transcript covers its last rows, and the image, further up, is
+// where it was. The sections then glide, and the image is at the same place,
+// with the same rows drawn, on every frame.
+func TestLayoutGlidesAroundAnImageThatStaysPut(t *testing.T) {
+	m, clock := directImageGlideModel(t)
+	before := m.scrollList.height
+	spot := m.gfxSpots[0]
+
+	m.getWidgets = tallWidget
+	m.layoutDirty = true
+	_ = m.View()
+	target := m.scrollList.height
+	if target >= before {
+		t.Fatalf("the widget took no rows from the transcript (%d, was %d)", target, before)
+	}
+	streamRows := func() int { return regionRows(m.ui.Frame(), regionStream) }
+	if got := streamRows(); got != before {
+		t.Fatalf("first frame after the change: transcript section has %d rows, want the %d it had: the layout jumped", got, before)
+	}
+
+	seenBetween := false
+	for range 40 {
+		clock.advance(layoutGlide / 20)
+		_ = m.View()
+		if rows := streamRows(); rows > target && rows < before {
+			seenBetween = true
+		}
+		if len(m.gfxSpots) != 1 || m.gfxSpots[0] != spot {
+			t.Fatalf("the image moved during the glide: %+v, was %+v", m.gfxSpots, spot)
+		}
+	}
+	if !seenBetween {
+		t.Fatal("the transcript section jumped: no frame had a height in between")
+	}
+	if got := streamRows(); got != target {
+		t.Fatalf("after the glide the transcript section has %d rows, want %d", got, target)
+	}
+}
+
+// TestLayoutJumpsWhenAnImageMoves checks the layout changes that do move an
+// image placed directly on the screen, or that change which of its rows are
+// in view. The image cannot travel with a section, so the sections take
+// their place at once and the image is placed there.
+func TestLayoutJumpsWhenAnImageMoves(t *testing.T) {
+	settled := func(t *testing.T, m *AppModel) {
+		t.Helper()
+		_ = m.View()
+		if got := regionRows(m.ui.Frame(), regionStream); got != m.scrollList.height {
+			t.Fatalf("transcript section has %d rows, want %d at once", got, m.scrollList.height)
+		}
+	}
+
+	t.Run("a header moves the transcript down", func(t *testing.T) {
+		m, _ := directImageGlideModel(t)
+		spot := m.gfxSpots[0]
+		m.getHeader = func() *WidgetData { return &WidgetData{Text: "header\nsecond row"} }
+		m.layoutDirty = true
+		settled(t, m)
+		if len(m.gfxSpots) != 1 || m.gfxSpots[0].row != spot.row+lipgloss.Height(m.chrome.header) {
+			t.Fatalf("the image is at %+v, want it %d rows below row %d", m.gfxSpots, lipgloss.Height(m.chrome.header), spot.row)
+		}
+	})
+
+	t.Run("a section covers part of the image", func(t *testing.T) {
+		m, _ := directImageGlideModel(t)
+		spot := m.gfxSpots[0]
+		// A widget that leaves the transcript the rows down to the middle of
+		// the image. It is not so tall that the frame has to drop it.
+		keep := spot.row + 2
+		if keep < streamMinRows {
+			t.Fatalf("the image is on row %d: the transcript cannot be cut there", spot.row)
+		}
+		rows := m.scrollList.height - keep
+		m.getWidgets = func(slot string) []WidgetData {
+			if slot != "above" {
+				return nil
+			}
+			return []WidgetData{{ID: "tall", NoBorder: true, Text: strings.TrimSuffix(strings.Repeat("w\n", rows), "\n")}}
+		}
+		m.layoutDirty = true
+		settled(t, m)
+		if len(m.gfxSpots) == 1 && m.gfxSpots[0] == spot {
+			t.Fatalf("the widget left the image whole (%d transcript rows): the test checks nothing", m.scrollList.height)
+		}
+	})
+
+	t.Run("no image, the same change glides", func(t *testing.T) {
+		m, _ := glideModel(t, nil)
+		before := m.scrollList.height
+		m.getHeader = func() *WidgetData { return &WidgetData{Text: "header\nsecond row"} }
+		m.layoutDirty = true
+		_ = m.View()
+		if got := regionRows(m.ui.Frame(), regionStream); got != before {
+			t.Fatalf("without an image the transcript section has %d rows on the first frame, want the %d it had", got, before)
 		}
 	})
 }
