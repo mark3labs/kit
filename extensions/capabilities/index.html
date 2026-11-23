@@ -6,7 +6,7 @@
 <title>Capabilities | Kit</title>
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BoWNxBS6.js"></script>
+<script type="module" src="/assets/index-3z1VDhAL.js"></script>
 <link rel="canonical" href="https://go-kit.dev/extensions/capabilities" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -590,7 +590,7 @@ event handler, has no effect.
 ## TUI callback safety
 
 Key and render callbacks must return promptly. `Print`, `PrintInfo`, `PrintError`,
-`PrintBlock`, `SetEditorText`, the TUI notification from `SetModel`, and `Exit`
+`PrintBlock`, `Toast`, `SetEditorText`, the TUI notification from `SetModel`, and `Exit`
 use deferred FIFO delivery. These notifications do not need your own goroutine.
 Delivery is a request, not an acknowledgement that the UI has processed it.
 `SetModel` still resolves the model and runs hooks synchronously.

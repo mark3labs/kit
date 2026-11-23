@@ -560,7 +560,7 @@ event handler, has no effect.
 ## TUI callback safety
 
 Key and render callbacks must return promptly. `Print`, `PrintInfo`, `PrintError`,
-`PrintBlock`, `SetEditorText`, the TUI notification from `SetModel`, and `Exit`
+`PrintBlock`, `Toast`, `SetEditorText`, the TUI notification from `SetModel`, and `Exit`
 use deferred FIFO delivery. These notifications do not need your own goroutine.
 Delivery is a request, not an acknowledgement that the UI has processed it.
 `SetModel` still resolves the model and runs hooks synchronously.

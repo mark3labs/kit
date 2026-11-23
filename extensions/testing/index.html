@@ -6,7 +6,7 @@
 <title>Testing Extensions | Kit</title>
 <meta name="description" content="Write unit tests for your Kit extensions using the test package.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BoWNxBS6.js"></script>
+<script type="module" src="/assets/index-3z1VDhAL.js"></script>
 <link rel="canonical" href="https://go-kit.dev/extensions/testing" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -398,6 +398,7 @@ The test package provides these assertion helpers:
 | `AssertPrintedContains(t, harness, substring)` | Verify partial print output |
 | `AssertPrintInfo(t, harness, text)` | Verify PrintInfo was called |
 | `AssertPrintError(t, harness, text)` | Verify PrintError was called |
+| `AssertToast(t, harness, text)` | Verify Toast was called |
 | `AssertWidgetSet(t, harness, id)` | Verify widget was set |
 | `AssertWidgetNotSet(t, harness, id)` | Verify widget was not set |
 | `AssertWidgetText(t, harness, id, text)` | Verify widget content |

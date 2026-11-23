@@ -326,6 +326,10 @@ you can invoke it at whatever width you want to assert against:</p>
 <td>Verify PrintError was called</td>
 </tr>
 <tr>
+<td><code>AssertToast(t, harness, text)</code></td>
+<td>Verify Toast was called</td>
+</tr>
+<tr>
 <td><code>AssertWidgetSet(t, harness, id)</code></td>
 <td>Verify widget was set</td>
 </tr>
@@ -865,6 +869,7 @@ The test package provides these assertion helpers:
 | \`AssertPrintedContains(t, harness, substring)\` | Verify partial print output |
 | \`AssertPrintInfo(t, harness, text)\` | Verify PrintInfo was called |
 | \`AssertPrintError(t, harness, text)\` | Verify PrintError was called |
+| \`AssertToast(t, harness, text)\` | Verify Toast was called |
 | \`AssertWidgetSet(t, harness, id)\` | Verify widget was set |
 | \`AssertWidgetNotSet(t, harness, id)\` | Verify widget was not set |
 | \`AssertWidgetText(t, harness, id, text)\` | Verify widget content |

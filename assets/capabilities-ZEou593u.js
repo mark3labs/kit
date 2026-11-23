@@ -672,7 +672,7 @@ last one registered wins, so register the general pattern first:</p>
 event handler, has no effect.</p>
 <h2 id="tui-callback-safety"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tui-callback-safety"><span class="icon icon-link"></span></a>TUI callback safety</h2>
 <p>Key and render callbacks must return promptly. <code>Print</code>, <code>PrintInfo</code>, <code>PrintError</code>,
-<code>PrintBlock</code>, <code>SetEditorText</code>, the TUI notification from <code>SetModel</code>, and <code>Exit</code>
+<code>PrintBlock</code>, <code>Toast</code>, <code>SetEditorText</code>, the TUI notification from <code>SetModel</code>, and <code>Exit</code>
 use deferred FIFO delivery. These notifications do not need your own goroutine.
 Delivery is a request, not an acknowledgement that the UI has processed it.
 <code>SetModel</code> still resolves the model and runs hooks synchronously.</p>
@@ -1707,7 +1707,7 @@ event handler, has no effect.
 ## TUI callback safety
 
 Key and render callbacks must return promptly. \`Print\`, \`PrintInfo\`, \`PrintError\`,
-\`PrintBlock\`, \`SetEditorText\`, the TUI notification from \`SetModel\`, and \`Exit\`
+\`PrintBlock\`, \`Toast\`, \`SetEditorText\`, the TUI notification from \`SetModel\`, and \`Exit\`
 use deferred FIFO delivery. These notifications do not need your own goroutine.
 Delivery is a request, not an acknowledgement that the UI has processed it.
 \`SetModel\` still resolves the model and runs hooks synchronously.
