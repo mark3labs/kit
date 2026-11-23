@@ -422,15 +422,17 @@ func createProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		}
 	}
 
-	// Validate config against known model limits when metadata is available
-	if modelInfo != nil {
-		validateModelConfig(config, modelInfo)
-	}
-
 	// Apply per-model generation parameter defaults. Model-level params are
 	// only applied for fields where the user hasn't explicitly set a value
 	// via CLI flag or global config.
 	ApplyModelSettings(config, modelInfo)
+
+	// Validate config against known model limits when metadata is available.
+	// This runs after ApplyModelSettings so per-model settings can't restore
+	// sampling parameters the model rejects.
+	if modelInfo != nil {
+		validateModelConfig(config, modelInfo)
+	}
 	config.ThinkingLevel = ParseThinkingLevel(string(config.ThinkingLevel))
 	if !hasFactory && !IsValidThinkingLevelForModel(config.ThinkingLevel, lookupProvider, modelName) {
 		return nil, effortError("model %s/%s does not support thinking level %q; supported: %v", provider, modelName, config.ThinkingLevel, SupportedThinkingLevels(lookupProvider, modelName))
@@ -1065,17 +1067,67 @@ func resolveAPIKey(explicitKey, providerID string, envVars []string) string {
 }
 
 // validateModelConfig adjusts configuration parameters against known model capabilities.
-// It silently clears temperature for models that don't support it, and warns (but
-// does not block) when max_tokens exceeds the model's known output limit.
+// It clears temperature for models that don't support it, and also top_p and
+// top_k when the model metadata explicitly marks sampling as unsupported
+// (ModelInfo.SamplingUnsupported). It warns (but does not block) when max_tokens
+// exceeds the model's known output limit.
+//
+// The catalog has no separate top_p/top_k flag. Models whose catalog entry
+// says "temperature": false, such as Claude 4.7 and later and OpenAI's
+// reasoning models, reject top_p and top_k as well, so all three are cleared
+// together. Clearing top_p here also keeps --temperature plus --top-p from
+// sending top_p alone after temperature has been cleared. A custom model, or a
+// catalog entry without a "temperature" key, keeps top_p and top_k.
+//
+// A value that the user set (CLI flag, environment, global config, or a
+// per-model modelSettings / custom model params entry) is reported on stderr
+// when it is cleared. Built-in defaults are cleared without a warning.
 func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
-	if config.Temperature != nil && !modelInfo.Temperature {
-		config.Temperature = nil
+	if dropped := clearUnsupportedSampling(config, modelInfo); len(dropped) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %s does not support %s; ignoring the configured value\n",
+			config.ModelString, strings.Join(dropped, ", "))
 	}
 
 	if modelInfo.Limit.Output > 0 && config.MaxTokens > modelInfo.Limit.Output {
 		fmt.Fprintf(os.Stderr, "Warning: max_tokens (%d) exceeds model's known output limit (%d) for %s\n",
 			config.MaxTokens, modelInfo.Limit.Output, modelInfo.ID)
 	}
+}
+
+// clearUnsupportedSampling clears the sampling parameters that modelInfo
+// rejects (see validateModelConfig) and returns the API names of the cleared
+// values that the user set, so that the caller can report them.
+func clearUnsupportedSampling(config *ProviderConfig, modelInfo *ModelInfo) []string {
+	var dropped []string
+	var params *GenerationParams
+	if !modelInfo.Temperature || modelInfo.SamplingUnsupported {
+		params = modelLevelParams(config, modelInfo)
+	}
+	userSet := func(key string, fromModel bool) bool {
+		return fromModel || isExplicitlySet(config.ConfigStore, key)
+	}
+
+	if !modelInfo.Temperature && config.Temperature != nil {
+		if userSet("temperature", params != nil && params.Temperature != nil) {
+			dropped = append(dropped, "temperature")
+		}
+		config.Temperature = nil
+	}
+	if modelInfo.SamplingUnsupported {
+		if config.TopP != nil {
+			if userSet("top-p", params != nil && params.TopP != nil) {
+				dropped = append(dropped, "top_p")
+			}
+			config.TopP = nil
+		}
+		if config.TopK != nil {
+			if userSet("top-k", params != nil && params.TopK != nil) {
+				dropped = append(dropped, "top_k")
+			}
+			config.TopK = nil
+		}
+	}
+	return dropped
 }
 
 // defaultRightSizeCap bounds auto-raised MaxTokens so that we don't silently

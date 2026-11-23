@@ -32,13 +32,19 @@ type ModelInfo struct {
 	InputModalities []string
 	Reasoning       bool
 	Temperature     bool
-	Cost            Cost
-	Limit           Limit
-	ProviderNPM     string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
-	ProviderAPI     string // Model-specific base URL from the catalog (e.g. Cloudflare /ai/run)
-	BaseURL         string // Per-model base URL override (custom models only)
-	APIKey          string // Per-model API key override (custom models only)
-	APIModelName    string // Per-model API model name override (custom models only)
+	// SamplingUnsupported is true when the model metadata explicitly marks
+	// the sampling parameters (temperature, top_p, top_k) as unsupported.
+	// The catalog sets it for entries with "temperature": false. It is false
+	// when the catalog omits the key, and for custom models, whose
+	// temperature flag says nothing about top_p or top_k.
+	SamplingUnsupported bool
+	Cost                Cost
+	Limit               Limit
+	ProviderNPM         string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	ProviderAPI         string // Model-specific base URL from the catalog (e.g. Cloudflare /ai/run)
+	BaseURL             string // Per-model base URL override (custom models only)
+	APIKey              string // Per-model API key override (custom models only)
+	APIModelName        string // Per-model API model name override (custom models only)
 
 	// Params holds per-model generation parameter defaults. These are applied
 	// when the user hasn't explicitly set the corresponding CLI flag or global
@@ -417,6 +423,20 @@ func reasoningFrom(opts []modelsDBReasoningOption) (levels []string, graded bool
 // precedence. This means newly synced models are available while embedded
 // models that haven't been synced yet are still reachable.
 func buildFromModelsDB() map[string]ProviderInfo {
+	return buildProviders(true)
+}
+
+// NewEmbeddedModelsRegistry builds a registry from the catalog compiled into
+// the binary only, without the `kit update-models` cache or config-file
+// models and overrides. Tests use it to check the catalog that ships.
+func NewEmbeddedModelsRegistry() *ModelsRegistry {
+	return &ModelsRegistry{providers: buildProviders(false)}
+}
+
+// buildProviders builds the provider map from the embedded catalog. When
+// withUserData is true it also merges the on-disk cache, custom models and
+// provider overrides from config, as described on buildFromModelsDB.
+func buildProviders(withUserData bool) map[string]ProviderInfo {
 	// The embedded snapshot (~5MB) and the on-disk cache are two independent
 	// JSON documents and parsing them is most of the registry build time,
 	// which every kit start pays. Parse the cache in parallel with the
@@ -425,7 +445,9 @@ func buildFromModelsDB() map[string]ProviderInfo {
 	cachedDone := make(chan struct{})
 	go func() {
 		defer close(cachedDone)
-		cached, _ = LoadCachedProviders()
+		if withUserData {
+			cached, _ = LoadCachedProviders()
+		}
 	}()
 
 	// Start with compile-time embedded data as the base.
@@ -484,8 +506,11 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				Attachment:      dm.Attachment,
 				InputModalities: inputModalities,
 				Reasoning:       dm.Reasoning,
-				Temperature:     dm.Temperature,
-				Cost:            costFrom(dm.Cost),
+				Temperature:     dm.Temperature != nil && *dm.Temperature,
+				// Only an explicit "temperature": false marks the
+				// sampling parameters unsupported; an omitted key does not.
+				SamplingUnsupported: dm.Temperature != nil && !*dm.Temperature,
+				Cost:                costFrom(dm.Cost),
 				Limit: Limit{
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
@@ -550,6 +575,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				},
 			},
 		},
+	}
+
+	if !withUserData {
+		return providers
 	}
 
 	// Load custom models from config file and merge into custom provider.
