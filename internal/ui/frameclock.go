@@ -32,6 +32,27 @@ import (
 // report, through AppModel.wantsFrames, whether they still want more. The
 // clock runs only while something does, so an idle session costs nothing.
 //
+// Transitions run on this clock too (see motion.go). A transition is short
+// and moves cells, so it wants more frames than a spinner does: while one
+// runs, the clock adds a frame between each two beats, which makes 60 frames
+// a second. The beats stay 30 a second, so nothing that counts them changes
+// speed. Each animated value used to schedule its own frames; a dialog that
+// opened while the agent worked then ran three loops, out of phase, for one
+// animation.
+//
+// One loop is not on this clock: layout animation. The bloom root schedules
+// the frames of a section that glides, and it has no way to take them from
+// another clock. A glide is short, so that loop is seldom awake. The root
+// asks for a frame after each message that it hears, to look for a glide, so
+// the ticks of this clock do not go to it while the layout is at rest: see
+// AppModel.rootHears. Each tick would otherwise be drawn twice.
+//
+// While the terminal does not have focus the clock ticks 10 times a second.
+// Each tick then stands for three beats, so that the time that animations
+// count stays true. An animation that nobody looks at does not have to be
+// smooth, and a session that works in the background for an hour costs a
+// third of the frames.
+//
 // Deliberately out of scope: the 16ms stream-flush ticks. Those look like an
 // animation loop but are a coalescing window whose timing is tied to when
 // provider chunks arrive, not to the display. Folding them in here would make
@@ -58,7 +79,16 @@ const (
 	frameEverySpinner = 2 // 15fps
 )
 
-// frameTickMsg is one beat of the shared animation clock.
+// frameClockFastFPS is the rate of the clock while a transition runs: a frame
+// on each beat, and one between each two beats.
+const frameClockFastFPS = 2 * FrameClockFPS
+
+// frameClockUnfocusedFPS is the rate of the clock while the terminal does not
+// have focus. It divides FrameClockFPS, so each tick stands for a whole
+// number of beats.
+const frameClockUnfocusedFPS = 10
+
+// frameTickMsg is one tick of the shared animation clock.
 //
 // generation identifies the run that scheduled the tick, so a beat left over
 // from a clock that has since stopped is discarded rather than starting a
@@ -68,15 +98,33 @@ const (
 type frameTickMsg struct {
 	generation uint64
 	frame      int
+
+	// between marks a frame between two beats. Only transitions move on it:
+	// it is not a beat, and frame is the number of the beat before it.
+	between bool
+
+	// skipped is the number of beats before this one that had no tick of
+	// their own, because the terminal does not have focus. The tick stands
+	// for those beats too.
+	skipped int
 }
 
 // due reports whether an animation that advances once every n clock frames
-// should advance on this tick. n <= 1 advances on every frame.
+// should advance on this tick. n <= 1 advances on every beat.
+//
+// A tick that stands for several beats is due when one of them is. The
+// animation advances once for it, not once for each beat: it runs slower while
+// nobody looks, and it does not jump.
 func (t frameTickMsg) due(n int) bool {
+	if t.between {
+		return false
+	}
 	if n <= 1 {
 		return true
 	}
-	return t.frame%n == 0
+	// The last multiple of n at or before this beat is one of the beats that
+	// the tick stands for.
+	return t.frame/n*n >= t.frame-t.skipped
 }
 
 // frameClock schedules the shared animation heartbeat.
@@ -96,6 +144,18 @@ type frameClock struct {
 	// frame is the monotonic frame counter for the current run, reset at each
 	// start so subdivision phase is predictable from the moment motion begins.
 	frame int
+
+	// fast adds a frame between each two beats. AppModel sets it while a
+	// transition runs. It takes effect on the next tick that is scheduled:
+	// the tick in flight keeps its time.
+	fast bool
+
+	// blurred is true while the terminal does not have focus.
+	blurred bool
+
+	// between is true when the tick accepted last was a frame between two
+	// beats. The next tick is then the beat that it came before.
+	between bool
 }
 
 // start wakes the clock, returning the command that schedules its first frame.
@@ -109,6 +169,7 @@ func (c *frameClock) start() tea.Cmd {
 	c.running = true
 	c.generation++
 	c.frame = 0
+	c.between = false
 	return c.tick()
 }
 
@@ -129,15 +190,36 @@ func (c *frameClock) accept(t frameTickMsg) bool {
 		return false
 	}
 	c.frame = t.frame
+	c.between = t.between
 	return true
+}
+
+// next returns the tick that follows the one accepted last, and how long
+// from now it is due.
+func (c *frameClock) next() (frameTickMsg, time.Duration) {
+	t := frameTickMsg{generation: c.generation, frame: c.frame + 1}
+	switch {
+	case c.between:
+		// The beat that the frame in between came before. It is due half a
+		// beat later whatever the clock does next, so the beats keep time.
+		return t, time.Second / frameClockFastFPS
+	case c.blurred:
+		t.skipped = FrameClockFPS/frameClockUnfocusedFPS - 1
+		t.frame += t.skipped
+		return t, time.Second / frameClockUnfocusedFPS
+	case c.fast:
+		t.frame, t.between = c.frame, true
+		return t, time.Second / frameClockFastFPS
+	}
+	return t, time.Second / FrameClockFPS
 }
 
 // tick schedules the next beat. The frame number is assigned here, at schedule
 // time, so the sequence stays monotonic and is not affected by how long the
 // receiving update takes.
 func (c *frameClock) tick() tea.Cmd {
-	next := frameTickMsg{generation: c.generation, frame: c.frame + 1}
-	return tea.Tick(time.Second/FrameClockFPS, func(_ time.Time) tea.Msg {
+	next, after := c.next()
+	return tea.Tick(after, func(_ time.Time) tea.Msg {
 		return next
 	})
 }

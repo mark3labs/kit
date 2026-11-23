@@ -1449,7 +1449,8 @@ func (a *App) QuitFromExtension() {
 
 // PrintFromExtension outputs text from an extension to the user. The level
 // controls styling: "" for plain text, "info" for a system message block,
-// "error" for an error block. In interactive mode it sends an
+// "error" for an error block, "toast" for a short notice that is not kept in
+// the conversation. In interactive mode it sends an
 // ExtensionPrintEvent through the program so the TUI can render it with the
 // appropriate renderer. In non-interactive mode it falls back to stderr with
 // a level prefix so errors are distinguishable from plain output.
@@ -1463,7 +1464,8 @@ func (a *App) PrintFromExtension(level, text string) {
 	switch level {
 	case "error":
 		fmt.Fprintf(os.Stderr, "[ERROR] %s\n", text)
-	case "info":
+	case "info", "toast":
+		// Without a screen a toast is an info message.
 		fmt.Fprintf(os.Stderr, "[INFO] %s\n", text)
 	default:
 		// Quiet and JSON modes reserve stdout for the response payload, so

@@ -185,6 +185,9 @@ func normalizeContext(ctx Context) Context {
 	if ctx.PrintError == nil {
 		ctx.PrintError = func(string) {}
 	}
+	if ctx.Toast == nil {
+		ctx.Toast = func(string) {}
+	}
 	if ctx.PrintBlock == nil {
 		ctx.PrintBlock = func(PrintBlockOpts) {}
 	}

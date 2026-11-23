@@ -18,6 +18,7 @@ type MockContext struct {
 	Prints      []string
 	PrintInfos  []string
 	PrintErrors []string
+	Toasts      []string
 	PrintBlocks []extensions.PrintBlockOpts
 	Messages    []string
 	CancelSends []string
@@ -100,6 +101,7 @@ func (m *MockContext) ToContext() extensions.Context {
 		Print:             m.recordPrint,
 		PrintInfo:         m.recordPrintInfo,
 		PrintError:        m.recordPrintError,
+		Toast:             m.recordToast,
 		PrintBlock:        m.recordPrintBlock,
 		SendMessage:       m.recordSendMessage,
 		CancelAndSend:     m.recordCancelAndSend,
@@ -164,6 +166,12 @@ func (m *MockContext) recordPrintError(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PrintErrors = append(m.PrintErrors, text)
+}
+
+func (m *MockContext) recordToast(text string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Toasts = append(m.Toasts, text)
 }
 
 func (m *MockContext) recordPrintBlock(opts extensions.PrintBlockOpts) {
@@ -419,6 +427,15 @@ func (m *MockContext) GetPrintInfos() []string {
 	defer m.mu.RUnlock()
 	result := make([]string, len(m.PrintInfos))
 	copy(result, m.PrintInfos)
+	return result
+}
+
+// GetToasts returns all recorded Toast calls.
+func (m *MockContext) GetToasts() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]string, len(m.Toasts))
+	copy(result, m.Toasts)
 	return result
 }
 

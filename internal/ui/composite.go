@@ -41,6 +41,40 @@ func overlayRect(box, anchor string, termW, termH int) (r image.Rectangle, ok bo
 	return overlayRectAt(box, x, y, termW, termH), true
 }
 
+// anchorAboveInput is the anchor of a box that belongs to the composer: it
+// goes against the top edge of the composer, at its left end. The layout
+// places it, since the row of the composer is not known before the frame is
+// laid out; see surfaceLayers.
+const anchorAboveInput = "above-input"
+
+// boxAtHeight returns a bordered box drawn at a height that is not its own,
+// for a frame in which the box is on its way from one height to another.
+//
+// tail is the number of rows at the foot of the box that stay whole: its
+// footer and its border. A box that is too tall loses rows from above its
+// foot, and a box that is too short gets blank rows there, so at every height
+// the box is closed and its footer is where the eye left it. The second row
+// of the box, the padding below its top border, is the blank row.
+func boxAtHeight(box string, rows, tail int) string {
+	lines := strings.Split(box, "\n")
+	n := len(lines)
+	if rows <= 0 || rows >= layoutUnbounded || rows == n || tail <= 0 || n < tail+2 {
+		return box
+	}
+	head, foot := lines[:n-tail], lines[n-tail:]
+	out := make([]string, 0, max(rows, tail+1))
+	if rows < n {
+		// The top border always stays, so the box is never open.
+		out = append(out, head[:min(max(rows-tail, 1), len(head))]...)
+	} else {
+		out = append(out, head...)
+		for range rows - n {
+			out = append(out, lines[1])
+		}
+	}
+	return strings.Join(append(out, foot...), "\n")
+}
+
 // overlayRectAt returns the rectangle of a box whose top-left cell is asked
 // for at x, y, clamped to the screen.
 func overlayRectAt(box string, x, y, termW, termH int) image.Rectangle {

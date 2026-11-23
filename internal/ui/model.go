@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -875,6 +876,12 @@ type AppModel struct {
 	// must also be able to show it: see motionOn.
 	motionEnabled bool
 
+	// layoutMoved is true when the frame drawn last had a section in another
+	// place than the frame before it, and sectionRects are the places of that
+	// frame. See rootHears.
+	layoutMoved  bool
+	sectionRects [regionCount]image.Rectangle
+
 	// layoutJump makes the next frame place every section at once, with no
 	// layout animation. A window resize sets it.
 	layoutJump bool
@@ -1178,6 +1185,11 @@ type AppModel struct {
 	// this set against the images the current frame draws is how the ones that
 	// vanished are found.
 	gfxPlaced map[uint32]struct{}
+
+	// gfxSpots are the images that the last computed placement painted:
+	// where each one is and which of its rows are drawn. A layout change
+	// that would give other spots is not animated: see imagesStayPut.
+	gfxSpots []gfxPlacement
 
 	// pendingGotoBottom requests a GotoBottom() after the next layout
 	// recalculation. Set when loading a session so that scrolling to the
@@ -1712,11 +1724,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if isMotionMsg(msg) {
 		return m, m.updateMotionMsg(msg)
 	}
-	// The timer of a toast shown with motion off. Like an animation frame,
-	// it is not an event for the rest of the model.
+	// The timer of a toast. Like an animation frame, it is not an event for
+	// the rest of the model. The toast slides out on the frame clock.
 	if expired, ok := msg.(toastExpiredMsg); ok {
-		m.fxState().expireToast(expired)
-		return m, nil
+		m.expireToast(expired)
+		return m, m.wakeFrameClock()
+	}
+	// The frame clock slows down while nobody can see the screen.
+	switch msg.(type) {
+	case tea.BlurMsg:
+		m.frames.blurred = true
+	case tea.FocusMsg:
+		m.frames.blurred = false
 	}
 
 	// Before any mode can consume them: the next key, paste or click ends
@@ -1769,7 +1788,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(tea.WindowSizeMsg); ok {
 		m.layoutJump = true
 	}
+	mark := m.markTranscript()
 	model, cmd := m.routeUpdate(msg)
+	m.noteNewItems(mark)
 	if m.clipboardNote != "" && m.childView == nil && m.quietScrollback() {
 		m.printSystemMessage(m.clipboardNote)
 		m.clipboardNote = ""
@@ -1780,10 +1801,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	// Motion is kept in step here for the reason the frame clock is woken
 	// here: update has many early returns, and a modal can open or close
-	// down any of them. The root and every animation get every message;
-	// that is what schedules their frames and what moves them on. Then the
-	// transitions of the surfaces that this message opened or closed start.
-	cmds = append(cmds, m.root().Update(msg), m.updateMotion(msg), m.syncSurfaces(m.motionOn()))
+	// down any of them. The root gets every message; that is what schedules
+	// the frames of a layout animation. Then the transitions of the surfaces
+	// that this message opened or closed start. They run on the frame clock,
+	// which is woken below.
+	if m.rootHears(msg) {
+		cmds = append(cmds, m.root().Update(msg))
+	}
+	cmds = append(cmds, m.fxState().takePending())
+	m.syncSurfaces(m.motionOn())
+	m.syncScrollbar(m.motionOn())
+	m.syncInputKind(m.motionOn())
 	// View marks graphics dirty only when the layout or frame changes. Do not
 	// mark them dirty for every input event: mouse motion over a static preview
 	// would repeatedly delete and redraw the image in the terminal.
@@ -1874,18 +1902,51 @@ func (m *AppModel) wantsFrames() bool {
 	return m.animatedWidgets()
 }
 
+// rootHears reports whether msg goes to the bloom root.
+//
+// The root must hear a message before the frame that starts a layout
+// animation. It cannot know which message that is, so it answers each one
+// with a tick of its own, and the tick then finds the animation or finds
+// nothing. That is one more Update and one more View for every message. For
+// a key press that is nothing. For the ticks of the frame clock it is every
+// frame of the spinner drawn twice, for as long as the agent works, and for
+// the chunks of a response it is as many more frames as the screen can show.
+//
+// Those messages come many times a second, and they do not change the layout:
+// a tick moves a spinner or a transition, and a chunk adds text to the
+// transcript. So while the frame clock runs the root does not hear them, but
+// for one case: the frame before had a section in a new place. Something
+// moves then, and the root must run its own loop for it.
+//
+// The clock is what makes that safe. If the frame after one of these
+// messages does start a glide, the ticks of the clock draw it, and the first
+// of them sends it to the root by the case above. When the clock does not
+// run, and when it stops with the message in hand, no tick follows, so the
+// root hears every message, as it did before.
+func (m *AppModel) rootHears(msg tea.Msg) bool {
+	switch msg.(type) {
+	case frameTickMsg, streamAppendFlushMsg,
+		app.StreamChunkEvent, app.ReasoningChunkEvent, app.ToolOutputEvent,
+		uicore.ShellStreamChunkMsg:
+		return m.layoutMoved || !m.frames.running
+	}
+	return true
+}
+
 // wakeFrameClock resumes the clock if something needs frames and it is idle,
-// returning nil in every other case.
+// returning nil in every other case. It also tells the clock whether a
+// transition runs, which is when it adds a frame between each two beats.
 func (m *AppModel) wakeFrameClock() tea.Cmd {
-	if !m.wantsFrames() {
+	m.frames.fast = m.fx != nil && m.fx.animating()
+	if !m.frames.fast && !m.wantsFrames() {
 		return nil
 	}
 	return m.frames.start()
 }
 
-// advanceFrame drives one beat of the shared clock: it hands the frame to
-// every animation that is due one, then either schedules the next beat or
-// stops the clock because nothing is animating any more.
+// advanceFrame drives one tick of the shared clock: it moves the transitions
+// on, hands a beat to every animation that is due one, then either schedules
+// the next tick or stops the clock because nothing is animating any more.
 func (m *AppModel) advanceFrame(t frameTickMsg) tea.Cmd {
 	if !m.frames.accept(t) {
 		return nil
@@ -1893,20 +1954,34 @@ func (m *AppModel) advanceFrame(t frameTickMsg) tea.Cmd {
 
 	var cmds []tea.Cmd
 
-	if m.splashItem != nil && t.due(frameEveryLogo) {
-		m.advanceLogoAnimation()
+	// Transitions follow the time, not the count of frames, so they move on
+	// every tick: a beat, or a frame between two beats.
+	if m.fx != nil {
+		moving := m.fx.animating()
+		m.fx.advance()
+		cmds = append(cmds, m.fx.settled(moving))
 	}
 
-	// The spinner lives in StreamComponent, so the frame is handed to it the
-	// same way any other message would be. It advances its own frame and
-	// schedules nothing.
-	if m.stream != nil {
-		updated, cmd := m.stream.Update(t)
-		m.stream, _ = updated.(streamComponentIface)
-		cmds = append(cmds, cmd)
+	if !t.between {
+		if m.splashItem != nil && t.due(frameEveryLogo) {
+			// A tick that stands for several beats moves the logo on by as
+			// many, so the animation takes the same time without focus.
+			m.logoFrame += t.skipped
+			m.advanceLogoAnimation()
+		}
+
+		// The spinner lives in StreamComponent, so the frame is handed to it
+		// the same way any other message would be. It advances its own frame
+		// and schedules nothing.
+		if m.stream != nil {
+			updated, cmd := m.stream.Update(t)
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
 	}
 
-	if !m.wantsFrames() {
+	m.frames.fast = m.fx != nil && m.fx.animating()
+	if !m.frames.fast && !m.wantsFrames() {
 		m.frames.stop()
 		return tea.Batch(cmds...)
 	}
@@ -2185,7 +2260,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if label == "" {
 			label = "Default"
 		}
-		m.printSystemMessage("Model mode set to: " + label)
+		m.notify("model-mode", "Model mode set to: "+label)
 		return m, nil
 	case ModelModeSelectorCancelledMsg:
 		m.modelModeSelector = nil
@@ -2271,7 +2346,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SessionDeletedMsg:
 		// Session was deleted from picker — just show a message.
-		m.printSystemMessage(fmt.Sprintf("Deleted session: %s", msg.Name))
+		m.notify("", fmt.Sprintf("Deleted session: %s", msg.Name))
 		return m, tea.Batch(cmds...)
 
 	// ── Window resize ────────────────────────────────────────────────────────
@@ -2526,21 +2601,24 @@ func (m *AppModel) View() tea.View {
 	// that its own section passes through.
 	animate := m.layoutAnimates()
 	m.layoutJump = false
-	var stream bloom.Child = section(scrollbackView)
+	// The scrollbar is part of the transcript's node, so that it is worked
+	// out for each of those heights too.
+	m.syncScrollbar(false)
+	stream := m.streamChild(scrollbackView, m.scrollList.height)
 	if animate {
-		stream = &streamRegion{list: m.scrollList, view: scrollbackView}
+		stream = &streamRegion{list: m.scrollList, view: scrollbackView, wrap: m.streamChild}
 	}
 	tree := m.layoutTree(&m.chrome, stream, animate)
 
 	// Draw every modal surface over the layout as a layer, so the
 	// conversation stays visible around each one. Ordering is z-order: later
 	// layers sit on top. The screen beneath them is dimmed as one.
-	layers, scrim := m.surfaceLayers()
+	layers, scrim := m.surfaceLayers(animate)
 	if scrim > 0 {
 		fg, bg := fxColors()
 		tree = bloom.Transition(1, tree, dimScreen{Fg: fg, To: bg, Amount: scrimAmount * scrim})
 	}
-	if toast, ok := m.toastLayer(); ok {
+	if toast, ok := m.toastLayer(animate); ok {
 		layers = append(layers, toast)
 	}
 
@@ -2551,6 +2629,7 @@ func (m *AppModel) View() tea.View {
 	// are placed beside the view. The frame is what was drawn, so while a
 	// section glides these are the rows it is at now.
 	frame := root.Frame()
+	m.layoutMoved = m.noteSectionRects(frame)
 	m.lastHeaderHeight = regionRows(frame, regionHeader)
 	m.scrollbackYOffset = m.lastHeaderHeight
 	m.streamDrawnRows = regionRows(frame, regionStream)
@@ -2561,18 +2640,12 @@ func (m *AppModel) View() tea.View {
 		m.scrollList.releaseAnchor()
 	}
 	m.inputYOffset = m.height
-	var anchors gfxAnchors
 	if frame != nil {
 		if r, ok := frame.Rect(regionInput); ok {
 			m.inputYOffset = r.Min.Y
-			anchors.inputTop = r.Min.Y + 1
-		}
-		// The transcript has no row to anchor an image to while it renders
-		// nothing.
-		if r, ok := frame.Rect(regionStream); ok && scrollbackView != "" {
-			anchors.streamTop = r.Min.Y + 1
 		}
 	}
+	anchors := frameAnchors(frame, scrollbackView != "")
 
 	// Record where directly-placed images landed. This must happen with the
 	// drawn frame in hand: the absolute screen row of a preview is only
@@ -3697,6 +3770,7 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 
 	default:
 		m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
+		m.shakeComposer()
 	}
 	return nil
 }
@@ -4157,7 +4231,7 @@ func (m *AppModel) printResetUsage() {
 		return
 	}
 	m.usageTracker.Reset()
-	m.printSystemMessage("Usage statistics have been reset.")
+	m.notify("", "Usage statistics have been reset.")
 }
 
 // handleCompactCommand starts an async compaction. It returns a tea.Cmd that
@@ -4986,7 +5060,7 @@ func (m *AppModel) applyTheme(name string) {
 		return
 	}
 	m.refreshTheme()
-	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", name))
+	m.notify("theme", fmt.Sprintf("Switched to theme: %s", name))
 }
 
 // terminalRepaintCmd updates Bubble Tea's renderer before a complete repaint.
@@ -5064,6 +5138,7 @@ func (m *AppModel) handleModelModeCommand(args string) tea.Cmd {
 				found = true
 				if !option.Supported {
 					m.printSystemMessage(fmt.Sprintf("Mode %q is unavailable: %s", name, option.Reason))
+					m.shakeComposer()
 					return nil
 				}
 				break
@@ -5071,6 +5146,7 @@ func (m *AppModel) handleModelModeCommand(args string) tea.Cmd {
 		}
 		if !found {
 			m.printSystemMessage(fmt.Sprintf("Unknown model mode %q", name))
+			m.shakeComposer()
 			return nil
 		}
 	}
@@ -5100,6 +5176,7 @@ func (m *AppModel) applyModelMode(mode string) tea.Cmd {
 func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	if !m.isReasoningModel {
 		m.printSystemMessage("Current model does not support thinking/reasoning.")
+		m.shakeComposer()
 		return nil
 	}
 
@@ -5154,7 +5231,9 @@ func (m *AppModel) applyThinkingLevel(level models.ThinkingLevel) {
 	}
 	// Persist thinking level for next launch.
 	go func() { _ = prefs.SaveThinkingLevelPreference(string(level)) }()
-	m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
+	// The status bar shows the level from now on, so a toast is enough. Its
+	// key makes one toast follow a user who steps through the levels.
+	m.notify("thinking", fmt.Sprintf("Thinking: %s — %s", level, models.ThinkingLevelDescription(level)))
 }
 
 // --------------------------------------------------------------------------
@@ -5395,7 +5474,7 @@ func (m *AppModel) handleNameCommand(args string) tea.Cmd {
 		m.printSystemMessage(fmt.Sprintf("Failed to set session name: %v", err))
 		return nil
 	}
-	m.printSystemMessage(fmt.Sprintf("Session named %q", args))
+	m.notify("session-name", fmt.Sprintf("Session named %q", args))
 	return nil
 }
 
@@ -5404,8 +5483,10 @@ func (m *AppModel) handleNameCommand(args string) tea.Cmd {
 // gets the actual last conversational message.
 func (m *AppModel) handleCopyCommand() tea.Cmd {
 	if len(m.messages) == 0 {
-		m.printSystemMessage("No messages to copy.")
-		return nil
+		// The answer to /copy is a toast when it works, so it is one when
+		// there is nothing to copy.
+		m.shakeComposer()
+		return m.showToast("No messages to copy.")
 	}
 
 	var (
@@ -5431,8 +5512,8 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 	}
 
 	if strings.TrimSpace(text) == "" {
-		m.printSystemMessage("No copyable message found.")
-		return nil
+		m.shakeComposer()
+		return m.showToast("No copyable message found.")
 	}
 
 	// A toast, not a line in the transcript: the notice is of use for a
@@ -6372,16 +6453,12 @@ func (m *AppModel) followShellRun(id string) {
 // to go; everything still on screen drops its own earlier placement as part of
 // being drawn again.
 func (m *AppModel) computeGfxPlacement(anchors gfxAnchors) string {
-	placements := m.composerPlacements(anchors.inputTop)
-	placements = append(placements, m.transcriptPlacements(anchors.streamTop)...)
-	placements = append(placements, m.imagePreviewPlacement()...)
+	placements := m.gfxPositions(anchors)
+	m.gfxSpots = placements
 
 	var draw strings.Builder
 	drawn := make(map[uint32]struct{}, len(placements))
 	for _, p := range placements {
-		if p.row < 1 || p.row > m.height {
-			continue // scrolled out of the visible area
-		}
 		draw.WriteString(ansi.CursorPosition(p.col, p.row))
 		draw.WriteString(p.seq)
 		if p.id != 0 {
@@ -6416,6 +6493,57 @@ func (m *AppModel) computeGfxPlacement(anchors gfxAnchors) string {
 	// renderer owns the cursor; moving it without putting it back would leave
 	// the next frame drawing in the wrong place.
 	return ansi.SaveCursor + draw.String() + ansi.RestoreCursor + drops.String()
+}
+
+// gfxPositions returns every directly-placed image that is on screen when the
+// sections are at anchors: where it is, and the sequence that draws the rows
+// of it that are in view. It changes nothing, so it can be asked about a
+// layout that is not drawn yet (see imagesStayPut).
+func (m *AppModel) gfxPositions(anchors gfxAnchors) []gfxPlacement {
+	placements := m.composerPlacements(anchors.inputTop)
+	placements = append(placements, m.transcriptPlacements(anchors.streamTop)...)
+	placements = append(placements, m.imagePreviewPlacement()...)
+	// Leave out what is scrolled out of the visible area.
+	return slices.DeleteFunc(placements, func(p gfxPlacement) bool {
+		return p.row < 1 || p.row > m.height
+	})
+}
+
+// frameAnchors reads the rows that images are located against from a frame.
+// transcript is false while the transcript renders nothing: it then has no
+// row to anchor an image to.
+func frameAnchors(frame *bloom.Frame, transcript bool) (anchors gfxAnchors) {
+	if frame == nil {
+		return anchors
+	}
+	if r, ok := frame.Rect(regionInput); ok {
+		anchors.inputTop = r.Min.Y + 1
+	}
+	if r, ok := frame.Rect(regionStream); ok && transcript {
+		anchors.streamTop = r.Min.Y + 1
+	}
+	return anchors
+}
+
+// imagesStayPut reports whether the layout that the frame is on its way to
+// leaves every directly-placed image where the last frame placed it.
+//
+// Such an image is painted beside the view at a fixed row. It cannot travel
+// with a section that glides: it would be left behind, and to place it again
+// on each frame of a glide is slow and tears. So a change that moves an
+// image, or that changes which of its rows are in view, is not animated.
+// Most changes do neither. A composer that grows covers the last rows of the
+// transcript and moves none of its lines, and an image further up is then
+// where it was at every frame of the glide.
+func (m *AppModel) imagesStayPut() bool {
+	if len(m.gfxSpots) == 0 && len(m.gfxPlaced) == 0 {
+		return true
+	}
+	// Where the layout is headed. The scroll list is there already: it has
+	// its final height from the start of a glide.
+	settled := bloom.Solve(m.width, m.height, m.layoutTree(&m.chrome, nil, false))
+	transcript := m.scrollList != nil && m.scrollList.height > 0
+	return slices.Equal(m.gfxPositions(frameAnchors(settled, transcript)), m.gfxSpots)
 }
 
 // gfxAnchors are the screen rows that directly-placed images are located
@@ -7097,7 +7225,7 @@ func (m *AppModel) handleSubmit(msg uicore.SubmitMsg, cmds []tea.Cmd) (tea.Model
 			ic.textarea.CursorEnd()
 		}
 		// The prompt is back in the composer, unsent. Shake it to say so.
-		cmds = append(cmds, m.shakeComposer())
+		m.shakeComposer()
 		return m, tea.Batch(cmds...)
 	}
 
@@ -7357,7 +7485,7 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 		// Prompt templates or skills changed on disk — refresh from providers.
 		m.refreshPromptTemplates()
 		m.refreshSkillItems()
-		m.printSystemMessage("Prompts and skills reloaded.")
+		m.notify("", "Prompts and skills reloaded.")
 
 	case app.MCPServerLoadedEvent:
 		// An extension that prints its own summary of the servers can hide
@@ -7539,7 +7667,7 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
 		} else {
 			m.refreshExtensionItems()
-			m.printSystemMessage("Extensions reloaded.")
+			m.notify("", "Extensions reloaded.")
 		}
 
 	case beforeSessionSwitchResultMsg:
@@ -7572,6 +7700,9 @@ func (m *AppModel) handleAppMessage(msg tea.Msg, cmds []tea.Cmd) (tea.Model, tea
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
 		switch msg.Level {
+		case "toast":
+			// A notice that needs no place in the transcript.
+			m.notify("", msg.Text)
 		case "info":
 			m.printSystemMessage(msg.Text)
 		case "error":

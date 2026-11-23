@@ -39,8 +39,8 @@ type extensionContextDeps struct {
 }
 
 // buildInteractiveExtensionContext returns an extensions.Context with every
-// field except Print / PrintInfo / PrintError populated. Callers must set
-// the three print routes appropriately for their phase (startup buffering
+// field except Print / PrintInfo / PrintError / Toast populated. Callers must
+// set these print routes appropriately for their phase (startup buffering
 // vs. live runtime routing).
 //
 // The headless half (data access, state, options, tree navigation, skills,

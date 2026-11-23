@@ -53,11 +53,31 @@ const (
 	regionBelow
 	regionStatus
 	regionFooter
+
+	// regionCount is one more than the last section.
+	regionCount
 )
 
 // inputFallbackRows is the height kept for an input that renders nothing:
 // the composer bar's padding, one row of text, and its padding again.
 const inputFallbackRows = 3
+
+// streamMinRows is the least number of rows that the transcript keeps while a
+// section that can be left out is still on screen. See layoutTree.
+const streamMinRows = 4
+
+// The order in which sections leave a frame that is too short for them all:
+// the lowest number goes first. The composer, the activity row, the warning
+// and the status bar have no number, because they do not leave.
+const (
+	dropBelow = iota + 1
+	dropAbove
+	dropFooter
+	dropHeader
+	dropSeparator
+	dropSubagents
+	dropQueued
+)
 
 // layoutUnbounded is the least size that bloom gives for a space with no
 // limit. A section asked to measure itself in such a space reports its own
@@ -85,7 +105,16 @@ func (s section) Measure(avail bloom.Size) bloom.Size {
 	if w >= layoutUnbounded {
 		w = lipgloss.Width(string(s))
 	}
-	return bloom.Size{W: w, H: strings.Count(string(s), "\n") + 1}
+	return bloom.Size{W: w, H: sectionRows(string(s))}
+}
+
+// sectionRows returns the number of rows that a rendered section takes: its
+// lines, or none when it is empty.
+func sectionRows(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
 }
 
 // streamRegion draws the transcript in a section whose height is changing.
@@ -101,14 +130,34 @@ type streamRegion struct {
 	list *ScrollList
 	// view is the list drawn at its own height, rendered once for the frame.
 	view string
+	// wrap returns the node for the list drawn at a height of rows, with the
+	// transitions that run on the transcript and its scrollbar. See
+	// AppModel.streamChild.
+	wrap func(view string, rows int) bloom.Child
 }
 
 // Layout implements bloom.Layouter. It does not change the list.
 func (s *streamRegion) Layout(ctx bloom.Context) bloom.Child {
 	if s.list == nil || ctx.Height <= 0 || ctx.Height >= layoutUnbounded || ctx.Height == s.list.height {
-		return section(s.view)
+		return s.wrapped(s.view, s.listRows())
 	}
-	return section(s.list.ViewAtHeight(ctx.Height))
+	return s.wrapped(s.list.ViewAtHeight(ctx.Height), ctx.Height)
+}
+
+// listRows returns the height of the list, or zero without one.
+func (s *streamRegion) listRows() int {
+	if s.list == nil {
+		return 0
+	}
+	return s.list.height
+}
+
+// wrapped returns the node for view, the list drawn at a height of rows.
+func (s *streamRegion) wrapped(view string, rows int) bloom.Child {
+	if s.wrap == nil {
+		return section(view)
+	}
+	return s.wrap(view, rows)
 }
 
 // chromeCache holds the rendered sections of one frame, other than the
@@ -128,6 +177,10 @@ type chromeCache struct {
 	subagents string
 	input     string
 	status    string
+
+	// fill is true when a fill widget takes the rows of the transcript. No
+	// section then leaves a short frame: see layoutTree.
+	fill bool
 }
 
 // renderChrome renders every section of the frame other than the transcript,
@@ -169,6 +222,7 @@ func (m *AppModel) renderChrome() (c chromeCache, above, below []WidgetData) {
 	}
 	c.above = m.renderWidgets("above", above, nil)
 	c.below = m.renderWidgets("below", below, nil)
+	c.fill = m.hasFillWidget(above) || m.hasFillWidget(below)
 
 	c.header = m.renderHeaderFooter("header", m.getHeader)
 	c.footer = m.renderHeaderFooter("footer", m.getFooter)
@@ -198,46 +252,92 @@ func (m *AppModel) renderChrome() (c chromeCache, above, below []WidgetData) {
 // Every section is always in the tree, at zero rows when it has nothing to
 // show. A section that came and went from the tree could not be animated:
 // layout animation follows a node from one frame to the next by its ID.
+//
+// A frame can be too short for every section. The sections then leave it one
+// at a time, in the order of the drop constants, until the rest fit with
+// streamMinRows rows for the transcript. The composer, the activity row, the
+// warning and the status bar always keep their rows. Without this order every
+// section would lose rows in proportion to its height, the composer included,
+// and the transcript would get none.
 func (m *AppModel) layoutTree(c *chromeCache, stream bloom.Child, animate bool) bloom.Child {
+	// An input that renders nothing still keeps its rows, so the transcript
+	// does not jump when the composer comes back.
+	inputRows := inputFallbackRows
+	if c.input != "" {
+		inputRows = sectionRows(c.input)
+	}
+
+	// The rows that must stay. If the frame cannot hold even those, there is
+	// no order that helps, and the sections share the rows as they can. Fill
+	// widgets stand in for the transcript, so they do not give way to it.
+	kept := sectionRows(c.warning) + sectionRows(c.activity) + inputRows + sectionRows(c.status)
+	ordered := !c.fill && !m.fillActive && kept <= m.height
+	streamMin := min(streamMinRows, m.height-kept)
+
 	place := func(id regionID, slot bloom.SlotNode) bloom.Child {
 		slot = slot.ID(id)
 		if animate {
-			slot = slot.Animate(anim.Duration(layoutGlide))
+			slot = slot.Animate(anim.Spring(layoutSpring, 1))
 		}
 		return slot
 	}
-	auto := func(id regionID, s string) bloom.Child {
-		return place(id, bloom.Auto(section(s)))
+	// keep is a section that holds its rows in a short frame.
+	keep := func(id regionID, child bloom.Child, rows int) bloom.Child {
+		slot := bloom.Auto(child)
+		if ordered {
+			slot = slot.Min(rows)
+		}
+		return place(id, slot)
+	}
+	// drop is a section that leaves a short frame, in the order of its number.
+	drop := func(id regionID, s string, order int) bloom.Child {
+		slot := bloom.Auto(section(s))
+		if ordered {
+			slot = slot.Min(sectionRows(s)).Collapsible(order)
+		}
+		return place(id, slot)
 	}
 
 	// The transcript takes the rows that are left. Fill widgets take those
 	// rows in its place: their sections in c already hold them.
 	streamSlot := bloom.Fill(stream)
-	if m.fillActive {
+	switch {
+	case m.fillActive:
 		streamSlot = bloom.Fixed(0, nil)
+	case ordered:
+		streamSlot = streamSlot.Min(streamMin)
 	}
 
-	// An input that renders nothing still keeps its rows, so the transcript
-	// does not jump when the composer comes back.
-	inputSlot := bloom.Auto(m.composerChild(c.input))
+	inputSlot := keep(regionInput, m.composerChild(c.input), inputRows)
 	if c.input == "" {
-		inputSlot = bloom.Fixed(inputFallbackRows, nil)
+		inputSlot = place(regionInput, bloom.Fixed(inputFallbackRows, nil))
 	}
 
 	return bloom.Column(
-		auto(regionHeader, c.header),
+		drop(regionHeader, c.header, dropHeader),
 		place(regionStream, streamSlot),
-		auto(regionWarning, c.warning),
-		auto(regionSeparator, c.separator),
-		auto(regionAbove, c.above),
-		auto(regionQueued, c.queued),
-		auto(regionSubagents, c.subagents),
-		place(regionActivity, bloom.Auto(m.activityChild(c.activity))),
-		place(regionInput, inputSlot),
-		auto(regionBelow, c.below),
-		auto(regionStatus, c.status),
-		auto(regionFooter, c.footer),
+		keep(regionWarning, section(c.warning), sectionRows(c.warning)),
+		drop(regionSeparator, c.separator, dropSeparator),
+		drop(regionAbove, c.above, dropAbove),
+		drop(regionQueued, c.queued, dropQueued),
+		drop(regionSubagents, c.subagents, dropSubagents),
+		keep(regionActivity, m.activityChild(c.activity), sectionRows(c.activity)),
+		inputSlot,
+		drop(regionBelow, c.below, dropBelow),
+		keep(regionStatus, section(c.status), sectionRows(c.status)),
+		drop(regionFooter, c.footer, dropFooter),
 	)
+}
+
+// hasFillWidget reports whether one of widgets takes the rows of the
+// transcript at the width of the frame.
+func (m *AppModel) hasFillWidget(widgets []WidgetData) bool {
+	for _, w := range widgets {
+		if w.FillHeight && widgetContentWidth(m.width, w.NoBorder) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // regionRows returns the height of a section in a solved or drawn frame, or
@@ -252,13 +352,32 @@ func regionRows(frame *bloom.Frame, id regionID) int {
 	return 0
 }
 
+// noteSectionRects records where the frame drew each section, and reports
+// whether one of them is in another place than in the frame before.
+func (m *AppModel) noteSectionRects(frame *bloom.Frame) (moved bool) {
+	if frame == nil {
+		return false
+	}
+	for id := regionHeader; id < regionCount; id++ {
+		r, _ := frame.Rect(id)
+		if r != m.sectionRects[id] {
+			m.sectionRects[id] = r
+			moved = true
+		}
+	}
+	return moved
+}
+
 // layoutAnimates reports whether sections glide to their new place in the
 // frame about to be drawn.
 //
 // They jump when the window was resized, since a resize is not a change to
-// animate, and while an image is placed directly on the screen. Such an image
-// is painted beside the view at a fixed row, and would be left behind by a
-// section that moved under it.
+// animate, and when the change moves an image that is placed directly on the
+// screen. Such an image is painted beside the view at a fixed row, and would
+// be left behind by a section that moved under it. See imagesStayPut.
+//
+// It reads the chrome of the frame, so View calls it after it has rendered
+// the sections.
 func (m *AppModel) layoutAnimates() bool {
-	return m.motionOn() && !m.layoutJump && len(m.gfxPlaced) == 0
+	return m.motionOn() && !m.layoutJump && m.imagesStayPut()
 }

@@ -57,7 +57,7 @@ Passed to `Init()`, the `API` object is used to register lifecycle event handler
 
 Passed to event handlers, the `Context` object provides runtime access to Kit's state and UI:
 
-- **Output** — `ctx.Print(...)`, `ctx.PrintInfo(...)`, `ctx.PrintError(...)`
+- **Output** — `ctx.Print(...)`, `ctx.PrintInfo(...)`, `ctx.PrintError(...)`, `ctx.Toast(...)`
 - **UI components** — `ctx.SetWidget(...)`, `ctx.SetHeader(...)`, `ctx.SetFooter(...)`, `ctx.SetStatus(...)`
 - **Editor** — `ctx.SetEditor(...)`, `ctx.ResetEditor()`
 - **Prompts** — `ctx.PromptSelect(...)`, `ctx.PromptMultiSelect(...)`, `ctx.PromptConfirm(...)`, `ctx.PromptInput(...)`

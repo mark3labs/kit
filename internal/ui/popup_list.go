@@ -175,6 +175,12 @@ func (p *PopupList) Items() []PopupItem { return p.filtered }
 // Search returns the current search string.
 func (p *PopupList) Search() string { return p.search }
 
+// popupListTail is the number of rows at the foot of the box that Render
+// draws, below the last item: a blank row, the footer, the padding row and
+// the border. A box that changes height keeps these rows whole on the way:
+// see boxAtHeight.
+const popupListTail = 4
+
 // dimensions returns the (popupWidth, popupHeight, innerWidth, innerHeight)
 // the popup will render at, given its current size and FullScreen flag.
 func (p *PopupList) dimensions() (popupW, popupH, innerW, innerH int) {

@@ -243,6 +243,7 @@ The test package provides these assertion helpers:
 - `AssertPrintedContains(t, harness, substring)` - Verify partial print output
 - `AssertPrintInfo(t, harness, text)` - Verify PrintInfo was called
 - `AssertPrintError(t, harness, text)` - Verify PrintError was called
+- `AssertToast(t, harness, text)` - Verify Toast was called
 - `AssertWidgetSet(t, harness, id)` - Verify widget was set
 - `AssertWidgetNotSet(t, harness, id)` - Verify widget was not set
 - `AssertWidgetText(t, harness, id, text)` - Verify widget content

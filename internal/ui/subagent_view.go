@@ -40,6 +40,11 @@ type childView struct {
 type paneRequest struct {
 	runID           string
 	parentSessionID string
+
+	// from is the side that the new pane comes on screen from: 1 for the
+	// right, -1 for the left. Zero is the usual side: a child pane comes
+	// from the right, and the parent pane comes back from the left.
+	from int
 }
 
 // openSubagentInspector shows the latest subagent run.
@@ -65,11 +70,22 @@ func (m *AppModel) applyPaneRequest() {
 	if req == nil {
 		return
 	}
+	shown := m.conversationPane
+	from := req.from
 	if req.runID == "" {
 		m.showParentPane()
-		return
+		if from == 0 {
+			from = -1
+		}
+	} else {
+		m.showChildPane(req.runID, req.parentSessionID)
+		if from == 0 {
+			from = 1
+		}
 	}
-	m.showChildPane(req.runID, req.parentSessionID)
+	if m.conversationPane != shown {
+		m.enterPane(from)
+	}
 }
 
 // showPane puts p on screen in place of the current pane.
@@ -438,7 +454,8 @@ func (m *AppModel) stepChildPane(d int) {
 	if runs[next].ID == m.paneID {
 		return
 	}
-	m.paneRequest = &paneRequest{runID: runs[next].ID, parentSessionID: m.childView.parentSessionID}
+	// The next run comes from the side that the key points to.
+	m.paneRequest = &paneRequest{runID: runs[next].ID, parentSessionID: m.childView.parentSessionID, from: d}
 }
 
 // renderChildBar is the read-only bar that replaces the composer while a

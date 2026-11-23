@@ -313,6 +313,8 @@ type ExtensionPrintEvent struct {
 	//   "info"  — system message block (bordered, themed)
 	//   "error" — error block (red border, bold text)
 	//   "block" — custom block with BorderColor and Subtitle
+	//   "toast" — short notice in a corner of the screen, not kept in the
+	//             conversation
 	Level string
 	// BorderColor is a hex color (e.g. "#a6e3a1") for Level="block".
 	BorderColor string

@@ -145,3 +145,116 @@ func TestLogoAnimationDurationStaysAFlourish(t *testing.T) {
 			d, FrameClockFPS, minDuration, maxDuration)
 	}
 }
+
+// While a transition runs the clock adds a frame between each two beats. The
+// beats must keep their numbers and their time: everything that counts beats
+// would otherwise change speed for as long as a dialog fades in.
+func TestFrameClockFastAddsFramesBetweenBeats(t *testing.T) {
+	var c frameClock
+	c.fast = true
+	c.start()
+
+	var beats, between int
+	elapsed := time.Duration(0)
+	for range 2 * FrameClockFPS {
+		next, after := c.next()
+		elapsed += after
+		if !c.accept(next) {
+			t.Fatal("the clock did not accept its own tick")
+		}
+		if next.between {
+			between++
+			if next.due(1) {
+				t.Fatal("a frame between two beats is due: an animation would advance on it")
+			}
+			continue
+		}
+		beats++
+		if next.frame != beats {
+			t.Fatalf("beat %d has frame number %d", beats, next.frame)
+		}
+	}
+	if beats != FrameClockFPS || between != FrameClockFPS {
+		t.Fatalf("%d beats and %d frames between in a second, want %d of each", beats, between, FrameClockFPS)
+	}
+	// A sixtieth of a second is not a whole number of nanoseconds.
+	if d := (time.Second - elapsed).Abs(); d > time.Microsecond {
+		t.Fatalf("%d fast ticks took %v, want 1s", 2*FrameClockFPS, elapsed)
+	}
+}
+
+// A clock that stops being fast after a frame between two beats still owes
+// the beat, half a beat later. Without it one beat would come late.
+func TestFrameClockLeavesFastOnABeat(t *testing.T) {
+	var c frameClock
+	c.fast = true
+	c.start()
+	next, _ := c.next()
+	if !next.between {
+		t.Fatal("the first tick of a fast clock is not a frame between two beats")
+	}
+	c.accept(next)
+
+	c.fast = false
+	next, after := c.next()
+	if next.between || next.frame != 1 || after != time.Second/frameClockFastFPS {
+		t.Fatalf("after a frame in between: %+v in %v, want beat 1 half a beat later", next, after)
+	}
+	c.accept(next)
+	if next, after = c.next(); next.between || after != time.Second/FrameClockFPS {
+		t.Fatalf("a slow clock scheduled %+v in %v", next, after)
+	}
+}
+
+// Without focus the clock ticks slower, and each tick stands for the beats
+// that it skipped: the frame number keeps time, and an animation that counts
+// beats still advances, once for each tick.
+func TestFrameClockSlowsWithoutFocus(t *testing.T) {
+	var c frameClock
+	c.blurred = true
+	c.fast = true // a transition does not make an unseen screen fast
+	c.start()
+
+	spinner := 0
+	elapsed := time.Duration(0)
+	for range frameClockUnfocusedFPS {
+		next, after := c.next()
+		elapsed += after
+		if next.between {
+			t.Fatal("a clock without focus added a frame between two beats")
+		}
+		if !next.due(frameEveryLogo) {
+			t.Fatal("a tick that stands for several beats is not due for an animation that runs on every beat")
+		}
+		if next.due(frameEverySpinner) {
+			spinner++
+		}
+		c.accept(next)
+	}
+	if elapsed != time.Second || c.frame != FrameClockFPS {
+		t.Fatalf("%d ticks without focus took %v and reached frame %d, want 1s and frame %d",
+			frameClockUnfocusedFPS, elapsed, c.frame, FrameClockFPS)
+	}
+	if spinner != frameClockUnfocusedFPS {
+		t.Fatalf("the spinner was due on %d of %d ticks, want every tick", spinner, frameClockUnfocusedFPS)
+	}
+}
+
+// due must find a beat that a tick skipped, and must not invent one.
+func TestFrameTickDueWithSkippedBeats(t *testing.T) {
+	for _, tc := range []struct {
+		frame, skipped, every int
+		want                  bool
+	}{
+		{frame: 6, skipped: 0, every: 4, want: false},
+		{frame: 6, skipped: 2, every: 4, want: true},  // beats 4, 5, 6
+		{frame: 7, skipped: 2, every: 4, want: false}, // beats 5, 6, 7
+		{frame: 8, skipped: 2, every: 4, want: true},
+		{frame: 3, skipped: 2, every: 2, want: true}, // beats 1, 2, 3
+	} {
+		tick := frameTickMsg{frame: tc.frame, skipped: tc.skipped}
+		if got := tick.due(tc.every); got != tc.want {
+			t.Errorf("frame %d with %d skipped, every %d: due = %v, want %v", tc.frame, tc.skipped, tc.every, got, tc.want)
+		}
+	}
+}

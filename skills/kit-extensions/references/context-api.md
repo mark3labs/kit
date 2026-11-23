@@ -9,7 +9,7 @@ The `ext.Context` struct provides runtime capabilities via function fields.
 ### TUI callback safety
 
 Key and editor/widget/message/tool render callbacks must return promptly.
-`Print`, `PrintInfo`, `PrintError`, `PrintBlock`, `SetEditorText`, `SetModel`'s TUI
+`Print`, `PrintInfo`, `PrintError`, `PrintBlock`, `Toast`, `SetEditorText`, `SetModel`'s TUI
 notification, and `Exit` use deferred FIFO delivery; no author-created goroutine
 is needed for delivery. This is not an acknowledgement of UI processing.
 `SetModel` still resolves the model and runs hooks synchronously.
@@ -39,6 +39,7 @@ for the shared rule used by all renderers.
 ctx.Print("plain text")                    // plain output
 ctx.PrintInfo("styled info block")         // bordered info block
 ctx.PrintError("styled error block")       // red error block
+ctx.Toast("Saved")                         // short notice in a corner, not kept in the conversation
 ctx.PrintBlock(ext.PrintBlockOpts{         // custom styled block
     Text:        "content",
     BorderColor: "#a6e3a1",
