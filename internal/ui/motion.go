@@ -723,19 +723,33 @@ func (m *AppModel) syncScrollbar(animate bool) {
 	fxs.move(&fxs.bar, onOff(on), scrollbarFade, animate)
 }
 
+// streamChild returns the transcript for the layout: view, the scroll list
+// drawn at a height of rows, with its transitions and its scrollbar.
+func (m *AppModel) streamChild(view string, rows int) bloom.Child {
+	return m.withScrollbar(m.transcriptChild(view, rows), rows)
+}
+
 // withScrollbar returns the transcript with its scrollbar, when it has one.
+// stream is the transcript drawn at a height of rows.
 //
 // The scrollbar is a layer over the last column of the transcript. It takes
 // no column from the text: only the cells of its thumb cover what is beneath
 // them. It shows where the view is and takes no mouse events; the wheel and
 // the keys scroll.
-func (m *AppModel) withScrollbar(stream bloom.Child) bloom.Child {
-	m.syncScrollbar(false)
+//
+// The thumb is for the rows that are drawn. While a layout animation runs,
+// these are not the rows of the list's own viewport: the transcript passes
+// through the heights between, each with its own first line (see
+// ScrollList.atHeight). A thumb from the list's own numbers would show the
+// end of the glide from its first frame, and would go at once when the
+// transcript is on its way to a height that holds all of it.
+func (m *AppModel) withScrollbar(stream bloom.Child, rows int) bloom.Child {
 	t := min(max(m.fxState().bar.Float(), 0), 1)
-	if t <= 0 || m.scrollList == nil {
+	if t <= 0 || m.scrollList == nil || rows <= 0 {
 		return stream
 	}
-	total, visible, offset := m.scrollList.scrollExtent()
+	var total, visible, offset int
+	m.scrollList.atHeight(rows, func() { total, visible, offset = m.scrollList.scrollExtent() })
 	if total <= visible {
 		return stream
 	}
@@ -1095,8 +1109,13 @@ func (m *AppModel) transcriptChild(view string, rows int) bloom.Child {
 	if fxs.pane.Animating() {
 		effects := []fx.Effect{fadeIn{Fg: fg, From: bg}}
 		// An image that is placed directly on the screen does not travel
-		// with the cells, so a pane that has one fades where it is.
-		if len(m.gfxPlaced) == 0 && m.gfxPlacement == "" {
+		// with the cells, so a pane that shows one fades where it is.
+		//
+		// The test is the view that is about to be drawn, with the rule that
+		// places the images after it. The placements of the last frame are
+		// not the test: on the first frame of a pane they are those of the
+		// pane that was there before.
+		if len(m.transcriptPlacements(1)) == 0 {
 			effects = append(effects, shift{Cols: paneShift * fxs.paneFrom})
 		}
 		child = bloom.Transition(min(max(fxs.pane.Float(), 0), 1), child, effects...)

@@ -1422,3 +1422,62 @@ func TestRootDoesNotHearTheTicksOfTheClock(t *testing.T) {
 		t.Fatal("the root did not hear a chunk while the clock is stopped")
 	}
 }
+
+// TestPaneTravelIsDecidedByThePaneThatComes checks which pane travels when
+// it comes on screen. A pane that shows an image placed directly on the
+// screen fades where it is, because the image does not travel with the
+// cells. The answer is in the pane that is about to be drawn. The images that
+// the last frame placed are those of the pane that was there before.
+func TestPaneTravelIsDecidedByThePaneThatComes(t *testing.T) {
+	now := time.Unix(1000, 0)
+	// enter starts the transition of a pane and holds it at its start.
+	enter := func(m *AppModel) {
+		fxs := m.fxState()
+		fxs.now = func() time.Time { return now }
+		m.enterPane(1)
+		if !fxs.pane.Animating() || fxs.pane.Float() != 0 {
+			t.Fatalf("the pane transition is not at its start: animating=%v at %v", fxs.pane.Animating(), fxs.pane.Float())
+		}
+	}
+
+	t.Run("a pane with an image comes after a pane with none", func(t *testing.T) {
+		m := newDirectImageModel(t)
+		enableMotion(t, m)
+		rows := m.scrollList.height
+		atRest := transcriptRows(m.View().Content, rows)
+		if len(m.gfxSpots) != 1 {
+			t.Fatalf("the image is not placed: %d spot(s)", len(m.gfxSpots))
+		}
+		spot := m.gfxSpots[0]
+
+		// The last frame was that of a pane with no image.
+		m.gfxPlaced, m.gfxSpots, m.gfxPlacement = nil, nil, ""
+		enter(m)
+		first := transcriptRows(m.View().Content, rows)
+		if first != atRest {
+			t.Fatalf("a pane with a directly placed image travelled on its first frame\ngot:\n%s\nwant:\n%s", first, atRest)
+		}
+		if len(m.gfxSpots) != 1 || m.gfxSpots[0] != spot {
+			t.Fatalf("the image is at %+v, want %+v", m.gfxSpots, spot)
+		}
+	})
+
+	t.Run("a pane with no image comes after a pane with one", func(t *testing.T) {
+		m, _, _ := newTestAppModel(&stubAppController{})
+		m.input = NewInputComponent(80, nil)
+		enableMotion(t, m)
+		fillTranscript(m)
+		m.layoutDirty = true
+		rows := m.scrollList.height
+		atRest := transcriptRows(m.View().Content, rows)
+
+		// The last frame was that of a pane with an image.
+		m.gfxPlaced = map[uint32]struct{}{7: {}}
+		m.gfxPlacement = "placed"
+		enter(m)
+		first := transcriptRows(m.View().Content, rows)
+		if first == atRest {
+			t.Fatal("a pane with no image did not travel on its first frame")
+		}
+	})
+}

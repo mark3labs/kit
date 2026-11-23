@@ -2601,11 +2601,14 @@ func (m *AppModel) View() tea.View {
 	// that its own section passes through.
 	animate := m.layoutAnimates()
 	m.layoutJump = false
-	stream := m.transcriptChild(scrollbackView, m.scrollList.height)
+	// The scrollbar is part of the transcript's node, so that it is worked
+	// out for each of those heights too.
+	m.syncScrollbar(false)
+	stream := m.streamChild(scrollbackView, m.scrollList.height)
 	if animate {
-		stream = &streamRegion{list: m.scrollList, view: scrollbackView, wrap: m.transcriptChild}
+		stream = &streamRegion{list: m.scrollList, view: scrollbackView, wrap: m.streamChild}
 	}
-	tree := m.layoutTree(&m.chrome, m.withScrollbar(stream), animate)
+	tree := m.layoutTree(&m.chrome, stream, animate)
 
 	// Draw every modal surface over the layout as a layer, so the
 	// conversation stays visible around each one. Ordering is z-order: later

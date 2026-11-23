@@ -131,7 +131,8 @@ type streamRegion struct {
 	// view is the list drawn at its own height, rendered once for the frame.
 	view string
 	// wrap returns the node for the list drawn at a height of rows, with the
-	// transitions that run on the transcript. See AppModel.transcriptChild.
+	// transitions that run on the transcript and its scrollbar. See
+	// AppModel.streamChild.
 	wrap func(view string, rows int) bloom.Child
 }
 

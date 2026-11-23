@@ -1140,7 +1140,7 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
-	startupExtensionMessages := startExtensionSession(ctx, kitInstance, appInstance, usageTracker, modelName, interactive, systemPromptLoadedMsg)
+	startupExtensionMessages, startupExtensionToasts := startExtensionSession(ctx, kitInstance, appInstance, usageTracker, modelName, interactive, systemPromptLoadedMsg)
 
 	// Wait for background MCP tool loading to complete and notify the TUI so
 	// it can refresh tool names and counts.
@@ -1176,6 +1176,7 @@ func runNormalMode(ctx context.Context) error {
 			modelMode:                kitInstance.CurrentModelMode(),
 			modelModes:               modelModeOptions(kitInstance, parsedProvider+"/"+modelName),
 			startupExtensionMessages: startupExtensionMessages,
+			startupExtensionToasts:   startupExtensionToasts,
 			providerError:            kitInstance.ProviderError(),
 		},
 		providers: buildUIProviders(kitInstance),
@@ -1281,6 +1282,7 @@ func runNonInteractiveModeApp(ctx context.Context, deps runModeDeps, prompt stri
 		interactive := deps
 		interactive.cli = nil
 		interactive.snapshot.startupExtensionMessages = nil
+		interactive.snapshot.startupExtensionToasts = nil
 		return runInteractiveModeBubbleTea(ctx, interactive)
 	}
 
@@ -1503,6 +1505,12 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 
 	// Register the program with the app layer so agent events are sent to the TUI.
 	appInstance.SetProgram(program)
+
+	// The toasts that extensions asked for during SessionStart had no screen
+	// to show on. They go into the queue now and reach the TUI when it runs.
+	for _, text := range deps.snapshot.startupExtensionToasts {
+		appInstance.PrintFromExtension("toast", text)
+	}
 
 	_, runErr := program.Run()
 	return runErr

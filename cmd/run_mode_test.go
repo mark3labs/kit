@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"log"
+	"slices"
 	"testing"
 
 	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extensions"
 )
 
 // TestBuildKitOptionsNilAuthHandlerIsTrueNil guards the typed-nil pitfall:
@@ -185,5 +187,77 @@ func TestRunModeDepsCopyIsolatesInteractiveHandoff(t *testing.T) {
 	}
 	if interactive.snapshot.modelName != "m" {
 		t.Error("copy lost snapshot.modelName")
+	}
+}
+
+// liveOutput records the extension output that went down the live path.
+type liveOutput struct {
+	sent []string
+}
+
+func (l *liveOutput) send(level, text string) {
+	l.sent = append(l.sent, level+":"+text)
+}
+
+// TestStartupOutputHoldsThenGoesLive checks where extension output goes
+// around SessionStart. While the event runs, prints wait for the startup
+// banner and toasts wait for the screen: a toast is never a startup message.
+// After the event, the same functions send down the live path, so a handler
+// that kept its context does not write into a buffer that was handed over.
+func TestStartupOutputHoldsThenGoesLive(t *testing.T) {
+	var live liveOutput
+	out := &startupOutput{messages: []string{"banner"}}
+	var ctx extensions.Context
+	out.wire(&ctx, true, live.send)
+
+	ctx.Print("a")
+	ctx.PrintInfo("b")
+	ctx.PrintError("c")
+	ctx.Toast("t")
+	if len(live.sent) != 0 {
+		t.Fatalf("output during SessionStart went down the live path: %q", live.sent)
+	}
+
+	messages, toasts := out.finish()
+	if want := []string{"banner", "a", "b", "c"}; !slices.Equal(messages, want) {
+		t.Errorf("startup messages = %q, want %q", messages, want)
+	}
+	if want := []string{"t"}; !slices.Equal(toasts, want) {
+		t.Errorf("startup toasts = %q, want %q", toasts, want)
+	}
+
+	// The handler kept its context and uses it after startup.
+	ctx.Print("d")
+	ctx.PrintInfo("e")
+	ctx.PrintError("f")
+	ctx.Toast("u")
+	if want := []string{":d", "info:e", "error:f", "toast:u"}; !slices.Equal(live.sent, want) {
+		t.Errorf("output after SessionStart = %q, want %q", live.sent, want)
+	}
+	if len(out.messages) != 4 || len(out.toasts) != 1 {
+		t.Errorf("output after SessionStart was held: %q, %q", out.messages, out.toasts)
+	}
+}
+
+// TestStartupToastWithoutAScreenGoesLive checks a run that will have no TUI.
+// A toast during SessionStart is then not held: it goes down the live path at
+// once, which writes it to stderr. Prints are still held.
+func TestStartupToastWithoutAScreenGoesLive(t *testing.T) {
+	var live liveOutput
+	out := &startupOutput{}
+	var ctx extensions.Context
+	out.wire(&ctx, false, live.send)
+
+	ctx.Toast("t")
+	ctx.Print("p")
+	if want := []string{"toast:t"}; !slices.Equal(live.sent, want) {
+		t.Errorf("live output = %q, want %q", live.sent, want)
+	}
+	messages, toasts := out.finish()
+	if want := []string{"p"}; !slices.Equal(messages, want) {
+		t.Errorf("startup messages = %q, want %q", messages, want)
+	}
+	if len(toasts) != 0 {
+		t.Errorf("startup toasts = %q, want none", toasts)
 	}
 }

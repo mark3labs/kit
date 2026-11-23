@@ -982,3 +982,62 @@ func TestScrollbarGoesWhenTheUserIsBackAtTheEnd(t *testing.T) {
 		t.Fatal("the scrollbar is still there at the end of the transcript")
 	}
 }
+
+// TestScrollbarIsForTheRowsOnScreenDuringAGlide checks the scrollbar while
+// the section of the transcript glides to a new height. The thumb is for the
+// rows that each frame draws. Here a widget goes away and the transcript
+// grows to a height that holds all of its text: the scrollbar stays while the
+// section is still too short for the text, and goes when it is not.
+func TestScrollbarIsForTheRowsOnScreenDuringAGlide(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	enableMotion(t, m)
+	clock := &testClock{now: time.Unix(1000, 0)}
+	m.ui = bloom.New(bloom.WithClock(clock.Now), bloom.WithFPS(motionFPS))
+	m.getWidgets = tallWidget
+	m.layoutDirty = true
+	_ = m.View()
+	short := m.scrollList.height
+
+	// More text than the short transcript holds.
+	total := 0
+	for i := 0; total <= short; i++ {
+		m.printSystemMessage(fmt.Sprintf("transcript message %d", i))
+		_ = m.View()
+		total, _, _ = m.scrollList.scrollExtent()
+	}
+
+	// The user scrolls to the start: the transcript has a scrollbar.
+	m.scrollList.autoScroll = false
+	m.scrollList.GotoTop()
+	m.Update(noopMsg{})
+	m.fxState().bar.Set(1)
+	scrolled := m.View().Content
+	total, _, _ = m.scrollList.scrollExtent()
+	if !strings.Contains(lastColumn(scrolled, short), "┃") {
+		t.Fatalf("no scrollbar with %d rows of text in %d rows", total, short)
+	}
+
+	// The widget goes away. The transcript is on its way to a height that
+	// holds all of the text.
+	m.getWidgets = nil
+	m.layoutDirty = true
+	first := m.View().Content
+	tall := m.scrollList.height
+	if total <= short || total > tall {
+		t.Fatalf("the text has %d rows, want more than %d and not more than %d", total, short, tall)
+	}
+	rows := regionRows(m.ui.Frame(), regionStream)
+	if rows != short {
+		t.Fatalf("first frame of the glide: transcript section has %d rows, want the %d it had", rows, short)
+	}
+	if !strings.Contains(lastColumn(first, rows), "┃") {
+		t.Fatalf("the scrollbar went on the first frame of the glide, with %d rows of text in %d rows", total, rows)
+	}
+
+	// At the end of the glide all of the text is in view.
+	rows, last := glideUntil(t, m, clock, func(rows int) bool { return rows == tall })
+	if strings.Contains(lastColumn(last, rows), "┃") {
+		t.Fatalf("a scrollbar with %d rows of text in %d rows", total, rows)
+	}
+}

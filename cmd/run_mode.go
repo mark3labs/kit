@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	charmlog "github.com/charmbracelet/log"
 	"github.com/spf13/viper"
@@ -67,6 +68,7 @@ type startupSnapshot struct {
 	modelMode                string
 	modelModes               []ui.ModelModeOption
 	startupExtensionMessages []string // interactive only
+	startupExtensionToasts   []string // interactive only: shown when the TUI is up
 	providerError            error    // non-nil when the model has no usable credentials
 }
 
@@ -291,19 +293,83 @@ func newRunApp(k *kit.Kit, cli *ui.CLI, mcpConfig *config.Config, modelName stri
 	return app.New(appOpts, messages), usageTracker
 }
 
+// startupOutput holds what extensions print while SessionStart runs, so that
+// the TUI can show it after the startup banner.
+//
+// An extension can keep the Context that its SessionStart handler got and
+// call its functions later: from a goroutine, or from a timer. So each
+// function decides at the time of the call where its text goes: into the
+// buffer while SessionStart runs, and down the live path after that. A
+// function that always wrote to the buffer would lose every late call,
+// because the buffer has been handed over by then.
+type startupOutput struct {
+	mu       sync.Mutex
+	done     bool
+	messages []string
+	toasts   []string
+}
+
+// hold adds text to dst and reports true while SessionStart runs. After that
+// it keeps nothing and reports false: the caller sends the text down its live
+// path.
+func (s *startupOutput) hold(dst *[]string, text string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return false
+	}
+	*dst = append(*dst, text)
+	return true
+}
+
+// finish ends the startup phase and returns what was held.
+func (s *startupOutput) finish() (messages, toasts []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.done = true
+	return s.messages, s.toasts
+}
+
+// wire points the output functions of extCtx at s. live is where text goes
+// once SessionStart has ended.
+//
+// A toast is never a startup message: it adds nothing to the conversation.
+// With holdToasts set, a TUI is on its way and the toast waits for its
+// screen. Without it there will be no screen, and the toast goes down the
+// live path at once, which writes it to stderr.
+func (s *startupOutput) wire(extCtx *extensions.Context, holdToasts bool, live func(level, text string)) {
+	route := func(level string) func(string) {
+		return func(text string) {
+			if !s.hold(&s.messages, text) {
+				live(level, text)
+			}
+		}
+	}
+	extCtx.Print = route("")
+	extCtx.PrintInfo = route("info")
+	extCtx.PrintError = route("error")
+	extCtx.Toast = func(text string) {
+		if holdToasts && s.hold(&s.toasts, text) {
+			return
+		}
+		live("toast", text)
+	}
+}
+
 // startExtensionSession wires the extension context and emits SessionStart.
 //
 // Extension output produced during SessionStart is buffered and returned so
-// the TUI can print it after the startup banner; once the event has fired the
-// print routes are switched to the live app instance. The returned slice
-// always begins with systemPromptLoadedMsg when it is non-empty.
-func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTracker, modelName string, interactive bool, systemPromptLoadedMsg string) []string {
-	var startupMessages []string
+// the TUI can print it after the startup banner; output after that goes to
+// the live app instance (see startupOutput). The returned messages always
+// begin with systemPromptLoadedMsg when it is non-empty. The returned toasts
+// are those of an interactive run: the caller shows them when the TUI is up.
+func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTracker, modelName string, interactive bool, systemPromptLoadedMsg string) (messages, toasts []string) {
+	out := &startupOutput{}
 	if systemPromptLoadedMsg != "" {
-		startupMessages = append(startupMessages, systemPromptLoadedMsg)
+		out.messages = append(out.messages, systemPromptLoadedMsg)
 	}
 	if !k.Extensions().HasExtensions() {
-		return startupMessages
+		return out.finish()
 	}
 
 	cwd, _ := os.Getwd()
@@ -325,29 +391,17 @@ func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App
 		usageTracker: usageTracker,
 	})
 
-	// During startup, buffer extension messages so they appear after the banner.
-	buffer := func(text string) {
-		startupMessages = append(startupMessages, text)
-	}
-	extCtx.Print = buffer
-	extCtx.PrintInfo = buffer
-	extCtx.PrintError = buffer
-	// No screen is up yet to show a toast on.
-	extCtx.Toast = buffer
+	// During startup, buffer extension messages so they appear after the
+	// banner. The same functions send to the live app instance once
+	// SessionStart has ended, so the context is set only once.
+	out.wire(&extCtx, interactive, appInstance.PrintFromExtension)
 	k.Extensions().SetContext(extCtx)
 	if err := k.Extensions().InitStatePersistence(); err != nil {
 		charmlog.Warn("extension state init failed", "err", err)
 	}
 	k.Extensions().EmitSessionStart()
 
-	// Restore normal print functions for runtime use.
-	extCtx.Print = func(text string) { appInstance.PrintFromExtension("", text) }
-	extCtx.PrintInfo = func(text string) { appInstance.PrintFromExtension("info", text) }
-	extCtx.PrintError = func(text string) { appInstance.PrintFromExtension("error", text) }
-	extCtx.Toast = func(text string) { appInstance.PrintFromExtension("toast", text) }
-	k.Extensions().SetContext(extCtx)
-
-	return startupMessages
+	return out.finish()
 }
 
 // promptLoadOptions returns the prompt template load options shared by the
