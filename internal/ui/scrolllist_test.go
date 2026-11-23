@@ -238,3 +238,42 @@ func TestVisibleItemsSkipsScrolledAwayItems(t *testing.T) {
 		t.Errorf("visible item = %q, want %q", vis[0].Item.ID(), "b")
 	}
 }
+
+// TestAtBottomAtTheEndOfALongList checks the end of a list that is longer
+// than its viewport. At the end the content from the top of the view fills
+// the viewport exactly, and that is the bottom: the callers use the answer to
+// follow new output again.
+func TestAtBottomAtTheEndOfALongList(t *testing.T) {
+	sl := NewScrollList(80, 10)
+	sl.SetItems(makeItems(20, 2)) // 40 lines of content in a 10-line viewport
+	if !sl.AtBottom() {
+		t.Fatal("a list that follows its end is not at the bottom")
+	}
+
+	sl.ScrollBy(-1)
+	if sl.AtBottom() {
+		t.Fatal("a list one line above its end is at the bottom")
+	}
+	sl.ScrollBy(1)
+	if !sl.AtBottom() {
+		t.Fatal("a list scrolled back down to its end is not at the bottom")
+	}
+
+	// Far past the end: the offset is clamped to the bottom.
+	sl.GotoTop()
+	if sl.AtBottom() {
+		t.Fatal("a long list at its top is at the bottom")
+	}
+	sl.ScrollBy(1000)
+	if !sl.AtBottom() {
+		t.Fatal("a list scrolled past its end is not at the bottom")
+	}
+
+	// A list that fits in the viewport cannot scroll: it is at the bottom.
+	short := NewScrollList(80, 10)
+	short.SetItems(makeItems(2, 2))
+	short.GotoTop()
+	if !short.AtBottom() {
+		t.Fatal("a list that fits in the viewport is not at the bottom")
+	}
+}

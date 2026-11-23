@@ -387,15 +387,17 @@ func TestFollowShellRunRespectsManualScroll(t *testing.T) {
 		m = sendMsg(m, uicore.ShellStreamChunkMsg{ItemID: id, Chunk: strings.Repeat("line\n", 5)})
 	}
 
-	// Turn auto-scroll off the way the scroll wheel does.
+	// Turn auto-scroll off the way the scroll wheel does, and go to the top.
 	m.scrollList.autoScroll = false
-	atBottom := m.scrollList.AtBottom()
 	m.scrollList.offsetLine = 0
 	m.scrollList.offsetIdx = 0
+	// A transcript that fits in the viewport is at its end at the top too:
+	// there is then nothing to scroll away from.
+	fits := m.scrollList.AtBottom()
 
 	m.followShellRun(id)
 
-	if !atBottom {
+	if !fits {
 		if m.scrollList.AtBottom() {
 			t.Error("the viewport snapped back while the user had scrolled away")
 		}

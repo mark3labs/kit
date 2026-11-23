@@ -950,3 +950,35 @@ func TestStopFollowingAt(t *testing.T) {
 		}
 	})
 }
+
+// TestScrollbarGoesWhenTheUserIsBackAtTheEnd checks the two page keys. Page
+// Up stops the transcript from following the conversation and shows the
+// scrollbar. Page Down to the end starts the following again, and the
+// scrollbar goes.
+func TestScrollbarGoesWhenTheUserIsBackAtTheEnd(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.input = NewInputComponent(80, nil)
+	fillTranscript(m)
+	m.layoutDirty = true
+	_ = m.View()
+	rows := m.scrollList.height
+
+	m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.scrollList.autoScroll {
+		t.Fatal("the transcript still follows the conversation after Page Up")
+	}
+	if !strings.Contains(lastColumn(m.View().Content, rows), "┃") {
+		t.Fatal("no scrollbar after Page Up")
+	}
+
+	m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if !m.scrollList.AtBottom() {
+		t.Fatal("one Page Down did not bring the transcript back to its end")
+	}
+	if !m.scrollList.autoScroll {
+		t.Fatal("the transcript does not follow the conversation after Page Down to its end")
+	}
+	if strings.Contains(lastColumn(m.View().Content, rows), "┃") {
+		t.Fatal("the scrollbar is still there at the end of the transcript")
+	}
+}

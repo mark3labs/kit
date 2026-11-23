@@ -826,32 +826,20 @@ func (s *ScrollList) scrollExtent() (total, visible, offset int) {
 	return total, s.height, offset
 }
 
-// AtBottom returns true if the viewport is at the bottom of the list.
+// AtBottom returns true if the viewport is at the bottom of the list: it
+// cannot scroll down any more. A list that fits in the viewport is always at
+// the bottom.
+//
+// The bottom is the offset that GotoBottom and clampOffset use, so the three
+// cannot disagree. A list whose content from the top of the view fills the
+// viewport exactly is at the bottom. The callers rely on that to follow new
+// output again after the user scrolls back down to the end.
 func (s *ScrollList) AtBottom() bool {
 	if len(s.items) == 0 {
 		return true
 	}
-
-	visibleHeight := 0
-	for idx := s.offsetIdx; idx < len(s.items); idx++ {
-		ih := s.itemHeight(idx)
-
-		if idx == s.offsetIdx {
-			visibleHeight += ih - s.offsetLine
-		} else {
-			visibleHeight += ih
-		}
-
-		if s.itemGap > 0 && idx < len(s.items)-1 {
-			visibleHeight += s.itemGap
-		}
-
-		if visibleHeight >= s.height {
-			return false
-		}
-	}
-
-	return true
+	idx, line := s.bottomOffset()
+	return s.offsetIdx > idx || (s.offsetIdx == idx && s.offsetLine >= line)
 }
 
 // --------------------------------------------------------------------------
