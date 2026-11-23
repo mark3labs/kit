@@ -23,12 +23,14 @@ type modelsDBModel struct {
 	Name string `json:"name"`
 	// Type is the model kind published by the catalog: "decision",
 	// "embedding", "image" and so on. Empty for chat models.
-	Type        string                 `json:"type,omitempty"`
-	Family      string                 `json:"family,omitempty"`
-	Attachment  bool                   `json:"attachment"`
-	Reasoning   bool                   `json:"reasoning"`
-	ToolCall    bool                   `json:"tool_call"`
-	Temperature bool                   `json:"temperature"`
+	Type       string `json:"type,omitempty"`
+	Family     string `json:"family,omitempty"`
+	Attachment bool   `json:"attachment"`
+	Reasoning  bool   `json:"reasoning"`
+	ToolCall   bool   `json:"tool_call"`
+	// Temperature is a pointer so that an omitted "temperature" key (not
+	// declared) is distinguishable from an explicit false (rejected).
+	Temperature *bool                  `json:"temperature"`
 	Cost        *modelsDBCost          `json:"cost"`
 	Limit       modelsDBLimit          `json:"limit"`
 	Provider    *modelsDBModelProvider `json:"provider,omitempty"` // Model-specific provider override

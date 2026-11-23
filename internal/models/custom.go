@@ -204,6 +204,26 @@ func convertGenerationParams(cfg GenerationParamsConfig) *GenerationParams {
 	return p
 }
 
+// modelLevelParams returns the per-model generation parameters for
+// config.ModelString, or nil when there are none. A modelSettings entry from
+// config takes priority over the Params of a custom model definition, because
+// it is the more specific configuration.
+func modelLevelParams(config *ProviderConfig, modelInfo *ModelInfo) *GenerationParams {
+	provider, modelName, err := ParseModelString(config.ModelString)
+	if err != nil {
+		return nil
+	}
+	if settings := LoadModelSettingsFrom(config.ConfigStore); settings != nil {
+		if p, ok := settings[provider+"/"+modelName]; ok {
+			return p
+		}
+	}
+	if modelInfo != nil && modelInfo.Params != nil {
+		return modelInfo.Params
+	}
+	return nil
+}
+
 // ApplyModelSettings merges per-model generation parameter defaults from the
 // registry into a ProviderConfig. Model-level params are only applied for
 // fields where the user has not explicitly set a value (i.e., the
@@ -215,33 +235,12 @@ func convertGenerationParams(cfg GenerationParamsConfig) *GenerationParams {
 //
 // Both are overridden by explicit CLI flags / global config values.
 func ApplyModelSettings(config *ProviderConfig, modelInfo *ModelInfo) {
-	provider, modelName, err := ParseModelString(config.ModelString)
-	if err != nil {
-		return
-	}
-
 	// Resolve the config store: prefer the per-instance store carried on the
 	// ProviderConfig (set by BuildProviderConfig / Kit.New), falling back to
 	// the process-global store for callers that don't thread one through.
 	store := config.ConfigStore
 
-	// Collect model-level params: modelSettings override > custom model params.
-	// modelSettings takes priority because it's the more specific/intentional config.
-	var params *GenerationParams
-
-	// First check modelSettings from config.
-	if settings := LoadModelSettingsFrom(store); settings != nil {
-		modelKey := provider + "/" + modelName
-		if p, ok := settings[modelKey]; ok {
-			params = p
-		}
-	}
-
-	// Fall back to ModelInfo.Params (from custom model definitions).
-	if params == nil && modelInfo != nil && modelInfo.Params != nil {
-		params = modelInfo.Params
-	}
-
+	params := modelLevelParams(config, modelInfo)
 	if params == nil {
 		return
 	}

@@ -32,13 +32,19 @@ type ModelInfo struct {
 	InputModalities []string
 	Reasoning       bool
 	Temperature     bool
-	Cost            Cost
-	Limit           Limit
-	ProviderNPM     string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
-	ProviderAPI     string // Model-specific base URL from the catalog (e.g. Cloudflare /ai/run)
-	BaseURL         string // Per-model base URL override (custom models only)
-	APIKey          string // Per-model API key override (custom models only)
-	APIModelName    string // Per-model API model name override (custom models only)
+	// SamplingUnsupported is true when the model metadata explicitly marks
+	// the sampling parameters (temperature, top_p, top_k) as unsupported.
+	// The catalog sets it for entries with "temperature": false. It is false
+	// when the catalog omits the key, and for custom models, whose
+	// temperature flag says nothing about top_p or top_k.
+	SamplingUnsupported bool
+	Cost                Cost
+	Limit               Limit
+	ProviderNPM         string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	ProviderAPI         string // Model-specific base URL from the catalog (e.g. Cloudflare /ai/run)
+	BaseURL             string // Per-model base URL override (custom models only)
+	APIKey              string // Per-model API key override (custom models only)
+	APIModelName        string // Per-model API model name override (custom models only)
 
 	// Params holds per-model generation parameter defaults. These are applied
 	// when the user hasn't explicitly set the corresponding CLI flag or global
@@ -500,8 +506,11 @@ func buildProviders(withUserData bool) map[string]ProviderInfo {
 				Attachment:      dm.Attachment,
 				InputModalities: inputModalities,
 				Reasoning:       dm.Reasoning,
-				Temperature:     dm.Temperature,
-				Cost:            costFrom(dm.Cost),
+				Temperature:     dm.Temperature != nil && *dm.Temperature,
+				// Only an explicit "temperature": false marks the
+				// sampling parameters unsupported; an omitted key does not.
+				SamplingUnsupported: dm.Temperature != nil && !*dm.Temperature,
+				Cost:                costFrom(dm.Cost),
 				Limit: Limit{
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
