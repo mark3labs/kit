@@ -2323,16 +2323,22 @@ type SubagentConfig struct {
 
 	// Tools overrides the tool set available to the subagent.
 	// If nil and the subagent is created via the SDK (Kit.Subagent()), the
-	// default set (the parent's enabled core tools except "subagent", built
-	// with the parent's effective shell) is used. A parent with core tools
-	// disabled therefore gives the subagent no core tools, and a parent that
-	// set Options.Tools gives the subagent those tools.
+	// default set (the parent's enabled core tools, built with the parent's
+	// effective shell) is used. When nested delegation is enabled (the
+	// default, with MaxNestedSubagents >= 0), depth-1 subagents receive the
+	// "subagent" tool so they can spawn child subagents up to depth 2; for
+	// nested subagents at depth >= 1, or when MaxNestedSubagents=-1 disables
+	// nested delegation, the "subagent" tool is excluded to prevent runaway
+	// recursion. A parent with core tools disabled gives the subagent no core
+	// tools, and a parent that set Options.Tools gives the subagent those tools.
 	// An empty non-nil set gives the subagent no core tools.
-	// When spawned internally by the agent loop, the parent's active tools
-	// minus "subagent" are used instead (see GetToolsForSubagent()).
+	//
+	// When spawned internally by the agent loop, the parent's active tool
+	// set is inherited instead (see GetToolsForSubagent()), which carries
+	// over extension tools and MCP tools while applying the same depth-based
+	// inclusion and MaxNestedSubagents=-1 exclusion for the "subagent" tool.
 	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
 	// SDK call sites.
-	// (The subagent tool is dropped to prevent infinite recursion.)
 	//
 	// When Agent names a definition with a tool allowlist, this set is
 	// intersected with that allowlist rather than overriding it — see the
@@ -2493,12 +2499,17 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // This is the recommended way to run subagents in the SDK — no subprocess,
 // no kit binary dependency, native Go types for results.
 // subagentDefaultTools is the tool set a subagent receives when its
-// configuration names none: the parent's enabled core tools except subagent,
-// built with the parent's effective shell, so that a child on an image
-// without bash keeps working. A parent that disabled or limited its core
-// tools (DisableCoreTools, CoreToolList) cannot give a child more. When the
-// parent replaced its core tools with Options.Tools, the child gets those
-// same tools (minus subagent), not the built-in ones.
+// configuration names none: the parent's enabled core tools, built with the
+// parent's effective shell, so that a child on an image without bash keeps
+// working. When nested delegation is enabled (the default, with
+// MaxNestedSubagents >= 0), depth-1 subagents receive the subagent tool so
+// they can spawn nested child subagents up to depth 2; subagents at
+// depth >= 1 or when MaxNestedSubagents=-1 disables nested delegation have
+// the subagent tool excluded to prevent runaway recursion. A parent that
+// disabled or limited its core tools (DisableCoreTools, CoreToolList) cannot
+// give a child more. When the parent replaced its core tools with
+// Options.Tools, the child gets those same tools (applying the same nested
+// delegation rule for subagent), not the built-in ones.
 func (m *Kit) subagentDefaultTools() []Tool {
 	includeSubagent := m.subagentDepth < 1 && m.effectiveMaxNestedSubagents() >= 0
 	if len(m.customTools) > 0 {
@@ -2654,8 +2665,8 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		systemPrompt = "You are a helpful coding assistant. Complete the task efficiently and thoroughly."
 	}
 
-	// Default tools: everything except subagent, built with the parent's
-	// effective shell.
+	// Default tools: the parent's default tool set (subagentDefaultTools),
+	// built with the parent's effective shell.
 	tools := cfg.Tools
 	if tools == nil {
 		tools = m.subagentDefaultTools()
