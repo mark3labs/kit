@@ -269,15 +269,17 @@ type LimitConfig struct {
 // model settings, UI preferences, and API credentials. It supports both command-line
 // flags and configuration file settings.
 type Config struct {
-	MCPServers     map[string]MCPServerConfig `json:"mcpServers" yaml:"mcpServers"`
-	Model          string                     `json:"model,omitempty" yaml:"model,omitempty"`
-	MaxSteps       int                        `json:"max-steps,omitempty" yaml:"max-steps,omitempty"`
-	Debug          bool                       `json:"debug,omitempty" yaml:"debug,omitempty"`
-	SystemPrompt   string                     `json:"system-prompt,omitempty" yaml:"system-prompt,omitempty"`
-	ProviderAPIKey string                     `json:"provider-api-key,omitempty" yaml:"provider-api-key,omitempty"`
-	ProviderURL    string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`
-	Stream         *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
-	Theme          any                        `json:"theme" yaml:"theme"`
+	MCPServers         map[string]MCPServerConfig `json:"mcpServers" yaml:"mcpServers"`
+	Model              string                     `json:"model,omitempty" yaml:"model,omitempty"`
+	MaxSteps           int                        `json:"max-steps,omitempty" yaml:"max-steps,omitempty"`
+	MaxSubagents       int                        `json:"max-subagents,omitempty" yaml:"max-subagents,omitempty"`
+	MaxNestedSubagents int                        `json:"max-nested-subagents,omitempty" yaml:"max-nested-subagents,omitempty"`
+	Debug              bool                       `json:"debug,omitempty" yaml:"debug,omitempty"`
+	SystemPrompt       string                     `json:"system-prompt,omitempty" yaml:"system-prompt,omitempty"`
+	ProviderAPIKey     string                     `json:"provider-api-key,omitempty" yaml:"provider-api-key,omitempty"`
+	ProviderURL        string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`
+	Stream             *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
+	Theme              any                        `json:"theme" yaml:"theme"`
 	// Model generation parameters
 	MaxTokens        int      `json:"max-tokens,omitempty" yaml:"max-tokens,omitempty"`
 	Temperature      *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
@@ -513,6 +515,8 @@ mcpServers:
 # model: "anthropic/claude-sonnet-5-5"           # Default model to use
 # decision-model: "openrouter/typesafe/jev-1.14" # Default model for extension Decide calls
 # max-steps: 10                                # Maximum agent steps (0 for unlimited)
+# max-subagents: 10                            # Maximum concurrent subagents the agent can run (0 for unlimited, -1 to disable)
+# max-nested-subagents: 3                      # Maximum concurrent nested subagents a subagent can run (0 for unlimited, -1 to disable)
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file
 

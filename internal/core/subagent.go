@@ -107,7 +107,7 @@ type NamedAgentSpec struct {
 const subagentBaseDescription = `Spawn a subagent to perform a task autonomously.
 
 The subagent runs as a separate in-process Kit instance with full tool access
-(except spawning further subagents). Use this to:
+(with configured limits on spawning nested subagents). Use this to:
 - Delegate independent subtasks that can run in parallel
 - Perform research or analysis without blocking your main work
 - Execute tasks that benefit from a fresh context window
@@ -190,6 +190,8 @@ func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	callerActive := ctx.Err() == nil
+
 	var args subagentArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("task parameter is required"), nil
@@ -240,6 +242,19 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	spawnCtx := ctx
 	if background, _ := ctx.Value(backgroundJobKey{}).(bool); !background {
 		spawnCtx = context.WithoutCancel(valuesContext{parent: ctx})
+		// If the caller context was active at handler entry, propagate cancellation
+		// to the spawned subagent so a killed or timed-out parent promptly
+		// cancels in-flight nested delegation instead of leaving it running
+		// and blocking concurrency slots until its independent timeout expires.
+		// If the caller context was already canceled when the handler began,
+		// keep the detached context without cancellation propagation so the
+		// subagent can start cleanly with its own timeout.
+		if callerActive {
+			var cancel context.CancelFunc
+			spawnCtx, cancel = context.WithCancel(spawnCtx)
+			stop := context.AfterFunc(ctx, func() { cancel() })
+			defer stop()
+		}
 	}
 
 	// Spawn in-process subagent.

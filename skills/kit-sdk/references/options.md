@@ -227,6 +227,9 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `MCPTaskTimeout` | MCPTaskTimeout is the maximum wall-clock duration to wait for a task-augmented tool call to reach a terminal state. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MCPTokenStoreFactory` | MCPTokenStoreFactory, if non-nil, is called to create a token store for each remote MCP server that requires OAuth. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxSteps` | Override max steps (0 = use default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxSubagents` | MaxSubagents limits how many concurrent subagents this Kit instance can run (default: 10, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxNestedSubagents` | MaxNestedSubagents limits how many concurrent nested subagents a subagent can run (default: 3, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `SubagentDepth` | SubagentDepth tracks the nesting depth of this Kit instance (0 = root, 1 = subagent, 2 = nested subagent). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxTokens` | MaxTokens overrides the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ModelMode` | Model mode to select (empty selects the model default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Model` | Override model (e.g., "anthropic/claude-sonnet-4-5-20250929"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -279,6 +282,8 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `WithExtraTools` | WithExtraTools adds tools alongside the core/MCP/extension tools rather than replacing them. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtraTools) |
 | `WithHTTPTransport` | WithHTTPTransport wraps the base HTTP transport of built-in providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) |
 | `WithMaxTokens` | WithMaxTokens sets the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) |
+| `WithMaxSubagents` | WithMaxSubagents sets the maximum number of concurrent subagents the agent can run. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxSubagents) |
+| `WithMaxNestedSubagents` | WithMaxNestedSubagents sets the maximum number of concurrent nested subagents a subagent can run. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxNestedSubagents) |
 | `WithModelMode` | WithModelMode selects a named mode for the selected model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) |
 | `WithModel` | WithModel sets the model in "provider/model" format (for example openai/gpt-4.1). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
 | `WithDecisionModel` | WithDecisionModel sets the default decision model in "provider/model" format (e.g. openrouter/typesafe/jev-1.14). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) |

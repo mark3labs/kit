@@ -223,6 +223,15 @@ func buildKitOptions(mcpConfig *config.Config, authHandler *kit.CLIMCPAuthHandle
 		}
 	}
 
+	if viper.IsSet("max-subagents") {
+		v := viper.GetInt("max-subagents")
+		opts.MaxSubagents = &v
+	}
+	if viper.IsSet("max-nested-subagents") {
+		v := viper.GetInt("max-nested-subagents")
+		opts.MaxNestedSubagents = &v
+	}
+
 	return opts, nil
 }
 
