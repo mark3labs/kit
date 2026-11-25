@@ -171,6 +171,8 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`WithExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtraTools) — WithExtraTools adds tools alongside the core/MCP/extension tools rather than replacing them.
 - [`WithHTTPTransport`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) — WithHTTPTransport wraps the base HTTP transport of built-in providers.
 - [`WithMaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) — WithMaxTokens sets the maximum output tokens per LLM response.
+- [`WithMaxSubagents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxSubagents) — WithMaxSubagents sets the maximum number of concurrent subagents the agent can run.
+- [`WithMaxNestedSubagents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxNestedSubagents) — WithMaxNestedSubagents sets the maximum number of concurrent nested subagents a subagent can run.
 - [`WithModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) — WithModelMode selects a named mode for the selected model.
 - [`WithModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) — WithModel sets the model in "provider/model" format.
 - [`WithDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) — WithDecisionModel sets the default decision model in "provider/model" format.

@@ -51,7 +51,14 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
     session_id: "..."                                  // optional, resume a previous subagent
 )
 </code></pre>
-<p>Subagents run as separate in-process Kit instances and inherit the parent's active tools minus <code>subagent</code> (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
+<p>Subagents run as separate in-process Kit instances and inherit the parent's active tools; named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
+<h3 id="spawning-limits-and-nested-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#spawning-limits-and-nested-subagents"><span class="icon icon-link"></span></a>Spawning limits and nested subagents</h3>
+<p>Kit provides control over subagent concurrency via CLI flags and configuration. When the LLM requests to spawn more subagents than the configured limit, the extra requests are <strong>queued</strong> and will automatically run as active subagents finish their tasks.</p>
+<ul>
+<li><strong>Root subagents (<code>--max-subagents</code>, default <code>10</code>):</strong> Limits how many concurrent subagents the host agent can run (<code>0</code> for unlimited, <code>-1</code> to disable).</li>
+<li><strong>Nested subagents (<code>--max-nested-subagents</code>, default <code>3</code>):</strong> Allows subagents to run nested child subagents concurrently up to the configured limit (<code>0</code> for unlimited, <code>-1</code> to disable nested delegation).</li>
+<li><strong>Strict recursion cap:</strong> Nested subagents (depth ≥ 2) have the <code>subagent</code> tool stripped from their toolset and cannot spawn further subagents.</li>
+</ul>
 <h3 id="subagent-status-bar"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagent-status-bar"><span class="icon icon-link"></span></a>Subagent status bar</h3>
 <p>The TUI shows a compact status bar above the parent activity line, so you can check child runs without opening their conversations. It includes in-process runs started by the LLM, extensions, or direct SDK calls, not separate Kit subprocesses.</p>
 <table>
@@ -214,7 +221,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 </tbody>
 </table>
 <h3 id="tool-allowlists"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-allowlists"><span class="icon icon-link"></span></a>Tool allowlists</h3>
-<p>An agent without a <code>tools:</code> list gets the default subagent tool set (everything except <code>subagent</code>, preventing recursion). With a <code>tools:</code> allowlist, the subagent is restricted to exactly those tools — a read-only <code>explore</code>-style agent cannot edit files or run commands. Explicit <code>model</code> / <code>system_prompt</code> / <code>timeout_seconds</code> arguments in the tool call override the agent's presets.</p>
+<p>An agent without a <code>tools:</code> list gets the default subagent tool set (including <code>subagent</code> if nested subagents are enabled and depth &lt; 2). With a <code>tools:</code> allowlist, the subagent is restricted to exactly those tools — a read-only <code>explore</code>-style agent cannot edit files or run commands. Explicit <code>model</code> / <code>system_prompt</code> / <code>timeout_seconds</code> arguments in the tool call override the agent's presets.</p>
 <p>Disable named-agent discovery entirely with <code>--no-agents</code>, the <code>no-agents</code> config key, or <code>KIT_NO_AGENTS=true</code>.</p>
 <p><code>--no-skills</code> and <code>--no-agents</code> also apply to the subagents that the <code>subagent</code> tool starts.</p>
 <h2 id="extension-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-subagents"><span class="icon icon-link"></span></a>Extension subagents</h2>
@@ -447,7 +454,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for <a href="#retained-run-snapshots">run snapshots</a> and the <a href="#inspecting-subagent-conversations">native inspector</a>.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Subagent status bar`,id:`subagent-status-bar`},{depth:3,text:`Inspecting subagent conversations`,id:`inspecting-subagent-conversations`},{depth:3,text:`Command compatibility`,id:`command-compatibility`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Retained run snapshots`,id:`retained-run-snapshots`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
+<p>If no listeners are registered for a tool call, no parent-listener dispatch occurs. Child events are still retained for <a href="#retained-run-snapshots">run snapshots</a> and the <a href="#inspecting-subagent-conversations">native inspector</a>.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Spawning limits and nested subagents`,id:`spawning-limits-and-nested-subagents`},{depth:3,text:`Subagent status bar`,id:`subagent-status-bar`},{depth:3,text:`Inspecting subagent conversations`,id:`inspecting-subagent-conversations`},{depth:3,text:`Command compatibility`,id:`command-compatibility`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Retained run snapshots`,id:`retained-run-snapshots`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents. The built-in status bar above the parent activity line shows active runs and recent results.
@@ -492,7 +499,15 @@ subagent(
 )
 \`\`\`
 
-Subagents run as separate in-process Kit instances and inherit the parent's active tools minus \`subagent\` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+Subagents run as separate in-process Kit instances and inherit the parent's active tools; named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+### Spawning limits and nested subagents
+
+Kit provides control over subagent concurrency via CLI flags and configuration. When the LLM requests to spawn more subagents than the configured limit, the extra requests are **queued** and will automatically run as active subagents finish their tasks.
+
+- **Root subagents (\`--max-subagents\`, default \`10\`):** Limits how many concurrent subagents the host agent can run (\`0\` for unlimited, \`-1\` to disable).
+- **Nested subagents (\`--max-nested-subagents\`, default \`3\`):** Allows subagents to run nested child subagents concurrently up to the configured limit (\`0\` for unlimited, \`-1\` to disable nested delegation).
+- **Strict recursion cap:** Nested subagents (depth &ge; 2) have the \`subagent\` tool stripped from their toolset and cannot spawn further subagents.
 
 ### Subagent status bar
 
@@ -611,7 +626,7 @@ Two built-in agents ship with Kit:
 
 ### Tool allowlists
 
-An agent without a \`tools:\` list gets the default subagent tool set (everything except \`subagent\`, preventing recursion). With a \`tools:\` allowlist, the subagent is restricted to exactly those tools — a read-only \`explore\`-style agent cannot edit files or run commands. Explicit \`model\` / \`system_prompt\` / \`timeout_seconds\` arguments in the tool call override the agent's presets.
+An agent without a \`tools:\` list gets the default subagent tool set (including \`subagent\` if nested subagents are enabled and depth < 2). With a \`tools:\` allowlist, the subagent is restricted to exactly those tools — a read-only \`explore\`-style agent cannot edit files or run commands. Explicit \`model\` / \`system_prompt\` / \`timeout_seconds\` arguments in the tool call override the agent's presets.
 
 Disable named-agent discovery entirely with \`--no-agents\`, the \`no-agents\` config key, or \`KIT_NO_AGENTS=true\`.
 

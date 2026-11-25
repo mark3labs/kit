@@ -6,7 +6,7 @@
 <title>Global Flags | Kit</title>
 <meta name="description" content="Complete reference for all Kit CLI flags.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-3z1VDhAL.js"></script>
+<script type="module" src="/assets/index-BRVA2B_i.js"></script>
 <link rel="canonical" href="https://go-kit.dev/cli/flags" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -63,6 +63,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--json` | — | `false` | Output response as JSON (non-interactive only) |
 | `--no-exit` | — | `false` | Enter interactive mode after prompt completes |
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
+| `--max-subagents` | — | `10` | Maximum concurrent subagents the agent can run (0 for unlimited, -1 to disable) |
+| `--max-nested-subagents` | — | `3` | Maximum concurrent nested subagents a subagent can run (0 for unlimited, -1 to disable) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
 | `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. The daemon uses this flag for any [detachable session](/cli/commands#detachable-sessions) that has no directory of its own — `kit attach --new`, or a remote client |

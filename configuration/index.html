@@ -6,7 +6,7 @@
 <title>Configuration | Kit</title>
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-3z1VDhAL.js"></script>
+<script type="module" src="/assets/index-BRVA2B_i.js"></script>
 <link rel="canonical" href="https://go-kit.dev/configuration" />
 <meta name="theme-color" content="#e03030" />
 <meta property="og:type" content="article" />
@@ -64,6 +64,8 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
+| `max-subagents` | int | `10` | Maximum concurrent subagents the agent can run (0 = unlimited, -1 to disable) |
+| `max-nested-subagents` | int | `3` | Maximum concurrent nested subagents a subagent can run (0 = unlimited, -1 to disable) |
 | `thinking-level` | string | `off` | Model-specific reasoning effort. `/thinking` lists catalog choices; explicit unsupported CLI/SDK values return an error. `off` omits effort; `none` is literal. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |

@@ -74,6 +74,7 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Spawning limits and nested subagents",
         "Subagent status bar",
         "Inspecting subagent conversations",
         "Command compatibility",
@@ -90,7 +91,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 3162
+      "wordCount": 3278
     },
     {
       "id": "advanced/testing",
@@ -160,7 +161,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1519
+      "wordCount": 1562
     },
     {
       "id": "configuration",
@@ -186,7 +187,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 2274
+      "wordCount": 2317
     },
     {
       "id": "development",
@@ -449,7 +450,7 @@
         "Background jobs"
       ],
       "tags": [],
-      "wordCount": 10317
+      "wordCount": 10348
     },
     {
       "id": "sdk/authentication",
@@ -537,7 +538,7 @@
         "Managed skill activation"
       ],
       "tags": [],
-      "wordCount": 6309
+      "wordCount": 6421
     },
     {
       "id": "sdk/overview",

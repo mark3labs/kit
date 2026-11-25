@@ -822,7 +822,15 @@ subagent(
 )
 ```
 
-Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+Subagents run as separate in-process Kit instances and inherit the parent's active tools; named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+### Spawning limits and nested subagents
+
+Kit provides control over subagent concurrency via CLI flags and configuration. When the LLM requests to spawn more subagents than the configured limit, the extra requests are **queued** and will automatically run as active subagents finish their tasks.
+
+- **Root subagents (`--max-subagents`, default `10`):** Limits how many concurrent subagents the host agent can run (`0` for unlimited, `-1` to disable).
+- **Nested subagents (`--max-nested-subagents`, default `3`):** Allows subagents to run nested child subagents concurrently up to the configured limit (`0` for unlimited, `-1` to disable nested delegation).
+- **Strict recursion cap:** Nested subagents (depth &ge; 2) have the `subagent` tool stripped from their toolset and cannot spawn further subagents.
 
 ### Subagent status bar
 
@@ -941,7 +949,7 @@ Two built-in agents ship with Kit:
 
 ### Tool allowlists
 
-An agent without a `tools:` list gets the default subagent tool set (everything except `subagent`, preventing recursion). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
+An agent without a `tools:` list gets the default subagent tool set (including `subagent` if nested subagents are enabled and depth < 2). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
 
 Disable named-agent discovery entirely with `--no-agents`, the `no-agents` config key, or `KIT_NO_AGENTS=true`.
 
@@ -1873,6 +1881,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--json` | — | `false` | Output response as JSON (non-interactive only) |
 | `--no-exit` | — | `false` | Enter interactive mode after prompt completes |
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
+| `--max-subagents` | — | `10` | Maximum concurrent subagents the agent can run (0 for unlimited, -1 to disable) |
+| `--max-nested-subagents` | — | `3` | Maximum concurrent nested subagents a subagent can run (0 for unlimited, -1 to disable) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
 | `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. The daemon uses this flag for any [detachable session](/cli/commands#detachable-sessions) that has no directory of its own — `kit attach --new`, or a remote client |
@@ -2063,6 +2073,8 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
+| `max-subagents` | int | `10` | Maximum concurrent subagents the agent can run (0 = unlimited, -1 to disable) |
+| `max-nested-subagents` | int | `3` | Maximum concurrent nested subagents a subagent can run (0 = unlimited, -1 to disable) |
 | `thinking-level` | string | `off` | Model-specific reasoning effort. `/thinking` lists catalog choices; explicit unsupported CLI/SDK values return an error. `off` omits effort; `none` is literal. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
@@ -5285,6 +5297,8 @@ Guides: [overview](/sdk/overview), [options](/sdk/options), [decisions](/sdk/dec
 - [`WithExtraTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtraTools) — WithExtraTools adds tools alongside the core/MCP/extension tools rather than replacing them.
 - [`WithHTTPTransport`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) — WithHTTPTransport wraps the base HTTP transport of built-in providers.
 - [`WithMaxTokens`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) — WithMaxTokens sets the maximum output tokens per LLM response.
+- [`WithMaxSubagents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxSubagents) — WithMaxSubagents sets the maximum number of concurrent subagents the agent can run.
+- [`WithMaxNestedSubagents`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxNestedSubagents) — WithMaxNestedSubagents sets the maximum number of concurrent nested subagents a subagent can run.
 - [`WithModelMode`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) — WithModelMode selects a named mode for the selected model.
 - [`WithModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) — WithModel sets the model in "provider/model" format.
 - [`WithDecisionModel`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) — WithDecisionModel sets the default decision model in "provider/model" format.
@@ -7028,6 +7042,9 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `MCPTaskTimeout` | MCPTaskTimeout is the maximum wall-clock duration to wait for a task-augmented tool call to reach a terminal state. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MCPTokenStoreFactory` | MCPTokenStoreFactory, if non-nil, is called to create a token store for each remote MCP server that requires OAuth. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxSteps` | Override max steps (0 = use default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxSubagents` | MaxSubagents limits how many concurrent subagents this Kit instance can run (default: 10, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `MaxNestedSubagents` | MaxNestedSubagents limits how many concurrent nested subagents a subagent can run (default: 3, 0 = unlimited, -1 = disabled). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
+| `SubagentDepth` | SubagentDepth tracks the nesting depth of this Kit instance (0 = root, 1 = subagent, 2 = nested subagent). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `MaxTokens` | MaxTokens overrides the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `ModelMode` | Model mode to select (empty selects the model default). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
 | `Model` | Override model (e.g., "anthropic/claude-sonnet-4-5-20250929"). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#Options) |
@@ -7080,6 +7097,8 @@ This inventory links configuration to the [authoritative Go contract](https://pk
 | `WithExtraTools` | WithExtraTools adds tools alongside the core/MCP/extension tools rather than replacing them. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithExtraTools) |
 | `WithHTTPTransport` | WithHTTPTransport wraps the base HTTP transport of built-in providers. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithHTTPTransport) |
 | `WithMaxTokens` | WithMaxTokens sets the maximum output tokens per LLM response. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxTokens) |
+| `WithMaxSubagents` | WithMaxSubagents sets the maximum number of concurrent subagents the agent can run. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxSubagents) |
+| `WithMaxNestedSubagents` | WithMaxNestedSubagents sets the maximum number of concurrent nested subagents a subagent can run. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithMaxNestedSubagents) |
 | `WithModelMode` | WithModelMode selects a named mode for the selected model. [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModelMode) |
 | `WithModel` | WithModel sets the model in "provider/model" format (for example openai/gpt-4.1). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithModel) |
 | `WithDecisionModel` | WithDecisionModel sets the default decision model in "provider/model" format (e.g. openrouter/typesafe/jev-1.14). [Go reference](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithDecisionModel) |
