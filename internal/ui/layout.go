@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 
 	"bloomfx.dev/bloom"
@@ -39,6 +40,11 @@ import (
 // section's rectangle up by it, and layout animation follows a section by it
 // from one frame to the next.
 type regionID int
+
+// bloomID keeps section IDs separate from modal surfaces and toasts.
+func (id regionID) bloomID() bloom.ID {
+	return bloom.ID("kit/region/" + strconv.Itoa(int(id)))
+}
 
 const (
 	regionHeader regionID = iota + 1
@@ -93,8 +99,11 @@ const layoutUnbounded = 1 << 20
 // which is how Kit has always measured a section.
 type section string
 
-// View implements bloom.Child.
+// View implements bloom.Viewer.
 func (s section) View() string { return string(s) }
+
+// Layout implements bloom.Child. The view keeps the section's fast measurement.
+func (s section) Layout(bloom.Context) bloom.Child { return bloom.View(s) }
 
 // Measure implements bloom.Measurer.
 func (s section) Measure(avail bloom.Size) bloom.Size {
@@ -125,8 +134,6 @@ func sectionRows(s string) int {
 // that height, so the transcript follows the section's edge and no gap opens
 // beside it.
 type streamRegion struct {
-	bloom.NoView
-
 	list *ScrollList
 	// view is the list drawn at its own height, rendered once for the frame.
 	view string
@@ -136,12 +143,13 @@ type streamRegion struct {
 	wrap func(view string, rows int) bloom.Child
 }
 
-// Layout implements bloom.Layouter. It does not change the list.
+// Layout implements bloom.Child. It does not change the list.
 func (s *streamRegion) Layout(ctx bloom.Context) bloom.Child {
-	if s.list == nil || ctx.Height <= 0 || ctx.Height >= layoutUnbounded || ctx.Height == s.list.height {
+	rows := ctx.Height()
+	if s.list == nil || rows <= 0 || rows >= layoutUnbounded || rows == s.list.height {
 		return s.wrapped(s.view, s.listRows())
 	}
-	return s.wrapped(s.list.ViewAtHeight(ctx.Height), ctx.Height)
+	return s.wrapped(s.list.ViewAtHeight(rows), rows)
 }
 
 // listRows returns the height of the list, or zero without one.
@@ -275,7 +283,7 @@ func (m *AppModel) layoutTree(c *chromeCache, stream bloom.Child, animate bool) 
 	streamMin := min(streamMinRows, m.height-kept)
 
 	place := func(id regionID, slot bloom.SlotNode) bloom.Child {
-		slot = slot.ID(id)
+		slot = slot.ID(id.bloomID())
 		if animate {
 			slot = slot.Animate(anim.Spring(layoutSpring, 1))
 		}
@@ -346,7 +354,7 @@ func regionRows(frame *bloom.Frame, id regionID) int {
 	if frame == nil {
 		return 0
 	}
-	if r, ok := frame.Rect(id); ok {
+	if r, ok := frame.Rect(id.bloomID()); ok {
 		return r.Dy()
 	}
 	return 0
@@ -359,7 +367,7 @@ func (m *AppModel) noteSectionRects(frame *bloom.Frame) (moved bool) {
 		return false
 	}
 	for id := regionHeader; id < regionCount; id++ {
-		r, _ := frame.Rect(id)
+		r, _ := frame.Rect(id.bloomID())
 		if r != m.sectionRects[id] {
 			m.sectionRects[id] = r
 			moved = true

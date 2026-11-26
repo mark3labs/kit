@@ -2641,7 +2641,7 @@ func (m *AppModel) View() tea.View {
 	}
 	m.inputYOffset = m.height
 	if frame != nil {
-		if r, ok := frame.Rect(regionInput); ok {
+		if r, ok := frame.Rect(regionInput.bloomID()); ok {
 			m.inputYOffset = r.Min.Y
 		}
 	}
@@ -6516,10 +6516,10 @@ func frameAnchors(frame *bloom.Frame, transcript bool) (anchors gfxAnchors) {
 	if frame == nil {
 		return anchors
 	}
-	if r, ok := frame.Rect(regionInput); ok {
+	if r, ok := frame.Rect(regionInput.bloomID()); ok {
 		anchors.inputTop = r.Min.Y + 1
 	}
-	if r, ok := frame.Rect(regionStream); ok && transcript {
+	if r, ok := frame.Rect(regionStream.bloomID()); ok && transcript {
 		anchors.streamTop = r.Min.Y + 1
 	}
 	return anchors

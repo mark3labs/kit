@@ -929,7 +929,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 // Gemini routes, which carry an @ai-sdk/google per-model override).
 //
 // The underlying genai SDK always injects its own API version segment
-// ("v1beta") between the base URL and the resource path. When the proxy's
+// ("v1" by default) between the base URL and the resource path. When the proxy's
 // base URL from models.dev already carries a version segment (e.g. opencode's
 // https://opencode.ai/zen/v1), that produces a doubled ".../v1/v1beta/..."
 // path that the proxy rejects. In that case we install a transport that
@@ -950,19 +950,7 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 		opts = append(opts, google.WithBaseURL(config.ProviderURL))
 	}
 
-	// Decide whether the genai-injected version segment needs stripping.
-	var httpClient *http.Client
-	if basePath := versionedBasePath(config.ProviderURL); basePath != "" {
-		httpClient = newGeminiProxyHTTPClient(basePath, config.TLSSkipVerify)
-		transport := httpClient.Transport.(*geminiProxyTransport)
-		transport.base = wrapProviderTransport(transport.base, config)
-		httpClient = httpclient.WithUserAgent(httpClient, config.UserAgent)
-	} else {
-		if config.TLSSkipVerify {
-			httpClient = createHTTPClientWithTLSConfig(true)
-		}
-		httpClient = providerHTTPClient(httpClient, config)
-	}
+	httpClient := geminiHTTPClient(config, config.ProviderURL)
 	httpClient = withDefaultHeaders(httpClient, info.Headers)
 	httpClient = withOpencodeSessionHeader(httpClient, config, info)
 	if httpClient != nil {
@@ -1011,8 +999,45 @@ func versionedBasePath(rawURL string) string {
 	return ""
 }
 
+// geminiHTTPClient keeps Gemini aliases and preview features on v1beta.
+// Fantasy does not expose genai.HTTPOptions.APIVersion. Apply the policy at
+// the transport boundary, before the caller's transport sees the request.
+// A versioned proxy URL instead keeps its own version.
+func geminiHTTPClient(config *ProviderConfig, baseURL string) *http.Client {
+	client := createHTTPClientWithTLSConfig(config.TLSSkipVerify)
+	if client == nil {
+		client = &http.Client{}
+	}
+	base := wrapProviderTransport(client.Transport, config)
+	if basePath := versionedBasePath(baseURL); basePath != "" {
+		client.Transport = &geminiProxyTransport{base: base, basePath: basePath}
+	} else {
+		basePath := ""
+		if u, err := url.Parse(baseURL); err == nil {
+			basePath = strings.TrimSuffix(u.Path, "/")
+		}
+		client.Transport = &geminiBetaTransport{base: base, basePath: basePath}
+	}
+	return httpclient.WithUserAgent(client, config.UserAgent)
+}
+
+type geminiBetaTransport struct {
+	base     http.RoundTripper
+	basePath string
+}
+
+func (t *geminiBetaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	prefix := t.basePath + "/v1/"
+	if strings.HasPrefix(req.URL.Path, prefix) {
+		rewritten := req.Clone(req.Context())
+		rewritten.URL.Path = t.basePath + "/v1beta/" + strings.TrimPrefix(req.URL.Path, prefix)
+		return t.base.RoundTrip(rewritten)
+	}
+	return t.base.RoundTrip(req)
+}
+
 // newGeminiProxyHTTPClient builds an HTTP client whose transport strips the
-// genai-injected version segment ("v1beta"/"v1beta1") that directly follows
+// genai-injected version segment ("v1"/"v1beta"/"v1beta1") that directly follows
 // basePath, collapsing "{basePath}/v1beta/..." back to "{basePath}/...".
 func newGeminiProxyHTTPClient(basePath string, skipVerify bool) *http.Client {
 	var base http.RoundTripper
@@ -1035,7 +1060,7 @@ type geminiProxyTransport struct {
 }
 
 func (t *geminiProxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	for _, injected := range []string{"/v1beta1", "/v1beta"} {
+	for _, injected := range []string{"/v1beta1", "/v1beta", "/v1"} {
 		prefix := t.basePath + injected + "/"
 		if strings.HasPrefix(req.URL.Path, prefix) {
 			newReq := req.Clone(req.Context())
@@ -1978,7 +2003,7 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	var opts []google.Option
-	opts = append(opts, google.WithUserAgent(config.UserAgent), google.WithHTTPClient(providerHTTPClient(createHTTPClientWithTLSConfig(config.TLSSkipVerify), config)))
+	opts = append(opts, google.WithUserAgent(config.UserAgent), google.WithHTTPClient(geminiHTTPClient(config, "")))
 	opts = append(opts, google.WithGeminiAPIKey(apiKey))
 
 	provider, err := google.New(opts...)

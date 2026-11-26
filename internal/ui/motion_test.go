@@ -1042,7 +1042,7 @@ func TestIsMotionMsg(t *testing.T) {
 	// The tick of a layout animation has a type that bloom does not export.
 	// Get a real one: a root that has an animated section asks for a tick.
 	root := bloom.New()
-	root.Render(20, 4, bloom.Column(bloom.Fill(region("a")).ID(regionStream).Animate()))
+	root.Render(20, 4, bloom.Column(bloom.Fill(region("a")).ID(regionStream.bloomID()).Animate()))
 	cmd := root.Update(noopMsg{})
 	if cmd == nil {
 		t.Fatal("a root with an animated section asked for no tick")

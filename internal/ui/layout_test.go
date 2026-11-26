@@ -1041,3 +1041,46 @@ func TestScrollbarIsForTheRowsOnScreenDuringAGlide(t *testing.T) {
 		t.Fatalf("a scrollbar with %d rows of text in %d rows", total, rows)
 	}
 }
+
+// TestBloomIDsStaySeparate checks the stable names used for layout animation.
+func TestBloomIDsStaySeparate(t *testing.T) {
+	ids := []bloom.ID{
+		regionID(1).bloomID(), surfaceID(1).bloomID(), toastID(1).bloomID(),
+		regionID(2).bloomID(), surfaceID(2).bloomID(), toastID(2).bloomID(),
+		toastID(^uint64(0)).bloomID(),
+	}
+	seen := make(map[bloom.ID]bool)
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			t.Fatalf("empty or duplicate layout ID: %q", id)
+		}
+		seen[id] = true
+	}
+	if got := toastID(^uint64(0)).bloomID(); got != "kit/toast/18446744073709551615" {
+		t.Fatalf("toast ID lost precision: %q", got)
+	}
+}
+
+// TestSectionLayoutKeepsMeasurement checks the view adapter used by alpha.16.
+func TestSectionLayoutKeepsMeasurement(t *testing.T) {
+	frame := bloom.Solve(40, 10, bloom.Column(
+		bloom.Auto(section("one\ntwo")).ID(regionHeader.bloomID()),
+		bloom.Fill(section("rest")).ID(regionStream.bloomID()),
+	))
+	if got := regionRows(frame, regionHeader); got != 2 {
+		t.Fatalf("section height = %d, want 2", got)
+	}
+	if got := regionRows(frame, regionStream); got != 8 {
+		t.Fatalf("remaining height = %d, want 8", got)
+	}
+	for name, child := range map[string]bloom.Child{
+		"section": section("one\ntwo"),
+		"region":  region("one\ntwo"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := stripAnsi(bloom.Render(3, 2, child)); got != "one\ntwo" {
+				t.Fatalf("rendered string = %q, want two unchanged rows", got)
+			}
+		})
+	}
+}

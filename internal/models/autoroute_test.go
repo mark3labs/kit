@@ -354,6 +354,18 @@ func TestGeminiProxyTransport_StripsInjectedVersion(t *testing.T) {
 		wantPath string
 	}{
 		{
+			name:     "strips stable v1 after proxy version",
+			basePath: "/zen/v1",
+			reqPath:  "/zen/v1/v1/models/x:generateContent",
+			wantPath: "/zen/v1/models/x:generateContent",
+		},
+		{
+			name:     "leaves version prefix lookalike untouched",
+			basePath: "/zen/v1",
+			reqPath:  "/zen/v1/v1other/models/x:generateContent",
+			wantPath: "/zen/v1/v1other/models/x:generateContent",
+		},
+		{
 			name:     "strips doubled v1beta after /zen/v1",
 			basePath: "/zen/v1",
 			reqPath:  "/zen/v1/v1beta/models/gemini-3.5-flash:generateContent",

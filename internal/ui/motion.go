@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -129,8 +130,11 @@ const (
 // It lets bloom place a string that a Kit component rendered, as it is.
 type region string
 
-// View implements bloom.Child.
+// View implements bloom.Viewer.
 func (r region) View() string { return string(r) }
+
+// Layout implements bloom.Child. The view draws the rendered string as it is.
+func (r region) Layout(bloom.Context) bloom.Child { return bloom.View(r) }
 
 // surfaceSpec describes one modal surface that View draws over the layout.
 type surfaceSpec struct {
@@ -167,12 +171,14 @@ type surfaceSpec struct {
 // surfaceSpecs. Layout animation follows the layer by it.
 type surfaceID int
 
+func (id surfaceID) bloomID() bloom.ID {
+	return bloom.ID("kit/surface/" + strconv.Itoa(int(id)))
+}
+
 // boxRegion draws a modal box in a layer whose height is changing. It has the
 // size of the box, and at each height on the way it draws the box at that
 // height.
 type boxRegion struct {
-	bloom.NoView
-
 	box  string
 	tail int
 }
@@ -182,9 +188,9 @@ func (b boxRegion) Measure(bloom.Size) bloom.Size {
 	return bloom.Size{W: lipgloss.Width(b.box), H: sectionRows(b.box)}
 }
 
-// Layout implements bloom.Layouter.
+// Layout implements bloom.Child.
 func (b boxRegion) Layout(ctx bloom.Context) bloom.Child {
-	return region(boxAtHeight(b.box, ctx.Height, b.tail))
+	return region(boxAtHeight(b.box, ctx.Height(), b.tail))
 }
 
 // surfaceCount is the number of modal surfaces.
@@ -301,6 +307,10 @@ type surfaceAnim struct {
 // toastID names one toast, for the timer that takes it down and for the
 // layout animation that closes the gap it leaves.
 type toastID uint64
+
+func (id toastID) bloomID() bloom.ID {
+	return bloom.ID("kit/toast/" + strconv.FormatUint(uint64(id), 10))
+}
 
 // toast is one notice in the corner of the screen.
 type toast struct {
@@ -666,7 +676,7 @@ func (m *AppModel) surfaceLayers(glide bool) (layers []bloom.LayerNode, scrim fl
 		if a.anchor == anchorAboveInput {
 			// Against the composer, wherever the layout put it in this
 			// frame. A box with no room above the composer goes below it.
-			layer = layer.AnchorTo(regionInput, bloom.Top)
+			layer = layer.AnchorTo(regionInput.bloomID(), bloom.Top)
 		} else {
 			rect, ok := overlayRect(a.box, a.anchor, m.width, m.height)
 			if !ok {
@@ -675,7 +685,7 @@ func (m *AppModel) surfaceLayers(glide bool) (layers []bloom.LayerNode, scrim fl
 			layer = layer.Place(rect)
 		}
 		if resize {
-			layer = layer.ID(surfaceID(i)).Animate(anim.Spring(layoutSpring, 1))
+			layer = layer.ID(surfaceID(i).bloomID()).Animate(anim.Spring(layoutSpring, 1))
 		}
 		switch {
 		case t >= 1:
@@ -906,7 +916,7 @@ func (m *AppModel) toastLayer(glide bool) (bloom.LayerNode, bool) {
 		if p := min(max(t.shown.Float(), 0), 1); p < 1 {
 			box = bloom.Transition(p, box, fadeIn{Fg: fg, From: bg}, fx.Slide{From: bloom.Right})
 		}
-		slot := bloom.Auto(box).ID(t.id).Align(bloom.End)
+		slot := bloom.Auto(box).ID(t.id.bloomID()).Align(bloom.End)
 		if glide {
 			slot = slot.Animate(anim.Spring(layoutSpring, 1))
 		}
