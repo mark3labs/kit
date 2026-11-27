@@ -124,6 +124,24 @@ func TestTodo_PersistsAcrossSessionRestartAndCompaction(t *testing.T) {
 	if !strings.Contains(resumedRead.Content, "[~] task-2: Write tests") {
 		t.Errorf("expected resumed read to contain task-2, got: %s", resumedRead.Content)
 	}
+
+	// Calling {"todos":[]} must leave existing items unchanged
+	emptyTodosResp := runKitTodo(t, todoTool, reopenedCtx, `{"todos":[]}`)
+	if emptyTodosResp.IsError {
+		t.Fatalf("empty todos call failed: %s", emptyTodosResp.Content)
+	}
+	if !strings.Contains(emptyTodosResp.Content, "[x] task-1: Design architecture") {
+		t.Errorf("expected empty todos to leave items unchanged, got: %s", emptyTodosResp.Content)
+	}
+
+	// Explicit action: "clear" removes todos
+	clearResp := runKitTodo(t, todoTool, reopenedCtx, `{"action":"clear"}`)
+	if clearResp.IsError {
+		t.Fatalf("clear call failed: %s", clearResp.Content)
+	}
+	if !strings.Contains(clearResp.Content, "Todos cleared") {
+		t.Errorf("expected 'Todos cleared', got %s", clearResp.Content)
+	}
 }
 
 func TestKit_TodoStorePrecedence(t *testing.T) {
@@ -211,5 +229,41 @@ func TestSessionTodoStore_RejectsNavigatedBranch(t *testing.T) {
 	_, err = store.GetTodos(ctx)
 	if err == nil {
 		t.Fatal("expected GetTodos to fail after session navigated away from owner branch")
+	}
+}
+
+func TestSubagent_HasOwnSessionTodoStore(t *testing.T) {
+	parentTM := session.InMemoryTreeSession(t.TempDir())
+	parentSM := NewTreeManagerAdapter(parentTM)
+	parentStore := newSessionTodoStore(parentSM, "")
+
+	ctx := core.ContextWithTodoStore(context.Background(), parentStore)
+
+	// Child context clears parent store
+	childCtx := core.ContextWithTodoStore(ctx, nil)
+	if got := core.TodoStoreFromContext(childCtx); got != nil {
+		t.Fatalf("expected nil TodoStore in child context, got %v", got)
+	}
+
+	childTM := session.InMemoryTreeSession(t.TempDir())
+	childSM := NewTreeManagerAdapter(childTM)
+	childKit := &Kit{session: childSM}
+
+	childStore := childKit.effectiveTodoStore()
+	if childStore == nil {
+		t.Fatal("expected childKit to have its own session todo store")
+	}
+
+	// Writing to childStore must write to childSM, NOT parentSM
+	_ = childStore.SaveTodos(childCtx, []core.TodoItem{{ID: "c1", Content: "child task", Status: core.TodoStatusPending}})
+
+	parentTodos, _ := parentStore.GetTodos(ctx)
+	if len(parentTodos) != 0 {
+		t.Errorf("parentStore polluted by child write: %+v", parentTodos)
+	}
+
+	childTodos, _ := childStore.GetTodos(childCtx)
+	if len(childTodos) != 1 || childTodos[0].Content != "child task" {
+		t.Errorf("childStore missing task: %+v", childTodos)
 	}
 }

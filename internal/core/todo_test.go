@@ -81,8 +81,17 @@ func TestTodoTool_ClearTodos(t *testing.T) {
 	// Add a todo
 	_ = runTodo(t, tool, ctx, `{"todos":[{"content":"step 1","status":"pending"}]}`)
 
-	// Clear todos
-	clearResp := runTodo(t, tool, ctx, `{"todos":[]}`)
+	// Calling with empty todos array {"todos":[]} must leave existing items unchanged
+	emptyResp := runTodo(t, tool, ctx, `{"todos":[]}`)
+	if emptyResp.IsError {
+		t.Fatalf("empty todos call failed: %s", emptyResp.Content)
+	}
+	if !strings.Contains(emptyResp.Content, "step 1") {
+		t.Errorf("expected empty todos to leave existing items unchanged, got: %s", emptyResp.Content)
+	}
+
+	// Explicit action: "clear" clears todos
+	clearResp := runTodo(t, tool, ctx, `{"action":"clear"}`)
 	if clearResp.IsError {
 		t.Fatalf("clear failed: %s", clearResp.Content)
 	}

@@ -2857,8 +2857,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		}
 	})
 
+	// Clear any inherited parent TodoStore from the context so the child's
+	// generate path creates and injects its own session-backed store for its
+	// own session (or uses its inherited explicit store).
+	childCtx := core.ContextWithTodoStore(ctx, nil)
+
 	// Run the prompt.
-	result, err := child.PromptResult(ctx, cfg.Prompt)
+	result, err := child.PromptResult(childCtx, cfg.Prompt)
 	elapsed := time.Since(start)
 
 	if err != nil {

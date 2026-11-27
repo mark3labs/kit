@@ -98,19 +98,20 @@ func NewTodoTool(opts ...ToolOption) fantasy.AgentTool {
 			Description: `Track and manage structured task checklists for complex multi-step workflows.
 
 Use this tool to plan multi-step tasks, track progress, and maintain focus across long workflows.
-- To view existing tasks: call with no arguments or {"action": "read"}.
+- To view existing tasks: call with no arguments, {"action": "read"}, or {"todos": []}.
 - To update or replace tasks: call with {"todos": [...]}. Each task must have:
   - id: unique string identifier (e.g. "1", "2")
   - content: clear description of the step
   - status: "pending", "in_progress", "completed", or "cancelled"
   - priority: optional "high", "medium", or "low" (default: "medium")
+- To clear all tasks: call with {"action": "clear"}.
 
 Tasks are persisted in the session store and survive context compaction and session restarts.`,
 			Parameters: map[string]any{
 				"action": map[string]any{
 					"type":        "string",
-					"enum":        []string{"read", "write"},
-					"description": "Optional action. If 'todos' is provided, 'write' is assumed. Defaults to 'read'.",
+					"enum":        []string{"read", "write", "clear"},
+					"description": "Optional action. If non-empty 'todos' is provided, 'write' is assumed. 'clear' removes all tasks. Defaults to 'read'.",
 				},
 				"todos": map[string]any{
 					"type":        "array",
@@ -165,15 +166,16 @@ func executeTodo(ctx context.Context, call fantasy.ToolCall, defaultStore TodoSt
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid arguments: %v", err)), nil
 	}
 
-	// If todos are provided, treat as write action.
-	if args.Todos != nil {
-		items := *args.Todos
-		if len(items) == 0 {
-			if err := store.SaveTodos(ctx, []TodoItem{}); err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to save todos: %v", err)), nil
-			}
-			return fantasy.NewTextResponse("Todos cleared."), nil
+	if args.Action == "clear" {
+		if err := store.SaveTodos(ctx, []TodoItem{}); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to clear todos: %v", err)), nil
 		}
+		return fantasy.NewTextResponse("Todos cleared."), nil
+	}
+
+	// If non-empty todos are provided, treat as write action.
+	if args.Todos != nil && len(*args.Todos) > 0 {
+		items := *args.Todos
 
 		// Reserve all non-empty explicit IDs and reject duplicate explicit IDs.
 		usedIDs := make(map[string]bool, len(items))
