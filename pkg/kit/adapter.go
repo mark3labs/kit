@@ -155,15 +155,16 @@ func (a *treeManagerAdapter) GetLastCompaction() *CompactionEntry {
 		return nil
 	}
 	return &CompactionEntry{
-		ID:               c.ID,
-		Summary:          c.Summary,
-		FirstKeptEntryID: c.FirstKeptEntryID,
-		TokensBefore:     c.TokensBefore,
-		TokensAfter:      c.TokensAfter,
-		MessagesRemoved:  c.MessagesRemoved,
-		ReadFiles:        c.ReadFiles,
-		ModifiedFiles:    c.ModifiedFiles,
-		Timestamp:        c.Timestamp,
+		ID:                  c.ID,
+		Summary:             c.Summary,
+		FirstKeptEntryID:    c.FirstKeptEntryID,
+		PreCompactionLeafID: c.PreCompactionLeafID,
+		TokensBefore:        c.TokensBefore,
+		TokensAfter:         c.TokensAfter,
+		MessagesRemoved:     c.MessagesRemoved,
+		ReadFiles:           c.ReadFiles,
+		ModifiedFiles:       c.ModifiedFiles,
+		Timestamp:           c.Timestamp,
 	}
 }
 
@@ -257,11 +258,12 @@ func (a *treeManagerAdapter) convertEntry(entry any) *BranchEntry {
 		}
 	case *session.CompactionEntry:
 		return &BranchEntry{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
-			Type:      EntryTypeCompaction,
-			Content:   e.Summary,
-			Timestamp: e.Timestamp,
+			ID:                  e.ID,
+			ParentID:            e.ParentID,
+			PreCompactionLeafID: e.PreCompactionLeafID,
+			Type:                EntryTypeCompaction,
+			Content:             e.Summary,
+			Timestamp:           e.Timestamp,
 		}
 	case *session.ExtensionDataEntry:
 		return &BranchEntry{

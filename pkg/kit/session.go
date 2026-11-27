@@ -135,16 +135,17 @@ type BranchEntry struct {
 	// AttemptID identifies generation for an incomplete output entry.
 	AttemptID string
 	// Incomplete marks transcript-only output excluded from model history.
-	Incomplete bool
-	ID         string
-	ParentID   string
-	Type       EntryType // "message", "branch_summary", "model_change", "compaction", "extension_data"
-	Role       string    // for messages: "user", "assistant", "system", "tool"
-	Content    string    // text content or summary
-	Model      string    // model used (for messages and model_change)
-	Provider   string    // provider used
-	Timestamp  time.Time
-	Children   []string // child entry IDs (for tree display)
+	Incomplete          bool
+	ID                  string
+	ParentID            string
+	PreCompactionLeafID string    // for compaction entries: leaf ID before compaction
+	Type                EntryType // "message", "branch_summary", "model_change", "compaction", "extension_data"
+	Role                string    // for messages: "user", "assistant", "system", "tool"
+	Content             string    // text content or summary
+	Model               string    // model used (for messages and model_change)
+	Provider            string    // provider used
+	Timestamp           time.Time
+	Children            []string // child entry IDs (for tree display)
 
 	// RawParts contains the full typed content parts for structured access.
 	// Only populated for message entries.
@@ -166,15 +167,16 @@ const (
 
 // CompactionEntry represents a context compaction/summarization event.
 type CompactionEntry struct {
-	ID               string
-	Summary          string
-	FirstKeptEntryID string
-	TokensBefore     int
-	TokensAfter      int
-	MessagesRemoved  int
-	ReadFiles        []string
-	ModifiedFiles    []string
-	Timestamp        time.Time
+	ID                  string
+	Summary             string
+	FirstKeptEntryID    string
+	PreCompactionLeafID string
+	TokensBefore        int
+	TokensAfter         int
+	MessagesRemoved     int
+	ReadFiles           []string
+	ModifiedFiles       []string
+	Timestamp           time.Time
 }
 
 // ExtensionDataEntry represents custom extension data stored in the session.

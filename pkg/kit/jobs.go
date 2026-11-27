@@ -223,10 +223,17 @@ func (s *turnJobService) Start(ctx context.Context, kind string, work func(conte
 	detached = agent.ContextWithSteerCh(detached, nil)
 	detached = agent.ContextWithSteerConsumed(detached, nil)
 	detached = core.WithJobService(detached, s)
+	owner := s.kit.jobScope().owner()
+	if s.kit != nil {
+		if s.kit.explicitTodoStore != nil {
+			detached = core.ContextWithTodoStore(detached, s.kit.explicitTodoStore)
+		} else if s.kit.session != nil {
+			detached = core.ContextWithTodoStore(detached, newSessionTodoStore(s.kit.session, owner.BranchID))
+		}
+	}
 	// The manager owns lifetime cancellation. Keep values separate so cancelling
 	// the work-local context on return cannot mark successful work cancelled.
 	jobCtx := jobValueContext{Context: state.lifetime, values: detached}
-	owner := s.kit.jobScope().owner()
 	job, err := state.manager.Start(jobCtx, kind, owner.SessionID, owner.BranchID, func(ctx context.Context) (string, error) {
 		workCtx, cancel := context.WithCancel(ctx)
 		defer cancel()

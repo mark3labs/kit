@@ -79,6 +79,9 @@ type Kit struct {
 	// coreToolOptions is Options.CoreToolOptions, kept so subagents
 	// inherit it.
 	coreToolOptions []ToolOption
+	// explicitTodoStore is the TodoStore configured via CoreToolOptions.WithTodoStore,
+	// if any. When non-nil, it takes precedence over session-backed todo storage.
+	explicitTodoStore core.TodoStore
 	// coreToolList is the resolved list of core tool names this instance
 	// enabled. New always sets it (empty, not nil, when core tools are
 	// disabled); nil means no limit. Subagents built without an explicit
@@ -1527,8 +1530,11 @@ type Options struct {
 	// CoreToolOptions are applied to the built-in core tools after the
 	// options Kit derives from its own settings, so they win on conflict.
 	// Use them for tool behavior that has no Options field, such as
-	// [WithFileSystem] or [WithCommandRunner]. Subagents inherit them. They
-	// have no effect on tools supplied through Tools.
+	// [WithFileSystem], [WithCommandRunner], or [WithTodoStore]. A store
+	// supplied via [WithTodoStore] takes precedence over the default
+	// session-backed todo store; when none is supplied, the session store is used
+	// (or an in-memory store if no session is active). Subagents inherit them.
+	// They have no effect on tools supplied through Tools.
 	CoreToolOptions []ToolOption
 
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
@@ -1935,6 +1941,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, err
 	}
 
+	toolCfg := core.ApplyOptions(opts.CoreToolOptions)
+
 	k := &Kit{
 		agent:                 agentResult.Agent,
 		session:               sessionManager,
@@ -1944,6 +1952,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		shell:                 append([]string(nil), rc.shell...),
 		workDir:               opts.WorkDir,
 		coreToolOptions:       append([]ToolOption(nil), opts.CoreToolOptions...),
+		explicitTodoStore:     toolCfg.TodoStore,
 		coreToolList:          append([]string{}, rc.toolList...),
 		customTools:           append([]Tool(nil), opts.Tools...),
 		events:                newEventBus(),
@@ -2710,6 +2719,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Model:              model,
 		SystemPrompt:       systemPrompt,
 		Tools:              tools,
+		CoreToolOptions:    append([]ToolOption(nil), m.coreToolOptions...),
 		NoSession:          cfg.NoSession,
 		SessionPath:        resumePath,
 		Quiet:              true,
@@ -2848,8 +2858,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		}
 	})
 
+	// Clear any inherited parent TodoStore from the context so the child's
+	// generate path creates and injects its own session-backed store for its
+	// own session (or uses its inherited explicit store).
+	childCtx := core.ContextWithTodoStore(ctx, nil)
+
 	// Run the prompt.
-	result, err := child.PromptResult(ctx, cfg.Prompt)
+	result, err := child.PromptResult(childCtx, cfg.Prompt)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -2882,11 +2897,31 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 // Shared generation helpers
 // ---------------------------------------------------------------------------
 
+// effectiveTodoStore returns the TodoStore to use for generation:
+// 1. Explicit store from CoreToolOptions.WithTodoStore (highest precedence)
+// 2. Session-backed store if a session is active
+// 3. nil (tool will fall back to its internal in-memory store)
+func (m *Kit) effectiveTodoStore() core.TodoStore {
+	if m.explicitTodoStore != nil {
+		return m.explicitTodoStore
+	}
+	if m.session != nil {
+		branchID := m.jobScope().leafID
+		return newSessionTodoStore(m.session, branchID)
+	}
+	return nil
+}
+
 // generate calls the agent's generation loop with event-emitting handlers.
 // All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
 	ctx = core.WithJobService(ctx, &turnJobService{kit: m})
+	if core.TodoStoreFromContext(ctx) == nil {
+		if store := m.effectiveTodoStore(); store != nil {
+			ctx = core.ContextWithTodoStore(ctx, store)
+		}
+	}
 	// Capture the per-turn stream collector (set by runTurn) so streamed
 	// deltas are recorded into TurnResult.Stream in emit order.
 	collector := streamCollectorFromContext(ctx)

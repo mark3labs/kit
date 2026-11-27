@@ -66,6 +66,26 @@ var WithFileSystem = core.WithFileSystem
 // [CommandRunner] instead of local child processes.
 var WithCommandRunner = core.WithCommandRunner
 
+// TodoStore provides storage and retrieval for todo items.
+type TodoStore = core.TodoStore
+
+// TodoItem represents a single task in a structured checklist.
+type TodoItem = core.TodoItem
+
+// WithTodoStore sets the [TodoStore] for the todo tool.
+// When supplied through [Options.CoreToolOptions], this explicit store takes
+// precedence over the default session-backed storage. If no explicit store is
+// configured, the todo tool persists tasks into the active session store (or
+// falls back to an in-memory store when no session is active). A store attached
+// to a turn's context via [ContextWithTodoStore] overrides both for that turn.
+var WithTodoStore = core.WithTodoStore
+
+// ContextWithTodoStore stores the [TodoStore] in ctx for use by the todo tool.
+var ContextWithTodoStore = core.ContextWithTodoStore
+
+// TodoStoreFromContext returns the [TodoStore] stored in ctx, or nil if none is set.
+var TodoStoreFromContext = core.TodoStoreFromContext
+
 // --- Core Tool Validation ---
 // processes a list of tool names, if disableCoreTools is true, return an
 // empty list. Otherwise if coreTools is not empty, it will return a list of
@@ -449,6 +469,9 @@ func NewFindTool(opts ...ToolOption) Tool { return core.NewFindTool(opts...) }
 // NewLsTool creates a directory listing tool.
 func NewLsTool(opts ...ToolOption) Tool { return core.NewLsTool(opts...) }
 
+// NewTodoTool creates a todo list management tool.
+func NewTodoTool(opts ...ToolOption) Tool { return core.NewTodoTool(opts...) }
+
 // --- Tool bundles ---
 func ListAllCoreToolNames() []string { return core.ListAllCoreToolNames() }
 
@@ -459,7 +482,7 @@ func DefaultCoreToolNames() []string { return core.DefaultCoreToolNames() }
 func AllTools(opts ...ToolOption) []Tool { return core.AllTools(opts...) }
 
 // CodingTools returns the default set of core tools for a coding agent:
-// shell, read, write, edit.
+// shell, read, write, edit, todo.
 func CodingTools(opts ...ToolOption) []Tool { return core.CodingTools(opts...) }
 
 // ReadOnlyTools returns tools for read-only exploration:
