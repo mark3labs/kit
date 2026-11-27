@@ -8,18 +8,39 @@ import (
 	"github.com/mark3labs/kit/internal/core"
 )
 
-// sessionTodoStore adapts SessionManager's ExtensionData storage to core.TodoStore.
+// sessionTodoStore adapts SessionManager's ExtensionData storage to core.TodoStore,
+// optionally bound to an owner branch to prevent writes from detached jobs to an
+// inactive branch after navigation.
 type sessionTodoStore struct {
-	session SessionManager
+	session       SessionManager
+	ownerBranchID string
 }
 
-func newSessionTodoStore(sm SessionManager) core.TodoStore {
-	return &sessionTodoStore{session: sm}
+func newSessionTodoStore(sm SessionManager, ownerBranchID string) core.TodoStore {
+	return &sessionTodoStore{
+		session:       sm,
+		ownerBranchID: ownerBranchID,
+	}
+}
+
+func (s *sessionTodoStore) isBranchActive() bool {
+	if s.ownerBranchID == "" || s.session == nil {
+		return true
+	}
+	for _, entry := range s.session.GetCurrentBranch() {
+		if entry.ID == s.ownerBranchID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *sessionTodoStore) GetTodos(ctx context.Context) ([]core.TodoItem, error) {
 	if s.session == nil {
 		return nil, nil
+	}
+	if !s.isBranchActive() {
+		return nil, fmt.Errorf("cannot read todos: session navigated away from owner branch %q", s.ownerBranchID)
 	}
 	entries := s.session.GetExtensionData("todo")
 	if len(entries) == 0 {
@@ -37,6 +58,9 @@ func (s *sessionTodoStore) GetTodos(ctx context.Context) ([]core.TodoItem, error
 func (s *sessionTodoStore) SaveTodos(ctx context.Context, todos []core.TodoItem) error {
 	if s.session == nil {
 		return nil
+	}
+	if !s.isBranchActive() {
+		return fmt.Errorf("cannot save todos: session navigated away from owner branch %q", s.ownerBranchID)
 	}
 	data, err := json.Marshal(todos)
 	if err != nil {

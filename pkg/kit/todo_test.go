@@ -22,7 +22,7 @@ func runKitTodo(t *testing.T, tool Tool, ctx context.Context, input string) fant
 func TestSessionTodoStore_SaveAndGet(t *testing.T) {
 	tm := session.InMemoryTreeSession(t.TempDir())
 	sm := NewTreeManagerAdapter(tm)
-	store := newSessionTodoStore(sm)
+	store := newSessionTodoStore(sm, "")
 
 	ctx := context.Background()
 
@@ -72,7 +72,7 @@ func TestTodo_PersistsAcrossSessionRestartAndCompaction(t *testing.T) {
 	sm := NewTreeManagerAdapter(tm)
 
 	todoTool := NewTodoTool()
-	ctx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(sm))
+	ctx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(sm, ""))
 
 	// Write tasks using the tool
 	input := `{"todos":[{"id":"task-1","content":"Design architecture","status":"completed"},{"id":"task-2","content":"Write tests","status":"in_progress"}]}`
@@ -110,7 +110,7 @@ func TestTodo_PersistsAcrossSessionRestartAndCompaction(t *testing.T) {
 	defer func() { _ = reopenedTM.Close() }()
 
 	reopenedSM := NewTreeManagerAdapter(reopenedTM)
-	reopenedCtx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(reopenedSM))
+	reopenedCtx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(reopenedSM, ""))
 
 	// Read todos with reopened session
 	resumedRead := runKitTodo(t, todoTool, reopenedCtx, `{}`)
@@ -166,5 +166,50 @@ func TestKit_TodoStorePrecedence(t *testing.T) {
 	ctxWithPerTurn := ContextWithTodoStore(context.Background(), perTurnStore)
 	if got := TodoStoreFromContext(ctxWithPerTurn); got != perTurnStore {
 		t.Errorf("TodoStoreFromContext: got %v, want %v", got, perTurnStore)
+	}
+}
+
+func TestSessionTodoStore_RejectsNavigatedBranch(t *testing.T) {
+	tm := session.InMemoryTreeSession(t.TempDir())
+	sm := NewTreeManagerAdapter(tm)
+
+	// Append initial message to establish branch 1
+	msgID, err := sm.AppendMessage(fantasy.NewUserMessage("branch 1 message"))
+	if err != nil {
+		t.Fatalf("AppendMessage failed: %v", err)
+	}
+
+	// Create store bound to branch 1
+	store := newSessionTodoStore(sm, msgID)
+	ctx := context.Background()
+
+	// Writing on branch 1 must succeed
+	items := []core.TodoItem{{ID: "1", Content: "Task 1", Status: core.TodoStatusPending}}
+	if err := store.SaveTodos(ctx, items); err != nil {
+		t.Fatalf("SaveTodos on owner branch failed: %v", err)
+	}
+
+	// Navigate away to a different branch
+	if err := sm.Branch(""); err != nil {
+		t.Fatalf("Branch failed: %v", err)
+	}
+	_, err = sm.AppendMessage(fantasy.NewUserMessage("branch 2 message"))
+	if err != nil {
+		t.Fatalf("AppendMessage on branch 2 failed: %v", err)
+	}
+
+	// Writing from the branch 1 store must be rejected now
+	err = store.SaveTodos(ctx, []core.TodoItem{{ID: "1", Content: "Task 1", Status: core.TodoStatusCompleted}})
+	if err == nil {
+		t.Fatal("expected SaveTodos to fail after session navigated away from owner branch")
+	}
+	if !strings.Contains(err.Error(), "navigated away") {
+		t.Errorf("expected error to mention 'navigated away', got: %v", err)
+	}
+
+	// Reading from the branch 1 store must also be rejected
+	_, err = store.GetTodos(ctx)
+	if err == nil {
+		t.Fatal("expected GetTodos to fail after session navigated away from owner branch")
 	}
 }

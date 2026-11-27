@@ -2900,7 +2900,8 @@ func (m *Kit) effectiveTodoStore() core.TodoStore {
 		return m.explicitTodoStore
 	}
 	if m.session != nil {
-		return newSessionTodoStore(m.session)
+		_, branchID := m.jobOwner()
+		return newSessionTodoStore(m.session, branchID)
 	}
 	return nil
 }
