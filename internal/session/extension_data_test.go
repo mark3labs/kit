@@ -2,6 +2,8 @@ package session
 
 import (
 	"testing"
+
+	"github.com/mark3labs/kit/internal/message"
 )
 
 func TestTreeManager_ExtensionDataSurvivesCompaction(t *testing.T) {
@@ -106,5 +108,85 @@ func TestTreeManager_ExtensionDataBranchIsolationAcrossCompaction(t *testing.T) 
 	}
 	if entriesA[0].Data != "root" || entriesA[1].Data != "branch-a" {
 		t.Errorf("unexpected branch A entries (branch B leaked!): %+v", entriesA)
+	}
+}
+
+func TestTreeManager_ForkCompactedSessionPreservesExtensionData(t *testing.T) {
+	origDir := t.TempDir()
+	tm, err := CreateTreeSession(origDir)
+	if err != nil {
+		t.Fatalf("CreateTreeSession failed: %v", err)
+	}
+	defer func() { _ = tm.Close() }()
+
+	// 1. Append pre-compaction extension data and messages
+	_, err = tm.AppendExtensionData("todo", `[{"id":"1","content":"task 1","status":"pending"}]`)
+	if err != nil {
+		t.Fatalf("AppendExtensionData failed: %v", err)
+	}
+	_, err = tm.AppendMessage(message.Message{Role: message.RoleUser, Parts: []message.ContentPart{message.TextContent{Text: "hello"}}})
+	if err != nil {
+		t.Fatalf("AppendMessage failed: %v", err)
+	}
+
+	// 2. Perform compaction
+	_, err = tm.AppendCompaction("Compacted conversation", "", 1000, 200, 2, nil, nil)
+	if err != nil {
+		t.Fatalf("AppendCompaction failed: %v", err)
+	}
+
+	// 3. Append post-compaction message
+	postMsgID, err := tm.AppendMessage(message.Message{Role: message.RoleUser, Parts: []message.ContentPart{message.TextContent{Text: "what next?"}}})
+	if err != nil {
+		t.Fatalf("AppendMessage post-compaction failed: %v", err)
+	}
+
+	// 4. Fork the session to a new session targeting the post-compaction message
+	forkDir := t.TempDir()
+	forked, err := tm.ForkToNewSession(forkDir, postMsgID)
+	if err != nil {
+		t.Fatalf("ForkToNewSession failed: %v", err)
+	}
+	defer func() { _ = forked.Close() }()
+
+	// 5. Verify forked session has access to the pre-compaction extension data
+	extEntries := forked.GetExtensionData("todo")
+	if len(extEntries) != 1 {
+		t.Fatalf("expected 1 extension entry in forked session, got %d", len(extEntries))
+	}
+	if extEntries[0].Data != `[{"id":"1","content":"task 1","status":"pending"}]` {
+		t.Errorf("unexpected extension data in fork: %s", extEntries[0].Data)
+	}
+
+	// 6. Verify that CompactionEntry in the forked session has a valid, existing PreCompactionLeafID in the fork
+	branch := forked.GetBranch("")
+	var forkedCompaction *CompactionEntry
+	for _, e := range branch {
+		if c, ok := e.(*CompactionEntry); ok {
+			forkedCompaction = c
+			break
+		}
+	}
+	if forkedCompaction == nil {
+		t.Fatal("expected CompactionEntry in forked session branch")
+	}
+	if forkedCompaction.PreCompactionLeafID == "" {
+		t.Fatal("expected non-empty PreCompactionLeafID in forked compaction entry")
+	}
+	if forked.GetEntry(forkedCompaction.PreCompactionLeafID) == nil {
+		t.Fatalf("PreCompactionLeafID %q does not exist in forked session index", forkedCompaction.PreCompactionLeafID)
+	}
+
+	// 7. Append new extension data in forked session and verify both survive
+	_, err = forked.AppendExtensionData("todo", `[{"id":"1","content":"task 1","status":"completed"}]`)
+	if err != nil {
+		t.Fatalf("AppendExtensionData in fork failed: %v", err)
+	}
+	updatedExt := forked.GetExtensionData("todo")
+	if len(updatedExt) != 2 {
+		t.Fatalf("expected 2 extension entries in fork after update, got %d", len(updatedExt))
+	}
+	if updatedExt[len(updatedExt)-1].Data != `[{"id":"1","content":"task 1","status":"completed"}]` {
+		t.Errorf("unexpected latest extension data in fork: %s", updatedExt[len(updatedExt)-1].Data)
 	}
 }

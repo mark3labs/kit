@@ -224,6 +224,38 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 	idMap := make(map[string]string) // old ID -> new ID
 	var prevNewID string
 
+	// If the branch contains a compaction entry, its pre-compaction extension
+	// data is not part of the post-compaction branch path. Copy that historical
+	// extension data first so that extension state (e.g. todos) survives the fork
+	// and PreCompactionLeafID resolves to a valid local entry.
+	allExt := tm.getExtensionDataLocked(targetID, "")
+	inBranch := make(map[string]bool, len(branch))
+	for _, entry := range branch {
+		if id := tm.EntryID(entry); id != "" {
+			inBranch[id] = true
+		}
+	}
+
+	var preCompLeafID string
+	var prePrevID string
+	for _, ext := range allExt {
+		if !inBranch[ext.ID] {
+			newID := GenerateEntryID()
+			idMap[ext.ID] = newID
+			copied := &ExtensionDataEntry{
+				Entry:   cloneEntry(ext.Entry, newID, prePrevID),
+				ExtType: ext.ExtType,
+				Data:    ext.Data,
+			}
+			if err := newTm.appendAndPersist(copied); err != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("failed to copy pre-compaction extension entry: %w", err)
+			}
+			prePrevID = newID
+			preCompLeafID = newID
+		}
+	}
+
 	for _, entry := range branch {
 		oldID := tm.EntryID(entry)
 		newID := GenerateEntryID()
@@ -303,9 +335,11 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 			newPreLeafID := e.PreCompactionLeafID
 			if mapped, ok := idMap[e.PreCompactionLeafID]; ok {
 				newPreLeafID = mapped
+			} else if preCompLeafID != "" {
+				newPreLeafID = preCompLeafID
 			}
 			newEntry = &CompactionEntry{
-				Entry:               cloneEntry(e.Entry, newID, prevNewID),
+				Entry:               cloneEntry(e.Entry, newID, ""),
 				Summary:             e.Summary,
 				FirstKeptEntryID:    newFirstKeptID,
 				PreCompactionLeafID: newPreLeafID,
@@ -963,15 +997,20 @@ func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokens
 func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
+	return tm.getExtensionDataLocked(tm.leafID, extType)
+}
 
-	if tm.leafID == "" {
+// getExtensionDataLocked walks the branch ending at leafID and its compacted ancestor branches.
+// Caller must hold at least tm.mu.RLock.
+func (tm *TreeManager) getExtensionDataLocked(leafID, extType string) []*ExtensionDataEntry {
+	if leafID == "" {
 		return nil
 	}
 
 	var results []*ExtensionDataEntry
 	visitedLeaves := make(map[string]bool)
 
-	currentLeaf := tm.leafID
+	currentLeaf := leafID
 	for currentLeaf != "" && !visitedLeaves[currentLeaf] {
 		visitedLeaves[currentLeaf] = true
 		branch := tm.getBranchLocked(currentLeaf)
