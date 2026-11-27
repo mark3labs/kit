@@ -52,6 +52,15 @@ type ToolConfig struct {
 	// CodeMode configures the code mode tool. Nil uses the defaults. Only
 	// the code mode tool consumes this.
 	CodeMode *CodeModeConfig
+	// TodoStore provides storage for the todo tool. Nil uses an in-memory store.
+	TodoStore TodoStore
+}
+
+// WithTodoStore sets the TodoStore for the todo tool.
+func WithTodoStore(store TodoStore) ToolOption {
+	return func(c *ToolConfig) {
+		c.TodoStore = store
+	}
 }
 
 // WithImageLimits bounds the images the read tool attaches to a message. A
@@ -185,6 +194,7 @@ var coreTools = map[string]initTool{
 	"jobs_get":    NewJobsGetTool,
 	"jobs_cancel": NewJobsCancelTool,
 	"jobs_wait":   NewJobsWaitTool,
+	"todo":        NewTodoTool,
 
 	CodeModeToolName: NewCodeModeTool,
 }
@@ -200,13 +210,14 @@ func DefaultCoreToolNames() []string {
 }
 
 // CodingTools returns the default set of core tools for a coding agent:
-// shell, read, write, edit.
+// shell, read, write, edit, todo.
 func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
 		NewShellTool(opts...),
 		NewReadTool(opts...),
 		NewWriteTool(opts...),
 		NewEditTool(opts...),
+		NewTodoTool(opts...),
 	}
 }
 
@@ -236,6 +247,7 @@ func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 		NewJobsGetTool(opts...),
 		NewJobsCancelTool(opts...),
 		NewJobsWaitTool(opts...),
+		NewTodoTool(opts...),
 	}
 }
 

@@ -2887,6 +2887,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
 	ctx = core.WithJobService(ctx, &turnJobService{kit: m})
+	if m.session != nil {
+		ctx = core.ContextWithTodoStore(ctx, newSessionTodoStore(m.session))
+	}
 	// Capture the per-turn stream collector (set by runTurn) so streamed
 	// deltas are recorded into TurnResult.Stream in emit order.
 	collector := streamCollectorFromContext(ctx)

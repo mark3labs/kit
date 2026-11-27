@@ -954,7 +954,10 @@ func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokens
 
 // GetExtensionData returns all extension data entries matching the given type,
 // walking the current branch from root to leaf. If extType is empty, all
-// extension data entries on the branch are returned.
+// extension data entries on the branch are returned. If the current branch has
+// a compaction entry and no matching entries were found on the post-compaction
+// branch, earlier entries are checked so persistent extension state survives
+// compaction.
 func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -966,6 +969,30 @@ func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
 	branch := tm.getBranchLocked(tm.leafID)
 	var results []*ExtensionDataEntry
 	for _, entry := range branch {
+		if e, ok := entry.(*ExtensionDataEntry); ok {
+			if extType == "" || e.ExtType == extType {
+				results = append(results, e)
+			}
+		}
+	}
+	if len(results) > 0 {
+		return results
+	}
+
+	// Check if this branch is preceded by compaction. If so, inspect
+	// historical entries so extension data survives compaction.
+	hasCompaction := false
+	for _, entry := range branch {
+		if _, ok := entry.(*CompactionEntry); ok {
+			hasCompaction = true
+			break
+		}
+	}
+	if !hasCompaction {
+		return nil
+	}
+
+	for _, entry := range tm.entries {
 		if e, ok := entry.(*ExtensionDataEntry); ok {
 			if extType == "" || e.ExtType == extType {
 				results = append(results, e)

@@ -790,11 +790,14 @@ Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
 - [`NewRawTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewRawTool) — NewRawTool is the schema-driven counterpart to [NewTool].
 - [`NewReadTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewReadTool) — NewReadTool creates a file-reading tool.
 - [`NewShellTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewShellTool) — NewShellTool creates the shell command execution tool.
+- [`NewTodoTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewTodoTool) — NewTodoTool creates a todo list management tool.
 - [`NewTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewTool) — NewTool creates a custom [Tool] with automatic JSON schema generation from the TInput struct type.
 - [`NewWriteTool`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#NewWriteTool) — NewWriteTool creates a file-writing tool.
 - [`ReadOnlyTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ReadOnlyTools) — ReadOnlyTools returns tools for read-only exploration: read, grep, find, ls.
 - [`SubagentTools`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SubagentTools) — SubagentTools returns all core tools except subagent.
 - [`TextResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextResult) — TextResult creates a successful text [ToolOutput].
+- [`TodoItem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TodoItem) — TodoItem represents a single task in a structured checklist.
+- [`TodoStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TodoStore) — TodoStore provides storage and retrieval for todo items.
 - [`ToolCallIDFromContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallIDFromContext) — ToolCallIDFromContext extracts the tool call ID from the context.
 - [`ToolOption`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOption) — ToolOption configures tool behavior.
 - [`ToolOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOutput) — ToolOutput is the return value from custom tool handlers created with [NewTool] or [NewParallelTool].
@@ -804,6 +807,7 @@ Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
 - [`WithShellMaxTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellMaxTimeout) — WithShellMaxTimeout sets the maximum timeout a shell tool call may request.
 - [`WithShellTimeout`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShellTimeout) — WithShellTimeout sets the default per-call timeout for the shell tool.
 - [`WithShell`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithShell) — WithShell sets the shell the shell tool runs command strings through: the shell plus its own leading arguments.
+- [`WithTodoStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithTodoStore) — WithTodoStore sets the TodoStore for the todo tool.
 - [`WithWorkDir`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#WithWorkDir) — WithWorkDir sets the working directory for file-based tools.
 
 ## Background jobs
