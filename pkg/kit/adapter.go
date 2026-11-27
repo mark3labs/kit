@@ -258,11 +258,12 @@ func (a *treeManagerAdapter) convertEntry(entry any) *BranchEntry {
 		}
 	case *session.CompactionEntry:
 		return &BranchEntry{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
-			Type:      EntryTypeCompaction,
-			Content:   e.Summary,
-			Timestamp: e.Timestamp,
+			ID:                  e.ID,
+			ParentID:            e.ParentID,
+			PreCompactionLeafID: e.PreCompactionLeafID,
+			Type:                EntryTypeCompaction,
+			Content:             e.Summary,
+			Timestamp:           e.Timestamp,
 		}
 	case *session.ExtensionDataEntry:
 		return &BranchEntry{

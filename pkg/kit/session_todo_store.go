@@ -56,7 +56,11 @@ func (s *sessionTodoStore) isBranchActive() bool {
 		if entry == nil {
 			break
 		}
-		currID = entry.ParentID
+		if entry.Type == EntryTypeCompaction && entry.ParentID == "" && entry.PreCompactionLeafID != "" {
+			currID = entry.PreCompactionLeafID
+		} else {
+			currID = entry.ParentID
+		}
 	}
 
 	return false
