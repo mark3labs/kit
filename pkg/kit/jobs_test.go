@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/jobs"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // newJobsTestKit creates a Kit with a local recording provider and optional tools.
@@ -1081,6 +1083,153 @@ func TestJobsExplicitWaitsDeliverReadyBeforeOlderWait(t *testing.T) {
 			defer state.mu.Unlock()
 			if len(state.waits) != 0 {
 				t.Fatal("drained waits remain registered")
+			}
+		})
+	}
+}
+
+// countingSession counts the reads of the current branch. It hides the fast
+// path of the built-in session, as a custom session manager does.
+type countingSession struct {
+	SessionManager
+	branchReads atomic.Int64
+}
+
+func (c *countingSession) GetCurrentBranch() []BranchEntry {
+	c.branchReads.Add(1)
+	return c.SessionManager.GetCurrentBranch()
+}
+
+// startFinishedJobs starts n jobs for the current branch and waits for them.
+func startFinishedJobs(tb testing.TB, k *Kit, n int) {
+	tb.Helper()
+	svc := &turnJobService{kit: k}
+	for range n {
+		job, err := svc.Start(context.Background(), "test", func(context.Context) (string, error) { return "out", nil })
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if _, err := k.WaitJob(context.Background(), job.ID); err != nil {
+			tb.Fatal(err)
+		}
+	}
+}
+
+// TestOwnedJobsReadsBranchOnce checks that the job list reads the branch of a
+// custom session one time, whatever the number of jobs. The TUI asks for the
+// list on each frame, and each read decodes the full conversation.
+func TestOwnedJobsReadsBranchOnce(t *testing.T) {
+	rec := &recordingFactory{}
+	counting := &countingSession{SessionManager: NewTreeManagerAdapter(session.InMemoryTreeSession(t.TempDir()))}
+	k := newProviderTestKit(t, &Options{
+		Model:          "local/jobs",
+		Providers:      map[string]ProviderFactory{"local": rec.factory("local")},
+		SessionManager: counting,
+	})
+	for i := range 3 {
+		appendTestMessage(t, k, fantasy.NewUserMessage(fmt.Sprintf("message %d", i)))
+	}
+	startFinishedJobs(t, k, 5)
+
+	before := counting.branchReads.Load()
+	owned := k.OwnedJobs()
+	if len(owned) != 5 {
+		t.Fatalf("owned jobs = %d, want 5", len(owned))
+	}
+	if reads := counting.branchReads.Load() - before; reads != 1 {
+		t.Fatalf("OwnedJobs read the branch %d times for 5 jobs, want 1", reads)
+	}
+}
+
+// TestOwnedJobsDoesNotDecodeConversation checks that the job list of the
+// built-in session costs a small, fixed number of allocations. A list that
+// decodes each message for each job allocates thousands of times here.
+func TestOwnedJobsDoesNotDecodeConversation(t *testing.T) {
+	k := newJobsTestKit(t)
+	for i := range 40 {
+		appendTestMessage(t, k, fantasy.NewUserMessage(fmt.Sprintf("message %d", i)))
+	}
+	startFinishedJobs(t, k, 8)
+	if owned := k.OwnedJobs(); len(owned) != 8 {
+		t.Fatalf("owned jobs = %d, want 8", len(owned))
+	}
+	if allocs := testing.AllocsPerRun(20, func() { _ = k.OwnedJobs() }); allocs > 100 {
+		t.Fatalf("OwnedJobs made %.0f allocations for 40 messages and 8 jobs, want at most 100", allocs)
+	}
+}
+
+// TestCurrentBranchIDsMatchCurrentBranch keeps the fast path of the built-in
+// session in step with GetCurrentBranch: the two must name the same entries.
+func TestCurrentBranchIDsMatchCurrentBranch(t *testing.T) {
+	tm := session.InMemoryTreeSession(t.TempDir())
+	adapter := &treeManagerAdapter{inner: tm}
+	check := func(step string) {
+		t.Helper()
+		var want []string
+		for _, entry := range adapter.GetCurrentBranch() {
+			want = append(want, entry.ID)
+		}
+		if got := adapter.currentBranchIDs(); !slices.Equal(got, want) {
+			t.Fatalf("after %s: currentBranchIDs = %v, GetCurrentBranch = %v", step, got, want)
+		}
+	}
+	check("an empty session")
+
+	first, err := tm.AppendLLMMessage(fantasy.NewUserMessage("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("a message")
+	steps := []struct {
+		name   string
+		append func() (string, error)
+	}{
+		{"a model change", func() (string, error) { return tm.AppendModelChange("local", "jobs") }},
+		{"extension data", func() (string, error) { return tm.AppendExtensionData("test", "{}") }},
+		{"a label", func() (string, error) { return tm.AppendLabel(first, "label") }},
+		{"session info", func() (string, error) { return tm.AppendSessionInfo("name") }},
+		{"incomplete output", func() (string, error) {
+			return tm.AppendIncompleteOutput(context.Background(), "attempt", "partial")
+		}},
+		{"a second message", func() (string, error) { return tm.AppendLLMMessage(fantasy.NewUserMessage("second")) }},
+		{"a compaction", func() (string, error) { return tm.AppendCompaction("summary", first, 10, 5, 1, nil, nil) }},
+		{"a branch summary", func() (string, error) { return tm.AppendBranchSummary(first, "summary") }},
+	}
+	for _, step := range steps {
+		if _, err := step.append(); err != nil {
+			t.Fatalf("append %s: %v", step.name, err)
+		}
+		check(step.name)
+	}
+	if len(adapter.currentBranchIDs()) < 2 {
+		t.Fatal("the branch holds too few entries for the comparison to mean something")
+	}
+}
+
+// BenchmarkOwnedJobs measures the job list that the TUI status row reads on
+// each frame, for a conversation and a number of jobs like a long session.
+func BenchmarkOwnedJobs(b *testing.B) {
+	for _, tc := range []struct{ msgs, jobs int }{{165, 0}, {165, 16}, {600, 32}} {
+		b.Run(fmt.Sprintf("msgs=%d/jobs=%d", tc.msgs, tc.jobs), func(b *testing.B) {
+			rec := &recordingFactory{}
+			k, err := New(context.Background(), &Options{
+				Model: "local/jobs", Providers: map[string]ProviderFactory{"local": rec.factory("local")},
+				Quiet: true, NoSession: true, NoExtensions: true, DisableCoreTools: true, SkipConfig: true,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { _ = k.Close() })
+			body := strings.Repeat("some output of a tool call, one line of it.\n", 40)
+			for i := range tc.msgs {
+				if _, err := k.session.AppendMessage(fantasy.NewUserMessage(fmt.Sprintf("%d %s", i, body))); err != nil {
+					b.Fatal(err)
+				}
+			}
+			startFinishedJobs(b, k, tc.jobs)
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = k.OwnedJobs()
 			}
 		})
 	}

@@ -71,6 +71,35 @@ func (a *treeManagerAdapter) GetCurrentBranch() []BranchEntry {
 	return result
 }
 
+// currentBranchIDs returns the IDs of the entries that GetCurrentBranch
+// returns, from the root to the leaf, and does not decode their content. Keep
+// its entry types in step with convertEntry.
+//
+// One difference follows from that: a message entry whose parts do not decode
+// is in this list, and GetCurrentBranch drops it. The entry is on the branch
+// all the same, which is what a job ownership check asks.
+func (a *treeManagerAdapter) currentBranchIDs() []string {
+	branch := a.inner.GetBranch("")
+	ids := make([]string, 0, len(branch))
+	for _, entry := range branch {
+		switch e := entry.(type) {
+		case *session.IncompleteOutputEntry:
+			ids = append(ids, e.ID)
+		case *session.MessageEntry:
+			ids = append(ids, e.ID)
+		case *session.BranchSummaryEntry:
+			ids = append(ids, e.ID)
+		case *session.ModelChangeEntry:
+			ids = append(ids, e.ID)
+		case *session.CompactionEntry:
+			ids = append(ids, e.ID)
+		case *session.ExtensionDataEntry:
+			ids = append(ids, e.ID)
+		}
+	}
+	return ids
+}
+
 // GetChildren implements SessionManager.
 func (a *treeManagerAdapter) GetChildren(parentID string) []string {
 	return a.inner.GetChildren(parentID)
