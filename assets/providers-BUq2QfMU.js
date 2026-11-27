@@ -81,7 +81,7 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">provider/model</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Standard format</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">anthropic/claude-sonnet-latest</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">openai/gpt-4o</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">copilot/gpt-5.5</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">copilot/gpt-5.6-sol</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">ollama/llama3</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">google/gemini-2.5-flash</span></span></code></pre>
 <h2 id="model-aliases"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-aliases"><span class="icon icon-link"></span></a>Model aliases</h2>
@@ -360,7 +360,7 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 provider/model            # Standard format
 anthropic/claude-sonnet-latest
 openai/gpt-4o
-copilot/gpt-5.5
+copilot/gpt-5.6-sol
 ollama/llama3
 google/gemini-2.5-flash
 \`\`\`

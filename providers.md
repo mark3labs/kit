@@ -27,7 +27,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 provider/model            # Standard format
 anthropic/claude-sonnet-latest
 openai/gpt-4o
-copilot/gpt-5.5
+copilot/gpt-5.6-sol
 ollama/llama3
 google/gemini-2.5-flash
 ```
