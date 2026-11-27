@@ -193,7 +193,7 @@ func TestMemoryTodoStore_Concurrency(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(2)
 		go func(idx int) {
 			defer wg.Done()

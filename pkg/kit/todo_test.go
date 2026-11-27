@@ -107,7 +107,7 @@ func TestTodo_PersistsAcrossSessionRestartAndCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenTreeSession failed: %v", err)
 	}
-	defer reopenedTM.Close()
+	defer func() { _ = reopenedTM.Close() }()
 
 	reopenedSM := NewTreeManagerAdapter(reopenedTM)
 	reopenedCtx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(reopenedSM))
