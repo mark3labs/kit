@@ -174,6 +174,19 @@ func executeTodo(ctx context.Context, call fantasy.ToolCall, defaultStore TodoSt
 			return fantasy.NewTextResponse("Todos cleared."), nil
 		}
 
+		// Reserve all non-empty explicit IDs and reject duplicate explicit IDs.
+		usedIDs := make(map[string]bool, len(items))
+		for i, item := range items {
+			id := strings.TrimSpace(item.ID)
+			if id != "" {
+				if usedIDs[id] {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("item %d: duplicate todo id %q", i+1, id)), nil
+				}
+				usedIDs[id] = true
+			}
+		}
+
+		nextID := 1
 		normalized := make([]TodoItem, len(items))
 		for i, item := range items {
 			content := strings.TrimSpace(item.Content)
@@ -205,7 +218,15 @@ func executeTodo(ctx context.Context, call fantasy.ToolCall, defaultStore TodoSt
 
 			id := strings.TrimSpace(item.ID)
 			if id == "" {
-				id = fmt.Sprintf("%d", i+1)
+				for {
+					cand := fmt.Sprintf("%d", nextID)
+					nextID++
+					if !usedIDs[cand] {
+						id = cand
+						usedIDs[id] = true
+						break
+					}
+				}
 			}
 
 			normalized[i] = TodoItem{

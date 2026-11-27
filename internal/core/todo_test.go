@@ -137,6 +137,18 @@ func TestTodoTool_ValidationAndNormalization(t *testing.T) {
 			wantError: false,
 			contains:  "[-] 1: cancelled task",
 		},
+		{
+			name:      "duplicate explicit ID",
+			input:     `{"todos":[{"id":"task-1","content":"a","status":"pending"},{"id":"task-1","content":"b","status":"pending"}]}`,
+			wantError: true,
+			contains:  `duplicate todo id "task-1"`,
+		},
+		{
+			name:      "auto-assign avoids collision with explicit ID",
+			input:     `{"todos":[{"id":"1","content":"first","status":"pending"},{"content":"second","status":"pending"}]}`,
+			wantError: false,
+			contains:  "[ ] 1: first\n[ ] 2: second",
+		},
 	}
 
 	for _, tt := range tests {
