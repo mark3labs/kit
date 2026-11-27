@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -265,6 +266,47 @@ func TestSubagent_HasOwnSessionTodoStore(t *testing.T) {
 	childTodos, _ := childStore.GetTodos(childCtx)
 	if len(childTodos) != 1 || childTodos[0].Content != "child task" {
 		t.Errorf("childStore missing task: %+v", childTodos)
+	}
+
+	// Test that an explicit WithTodoStore in parent's coreToolOptions is inherited by the child
+	explicitStore := core.NewMemoryTodoStore()
+	childKitExplicit := &Kit{
+		coreToolOptions:   []ToolOption{WithTodoStore(explicitStore)},
+		explicitTodoStore: explicitStore,
+		session:           childSM,
+	}
+	if got := childKitExplicit.effectiveTodoStore(); got != explicitStore {
+		t.Errorf("expected child with explicit store to use it, got %v", got)
+	}
+}
+
+func TestBackgroundJob_RebindsTodoStoreToOwnerBranch(t *testing.T) {
+	k := newJobsTestKit(t)
+	appendTestMessage(t, k, fantasy.NewUserMessage("msg 1"))
+	appendTestMessage(t, k, fantasy.NewUserMessage("msg 2"))
+
+	jobScope := k.jobScope()
+	service := &turnJobService{kit: k}
+
+	// Start job with a context that simulates a turn context from an old leaf
+	turnCtx := core.ContextWithTodoStore(context.Background(), newSessionTodoStore(k.session, "old-leaf"))
+
+	job, err := service.Start(turnCtx, "test", func(ctx context.Context) (string, error) {
+		store := core.TodoStoreFromContext(ctx)
+		if store == nil {
+			return "", fmt.Errorf("expected non-nil store in job context")
+		}
+		// Saving todos must succeed because store was rebound to current job owner branch
+		err := store.SaveTodos(ctx, []core.TodoItem{{ID: "1", Content: "Job task", Status: core.TodoStatusCompleted}})
+		return "done", err
+	})
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	waitJobTest(t, k, job.ID)
+
+	if job.BranchID != jobScope.leafID {
+		t.Errorf("job.BranchID = %q, want %q", job.BranchID, jobScope.leafID)
 	}
 }
 

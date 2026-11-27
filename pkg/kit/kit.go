@@ -2719,6 +2719,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Model:              model,
 		SystemPrompt:       systemPrompt,
 		Tools:              tools,
+		CoreToolOptions:    append([]ToolOption(nil), m.coreToolOptions...),
 		NoSession:          cfg.NoSession,
 		SessionPath:        resumePath,
 		Quiet:              true,
