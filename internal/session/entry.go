@@ -125,13 +125,14 @@ type ExtensionDataEntry struct {
 // FirstKeptEntryID when building the LLM context, preserving full history.
 type CompactionEntry struct {
 	Entry
-	Summary          string   `json:"summary"`
-	FirstKeptEntryID string   `json:"first_kept_entry_id"`
-	TokensBefore     int      `json:"tokens_before"`
-	TokensAfter      int      `json:"tokens_after"`
-	MessagesRemoved  int      `json:"messages_removed"`
-	ReadFiles        []string `json:"read_files,omitempty"`
-	ModifiedFiles    []string `json:"modified_files,omitempty"`
+	Summary             string   `json:"summary"`
+	FirstKeptEntryID    string   `json:"first_kept_entry_id"`
+	PreCompactionLeafID string   `json:"pre_compaction_leaf_id,omitempty"`
+	TokensBefore        int      `json:"tokens_before"`
+	TokensAfter         int      `json:"tokens_after"`
+	MessagesRemoved     int      `json:"messages_removed"`
+	ReadFiles           []string `json:"read_files,omitempty"`
+	ModifiedFiles       []string `json:"modified_files,omitempty"`
 }
 
 // SystemPromptEntry records the system prompt and model used for the session.
@@ -234,16 +235,17 @@ func NewExtensionDataEntry(parentID, extType, data string) *ExtensionDataEntry {
 }
 
 // NewCompactionEntry creates a CompactionEntry.
-func NewCompactionEntry(parentID, summary, firstKeptEntryID string, tokensBefore, tokensAfter, messagesRemoved int, readFiles, modifiedFiles []string) *CompactionEntry {
+func NewCompactionEntry(parentID, summary, firstKeptEntryID, preCompactionLeafID string, tokensBefore, tokensAfter, messagesRemoved int, readFiles, modifiedFiles []string) *CompactionEntry {
 	return &CompactionEntry{
-		Entry:            NewEntry(EntryTypeCompaction, parentID),
-		Summary:          summary,
-		FirstKeptEntryID: firstKeptEntryID,
-		TokensBefore:     tokensBefore,
-		TokensAfter:      tokensAfter,
-		MessagesRemoved:  messagesRemoved,
-		ReadFiles:        readFiles,
-		ModifiedFiles:    modifiedFiles,
+		Entry:               NewEntry(EntryTypeCompaction, parentID),
+		Summary:             summary,
+		FirstKeptEntryID:    firstKeptEntryID,
+		PreCompactionLeafID: preCompactionLeafID,
+		TokensBefore:        tokensBefore,
+		TokensAfter:         tokensAfter,
+		MessagesRemoved:     messagesRemoved,
+		ReadFiles:           readFiles,
+		ModifiedFiles:       modifiedFiles,
 	}
 }
 

@@ -155,15 +155,16 @@ func (a *treeManagerAdapter) GetLastCompaction() *CompactionEntry {
 		return nil
 	}
 	return &CompactionEntry{
-		ID:               c.ID,
-		Summary:          c.Summary,
-		FirstKeptEntryID: c.FirstKeptEntryID,
-		TokensBefore:     c.TokensBefore,
-		TokensAfter:      c.TokensAfter,
-		MessagesRemoved:  c.MessagesRemoved,
-		ReadFiles:        c.ReadFiles,
-		ModifiedFiles:    c.ModifiedFiles,
-		Timestamp:        c.Timestamp,
+		ID:                  c.ID,
+		Summary:             c.Summary,
+		FirstKeptEntryID:    c.FirstKeptEntryID,
+		PreCompactionLeafID: c.PreCompactionLeafID,
+		TokensBefore:        c.TokensBefore,
+		TokensAfter:         c.TokensAfter,
+		MessagesRemoved:     c.MessagesRemoved,
+		ReadFiles:           c.ReadFiles,
+		ModifiedFiles:       c.ModifiedFiles,
+		Timestamp:           c.Timestamp,
 	}
 }
 

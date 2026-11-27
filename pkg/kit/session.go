@@ -166,15 +166,16 @@ const (
 
 // CompactionEntry represents a context compaction/summarization event.
 type CompactionEntry struct {
-	ID               string
-	Summary          string
-	FirstKeptEntryID string
-	TokensBefore     int
-	TokensAfter      int
-	MessagesRemoved  int
-	ReadFiles        []string
-	ModifiedFiles    []string
-	Timestamp        time.Time
+	ID                  string
+	Summary             string
+	FirstKeptEntryID    string
+	PreCompactionLeafID string
+	TokensBefore        int
+	TokensAfter         int
+	MessagesRemoved     int
+	ReadFiles           []string
+	ModifiedFiles       []string
+	Timestamp           time.Time
 }
 
 // ExtensionDataEntry represents custom extension data stored in the session.

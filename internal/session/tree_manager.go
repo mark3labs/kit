@@ -300,15 +300,20 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 			if mapped, ok := idMap[e.FirstKeptEntryID]; ok {
 				newFirstKeptID = mapped
 			}
+			newPreLeafID := e.PreCompactionLeafID
+			if mapped, ok := idMap[e.PreCompactionLeafID]; ok {
+				newPreLeafID = mapped
+			}
 			newEntry = &CompactionEntry{
-				Entry:            cloneEntry(e.Entry, newID, prevNewID),
-				Summary:          e.Summary,
-				FirstKeptEntryID: newFirstKeptID,
-				TokensBefore:     e.TokensBefore,
-				TokensAfter:      e.TokensAfter,
-				MessagesRemoved:  e.MessagesRemoved,
-				ReadFiles:        e.ReadFiles,
-				ModifiedFiles:    e.ModifiedFiles,
+				Entry:               cloneEntry(e.Entry, newID, prevNewID),
+				Summary:             e.Summary,
+				FirstKeptEntryID:    newFirstKeptID,
+				PreCompactionLeafID: newPreLeafID,
+				TokensBefore:        e.TokensBefore,
+				TokensAfter:         e.TokensAfter,
+				MessagesRemoved:     e.MessagesRemoved,
+				ReadFiles:           e.ReadFiles,
+				ModifiedFiles:       e.ModifiedFiles,
 			}
 		}
 
@@ -948,16 +953,13 @@ func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokens
 	// The compaction entry has no parent, making it a new "root" for the
 	// post-compaction branch. This ensures old compacted messages are not
 	// traversed when walking from the current leaf.
-	entry := NewCompactionEntry("", summary, firstKeptEntryID, tokensBefore, tokensAfter, messagesRemoved, readFiles, modifiedFiles)
+	entry := NewCompactionEntry("", summary, firstKeptEntryID, tm.leafID, tokensBefore, tokensAfter, messagesRemoved, readFiles, modifiedFiles)
 	return tm.commitLeafLocked(entry, entry.ID, "compaction")
 }
 
 // GetExtensionData returns all extension data entries matching the given type,
-// walking the current branch from root to leaf. If extType is empty, all
-// extension data entries on the branch are returned. If the current branch has
-// a compaction entry and no matching entries were found on the post-compaction
-// branch, earlier entries are checked so persistent extension state survives
-// compaction.
+// walking the current branch and its compacted ancestor branches from root to leaf.
+// If extType is empty, all extension data entries on the branch are returned.
 func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -966,39 +968,48 @@ func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
 		return nil
 	}
 
-	branch := tm.getBranchLocked(tm.leafID)
 	var results []*ExtensionDataEntry
-	for _, entry := range branch {
-		if e, ok := entry.(*ExtensionDataEntry); ok {
-			if extType == "" || e.ExtType == extType {
-				results = append(results, e)
-			}
-		}
-	}
-	if len(results) > 0 {
-		return results
-	}
+	visitedLeaves := make(map[string]bool)
 
-	// Check if this branch is preceded by compaction. If so, inspect
-	// historical entries so extension data survives compaction.
-	hasCompaction := false
-	for _, entry := range branch {
-		if _, ok := entry.(*CompactionEntry); ok {
-			hasCompaction = true
+	currentLeaf := tm.leafID
+	for currentLeaf != "" && !visitedLeaves[currentLeaf] {
+		visitedLeaves[currentLeaf] = true
+		branch := tm.getBranchLocked(currentLeaf)
+		if len(branch) == 0 {
 			break
 		}
-	}
-	if !hasCompaction {
-		return nil
-	}
 
-	for _, entry := range tm.entries {
-		if e, ok := entry.(*ExtensionDataEntry); ok {
-			if extType == "" || e.ExtType == extType {
-				results = append(results, e)
+		var branchResults []*ExtensionDataEntry
+		var lastCompaction *CompactionEntry
+
+		for _, entry := range branch {
+			if e, ok := entry.(*ExtensionDataEntry); ok {
+				if extType == "" || e.ExtType == extType {
+					branchResults = append(branchResults, e)
+				}
+			}
+			if c, ok := entry.(*CompactionEntry); ok {
+				lastCompaction = c
 			}
 		}
+
+		if len(branchResults) > 0 {
+			results = append(branchResults, results...)
+		}
+
+		if lastCompaction != nil {
+			if lastCompaction.PreCompactionLeafID != "" {
+				currentLeaf = lastCompaction.PreCompactionLeafID
+				continue
+			}
+			if lastCompaction.FirstKeptEntryID != "" {
+				currentLeaf = lastCompaction.FirstKeptEntryID
+				continue
+			}
+		}
+		break
 	}
+
 	return results
 }
 

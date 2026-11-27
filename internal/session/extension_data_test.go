@@ -48,10 +48,63 @@ func TestTreeManager_ExtensionDataSurvivesCompaction(t *testing.T) {
 
 	// Should now see the new entry on the active branch
 	updatedEntries := tm.GetExtensionData("todo")
-	if len(updatedEntries) != 1 {
-		t.Fatalf("expected 1 entry on post-compaction branch, got %d", len(updatedEntries))
+	if len(updatedEntries) != 2 {
+		t.Fatalf("expected 2 entries across history, got %d", len(updatedEntries))
 	}
-	if updatedEntries[0].Data != `[{"id":"1","content":"task 1","status":"completed"}]` {
-		t.Errorf("unexpected data: %s", updatedEntries[0].Data)
+	if updatedEntries[len(updatedEntries)-1].Data != `[{"id":"1","content":"task 1","status":"completed"}]` {
+		t.Errorf("unexpected latest data: %s", updatedEntries[len(updatedEntries)-1].Data)
+	}
+}
+
+func TestTreeManager_ExtensionDataBranchIsolationAcrossCompaction(t *testing.T) {
+	tm := InMemoryTreeSession(t.TempDir())
+
+	// Common root extension data
+	rootID, err := tm.AppendExtensionData("todo", `root`)
+	if err != nil {
+		t.Fatalf("root append failed: %v", err)
+	}
+
+	// Branch A: adds Branch A data, then undergoes compaction
+	_, err = tm.AppendExtensionData("todo", `branch-a`)
+	if err != nil {
+		t.Fatalf("branch A append failed: %v", err)
+	}
+	compA, err := tm.AppendCompaction("Branch A summary", "", 500, 100, 2, nil, nil)
+	if err != nil {
+		t.Fatalf("branch A compaction failed: %v", err)
+	}
+	leafA := compA
+
+	// Branch B: branches from root, adds Branch B data
+	if err := tm.Branch(rootID); err != nil {
+		t.Fatalf("branch back to root failed: %v", err)
+	}
+	_, err = tm.AppendExtensionData("todo", `branch-b`)
+	if err != nil {
+		t.Fatalf("branch B append failed: %v", err)
+	}
+
+	// Verify Branch B sees only root and branch-b
+	entriesB := tm.GetExtensionData("todo")
+	if len(entriesB) != 2 {
+		t.Fatalf("expected 2 entries on branch B, got %d", len(entriesB))
+	}
+	if entriesB[0].Data != "root" || entriesB[1].Data != "branch-b" {
+		t.Errorf("unexpected branch B entries: %+v", entriesB)
+	}
+
+	// Switch to Branch A (post-compaction)
+	if err := tm.Branch(leafA); err != nil {
+		t.Fatalf("branch to leafA failed: %v", err)
+	}
+
+	// Verify Branch A sees ONLY root and branch-a across compaction, NEVER branch-b!
+	entriesA := tm.GetExtensionData("todo")
+	if len(entriesA) != 2 {
+		t.Fatalf("expected 2 entries on branch A across compaction, got %d", len(entriesA))
+	}
+	if entriesA[0].Data != "root" || entriesA[1].Data != "branch-a" {
+		t.Errorf("unexpected branch A entries (branch B leaked!): %+v", entriesA)
 	}
 }
