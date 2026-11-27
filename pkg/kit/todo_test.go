@@ -125,3 +125,46 @@ func TestTodo_PersistsAcrossSessionRestartAndCompaction(t *testing.T) {
 		t.Errorf("expected resumed read to contain task-2, got: %s", resumedRead.Content)
 	}
 }
+
+func TestKit_TodoStorePrecedence(t *testing.T) {
+	// 1. Kit with explicit CoreToolOptions.WithTodoStore
+	explicitStore := core.NewMemoryTodoStore()
+	_ = explicitStore.SaveTodos(context.Background(), []core.TodoItem{
+		{ID: "explicit-1", Content: "Explicit Store Task", Status: core.TodoStatusPending},
+	})
+
+	k1 := &Kit{
+		explicitTodoStore: explicitStore,
+		session:           NewTreeManagerAdapter(session.InMemoryTreeSession(t.TempDir())),
+	}
+
+	// effectiveTodoStore must return explicitStore, not session store
+	if got := k1.effectiveTodoStore(); got != explicitStore {
+		t.Errorf("effectiveTodoStore with explicit store: got %v, want %v", got, explicitStore)
+	}
+
+	// 2. Kit with NO explicit store, but has session
+	tm := session.InMemoryTreeSession(t.TempDir())
+	sm := NewTreeManagerAdapter(tm)
+	k2 := &Kit{
+		session: sm,
+	}
+
+	gotStore := k2.effectiveTodoStore()
+	if gotStore == nil {
+		t.Fatal("expected non-nil session todo store when session is present")
+	}
+
+	// 3. Kit with NO explicit store and NO session
+	k3 := &Kit{}
+	if got := k3.effectiveTodoStore(); got != nil {
+		t.Errorf("expected nil effectiveTodoStore when no session and no explicit store, got %v", got)
+	}
+
+	// 4. Per-turn context override
+	perTurnStore := core.NewMemoryTodoStore()
+	ctxWithPerTurn := ContextWithTodoStore(context.Background(), perTurnStore)
+	if got := TodoStoreFromContext(ctxWithPerTurn); got != perTurnStore {
+		t.Errorf("TodoStoreFromContext: got %v, want %v", got, perTurnStore)
+	}
+}

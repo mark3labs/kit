@@ -73,7 +73,18 @@ type TodoStore = core.TodoStore
 type TodoItem = core.TodoItem
 
 // WithTodoStore sets the [TodoStore] for the todo tool.
+// When supplied through [Options.CoreToolOptions], this explicit store takes
+// precedence over the default session-backed storage. If no explicit store is
+// configured, the todo tool persists tasks into the active session store (or
+// falls back to an in-memory store when no session is active). A store attached
+// to a turn's context via [ContextWithTodoStore] overrides both for that turn.
 var WithTodoStore = core.WithTodoStore
+
+// ContextWithTodoStore stores the [TodoStore] in ctx for use by the todo tool.
+var ContextWithTodoStore = core.ContextWithTodoStore
+
+// TodoStoreFromContext returns the [TodoStore] stored in ctx, or nil if none is set.
+var TodoStoreFromContext = core.TodoStoreFromContext
 
 // --- Core Tool Validation ---
 // processes a list of tool names, if disableCoreTools is true, return an

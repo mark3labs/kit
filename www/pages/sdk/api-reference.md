@@ -774,6 +774,7 @@ Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
 - [`CommandRequest`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandRequest) — CommandRequest describes one command the shell tool wants to run.
 - [`CommandResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandResult) — CommandResult is the outcome of a command run by a [CommandRunner].
 - [`CommandRunner`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#CommandRunner) — CommandRunner runs the shell tool's commands somewhere other than a local child process, for example in an editor's terminal.
+- [`ContextWithTodoStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ContextWithTodoStore) — ContextWithTodoStore stores the [TodoStore] in ctx for use by the todo tool.
 - [`DefaultCoreToolNames`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#DefaultCoreToolNames) — DefaultCoreToolNames returns the core tools enabled when none are named.
 - [`ErrorResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ErrorResult) — ErrorResult creates an error [ToolOutput].
 - [`FileSystem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#FileSystem) — FileSystem reads and writes text files for the read, write and edit tools.
@@ -798,6 +799,7 @@ Types for a custom `LLMLanguageModel` that a `ProviderFactory` returns:
 - [`TextResult`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TextResult) — TextResult creates a successful text [ToolOutput].
 - [`TodoItem`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TodoItem) — TodoItem represents a single task in a structured checklist.
 - [`TodoStore`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TodoStore) — TodoStore provides storage and retrieval for todo items.
+- [`TodoStoreFromContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#TodoStoreFromContext) — TodoStoreFromContext returns the [TodoStore] stored in ctx, or nil if none is set.
 - [`ToolCallIDFromContext`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolCallIDFromContext) — ToolCallIDFromContext extracts the tool call ID from the context.
 - [`ToolOption`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOption) — ToolOption configures tool behavior.
 - [`ToolOutput`](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#ToolOutput) — ToolOutput is the return value from custom tool handlers created with [NewTool] or [NewParallelTool].

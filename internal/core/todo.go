@@ -71,7 +71,8 @@ func ContextWithTodoStore(ctx context.Context, store TodoStore) context.Context 
 	return context.WithValue(ctx, todoStoreKey{}, store)
 }
 
-func todoStoreFromContext(ctx context.Context) TodoStore {
+// TodoStoreFromContext returns the TodoStore stored in ctx, or nil if none is set.
+func TodoStoreFromContext(ctx context.Context) TodoStore {
 	if s, ok := ctx.Value(todoStoreKey{}).(TodoStore); ok {
 		return s
 	}
@@ -154,7 +155,7 @@ func executeTodo(ctx context.Context, call fantasy.ToolCall, defaultStore TodoSt
 		return fantasy.ToolResponse{}, err
 	}
 
-	store := todoStoreFromContext(ctx)
+	store := TodoStoreFromContext(ctx)
 	if store == nil {
 		store = defaultStore
 	}

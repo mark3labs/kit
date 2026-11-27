@@ -57,6 +57,9 @@ type ToolConfig struct {
 }
 
 // WithTodoStore sets the TodoStore for the todo tool.
+// An explicitly configured store takes precedence over default session-backed
+// storage. If no store is configured, the tool uses an in-memory store (or
+// the store injected into context via ContextWithTodoStore).
 func WithTodoStore(store TodoStore) ToolOption {
 	return func(c *ToolConfig) {
 		c.TodoStore = store
