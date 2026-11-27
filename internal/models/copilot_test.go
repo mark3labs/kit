@@ -16,8 +16,8 @@ func TestCopilotProviderAliasUsesCatalog(t *testing.T) {
 	if len(models) == 0 {
 		t.Fatal("expected copilot alias to return github-copilot catalog models")
 	}
-	if registry.LookupModel("copilot", "gpt-5.5") == nil {
-		t.Fatal("expected copilot/gpt-5.5 to resolve through github-copilot catalog")
+	if registry.LookupModel("copilot", "gpt-5.6-sol") == nil {
+		t.Fatal("expected copilot/gpt-5.6-sol to resolve through github-copilot catalog")
 	}
 	if registry.GetProviderInfo("copilot") == nil {
 		t.Fatal("expected copilot alias to return github-copilot provider info")

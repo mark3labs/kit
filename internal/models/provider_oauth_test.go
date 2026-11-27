@@ -17,8 +17,8 @@ func TestProviderOAuthState(t *testing.T) {
 		{"anthropic custom endpoint uses OAuth", "anthropic/claude-sonnet-4-5", "", "https://example.com", true},
 		{"openai OAuth wins over flag", "openai/gpt-5", "explicit-key", "", true},
 		{"openai custom endpoint uses flag", "openai/gpt-5", "explicit-key", "https://example.com/v1", false},
-		{"copilot OAuth", "copilot/gpt-5.5", "explicit-key", "", true},
-		{"copilot catalog alias", "github-copilot/gpt-5.5", "", "", true},
+		{"copilot OAuth", "copilot/gpt-5.6-sol", "explicit-key", "", true},
+		{"copilot catalog alias", "github-copilot/gpt-5.6-sol", "", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

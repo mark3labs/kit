@@ -11,9 +11,11 @@ import (
 // points at a model the provider has scheduled for removal.
 func TestDefaultModelsAreCurrent(t *testing.T) {
 	defaults := map[string]string{
-		"--model flag":             rootCmd.PersistentFlags().Lookup("model").DefValue,
-		"GitHub workflow":          defaultGitHubModel,
-		"auth login --set-default": defaultModels["anthropic"],
+		"--model flag":    rootCmd.PersistentFlags().Lookup("model").DefValue,
+		"GitHub workflow": defaultGitHubModel,
+	}
+	for provider, model := range defaultModels {
+		defaults["auth login "+provider+" --set-default"] = model
 	}
 	registry := models.NewEmbeddedModelsRegistry()
 	for name, model := range defaults {

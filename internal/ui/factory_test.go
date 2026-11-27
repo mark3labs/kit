@@ -3,7 +3,7 @@ package ui
 import "testing"
 
 func TestUsageTrackerActiveOAuthState(t *testing.T) {
-	for _, model := range []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5", "copilot/gpt-5.5", "github-copilot/gpt-5.5"} {
+	for _, model := range []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5", "copilot/gpt-5.6-sol", "github-copilot/gpt-5.6-sol"} {
 		t.Run(model, func(t *testing.T) {
 			tracker := CreateUsageTracker(model, true)
 			if tracker == nil {

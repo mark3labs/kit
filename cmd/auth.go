@@ -136,7 +136,7 @@ var (
 var defaultModels = map[string]string{
 	"anthropic": "anthropic/claude-sonnet-5-5",
 	"openai":    "openai/gpt-5.4",
-	"copilot":   "copilot/gpt-5.5",
+	"copilot":   "copilot/gpt-5.6-sol",
 }
 
 // setDefaultModelIfRequested sets the default model for the given provider

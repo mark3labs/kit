@@ -433,7 +433,7 @@ kit auth status                    # Check authentication status
 
 # GitHub Copilot login (experimental; requires active Copilot subscription)
 kit auth login copilot
-kit --model copilot/gpt-5.5 "Hello"
+kit --model copilot/gpt-5.6-sol "Hello"
 
 # Model database
 kit models [provider]        # List available models (optionally filter by provider)

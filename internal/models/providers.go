@@ -1036,24 +1036,10 @@ func (t *geminiBetaTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.base.RoundTrip(req)
 }
 
-// newGeminiProxyHTTPClient builds an HTTP client whose transport strips the
-// genai-injected version segment ("v1"/"v1beta"/"v1beta1") that directly follows
-// basePath, collapsing "{basePath}/v1beta/..." back to "{basePath}/...".
-func newGeminiProxyHTTPClient(basePath string, skipVerify bool) *http.Client {
-	var base http.RoundTripper
-	if skipVerify {
-		base = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	} else {
-		base = http.DefaultTransport
-	}
-	return &http.Client{
-		Transport: &geminiProxyTransport{base: base, basePath: basePath},
-	}
-}
-
-// geminiProxyTransport removes the redundant API version segment that the
-// genai SDK injects after a proxy base URL that already carries its own
-// version segment.
+// geminiProxyTransport removes the redundant API version segment
+// ("v1"/"v1beta"/"v1beta1") that the genai SDK injects after a proxy base URL
+// that already carries its own version segment, collapsing
+// "{basePath}/v1beta/..." back to "{basePath}/...".
 type geminiProxyTransport struct {
 	base     http.RoundTripper
 	basePath string
