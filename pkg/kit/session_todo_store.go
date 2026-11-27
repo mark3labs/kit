@@ -27,11 +27,38 @@ func (s *sessionTodoStore) isBranchActive() bool {
 	if s.ownerBranchID == "" || s.session == nil {
 		return true
 	}
-	for _, entry := range s.session.GetCurrentBranch() {
+	currentBranch := s.session.GetCurrentBranch()
+	for _, entry := range currentBranch {
 		if entry.ID == s.ownerBranchID {
 			return true
 		}
 	}
+
+	// If ownerBranchID is not directly on the current branch, check if the
+	// current branch is a post-compaction continuation of the owner branch.
+	compaction := s.session.GetLastCompaction()
+	if compaction == nil {
+		return false
+	}
+
+	visited := make(map[string]bool)
+	currID := compaction.PreCompactionLeafID
+	if currID == "" {
+		currID = compaction.FirstKeptEntryID
+	}
+
+	for currID != "" && !visited[currID] {
+		if currID == s.ownerBranchID {
+			return true
+		}
+		visited[currID] = true
+		entry := s.session.GetEntry(currID)
+		if entry == nil {
+			break
+		}
+		currID = entry.ParentID
+	}
+
 	return false
 }
 

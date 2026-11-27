@@ -267,3 +267,64 @@ func TestSubagent_HasOwnSessionTodoStore(t *testing.T) {
 		t.Errorf("childStore missing task: %+v", childTodos)
 	}
 }
+
+func TestSessionTodoStore_PreservesOwnershipAcrossCompaction(t *testing.T) {
+	tm := session.InMemoryTreeSession(t.TempDir())
+	sm := NewTreeManagerAdapter(tm)
+
+	// Append initial message to establish branch
+	msgID, err := sm.AppendMessage(fantasy.NewUserMessage("branch message before compaction"))
+	if err != nil {
+		t.Fatalf("AppendMessage failed: %v", err)
+	}
+
+	// Create store bound to msgID (simulating a job started before compaction)
+	store := newSessionTodoStore(sm, msgID)
+	ctx := context.Background()
+
+	// Perform compaction on this branch
+	_, err = sm.AppendCompaction("Compacted conversation", "", 1000, 200, 2, nil, nil)
+	if err != nil {
+		t.Fatalf("AppendCompaction failed: %v", err)
+	}
+
+	// Append a post-compaction message
+	_, err = sm.AppendMessage(fantasy.NewUserMessage("branch message after compaction"))
+	if err != nil {
+		t.Fatalf("AppendMessage after compaction failed: %v", err)
+	}
+
+	// Writing from the store bound to pre-compaction msgID must still succeed
+	// because the session is on a post-compaction continuation of that branch
+	items := []core.TodoItem{{ID: "1", Content: "Task surviving compaction", Status: core.TodoStatusInProgress}}
+	if err := store.SaveTodos(ctx, items); err != nil {
+		t.Fatalf("SaveTodos across compaction failed: %v", err)
+	}
+
+	// Reading must also succeed
+	todos, err := store.GetTodos(ctx)
+	if err != nil {
+		t.Fatalf("GetTodos across compaction failed: %v", err)
+	}
+	if len(todos) != 1 || todos[0].Content != "Task surviving compaction" {
+		t.Errorf("unexpected todos across compaction: %+v", todos)
+	}
+
+	// Now branch away to a genuine new branch
+	if err := sm.Branch(""); err != nil {
+		t.Fatalf("Branch failed: %v", err)
+	}
+	_, err = sm.AppendMessage(fantasy.NewUserMessage("unrelated branch message"))
+	if err != nil {
+		t.Fatalf("AppendMessage on unrelated branch failed: %v", err)
+	}
+
+	// Writing after genuine navigation away must be rejected
+	err = store.SaveTodos(ctx, []core.TodoItem{{ID: "1", Content: "Should fail", Status: core.TodoStatusCompleted}})
+	if err == nil {
+		t.Fatal("expected SaveTodos to fail after navigating away from owner branch")
+	}
+	if !strings.Contains(err.Error(), "navigated away") {
+		t.Errorf("expected error to mention 'navigated away', got: %v", err)
+	}
+}
