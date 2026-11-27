@@ -2905,7 +2905,7 @@ func (m *Kit) effectiveTodoStore() core.TodoStore {
 		return m.explicitTodoStore
 	}
 	if m.session != nil {
-		_, branchID := m.jobOwner()
+		branchID := m.jobScope().leafID
 		return newSessionTodoStore(m.session, branchID)
 	}
 	return nil
